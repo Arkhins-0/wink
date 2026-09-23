@@ -38,6 +38,7 @@ class SessionStore(private val context: Context) {
     private val tokenKey = stringPreferencesKey("token")
     private val pushKey = stringPreferencesKey("push")
     private val routeKey = stringPreferencesKey("route")
+    private val batteryKey = stringPreferencesKey("batteryAsked")
     private val routeAtKey = longPreferencesKey("routeAt")
 
     /** Called once at start-up; the first DataStore read is quick. */
@@ -47,6 +48,17 @@ class SessionStore(private val context: Context) {
         pushToken = prefs[pushKey]
         lastRoute = prefs[routeKey]
         lastRouteAt = prefs[routeAtKey] ?: 0L
+        batteryAsked = prefs[batteryKey] == "1"
+    }
+
+    /** Whether the battery dialog has been shown on this phone. */
+    @Volatile
+    var batteryAsked: Boolean = false
+        private set
+
+    suspend fun markBatteryAsked() {
+        batteryAsked = true
+        context.dataStore.edit { it[batteryKey] = "1" }
     }
 
     /** Remembered so a restart (the system killing the app in the background) comes back to the same screen. */

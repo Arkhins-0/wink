@@ -1,5 +1,7 @@
 package com.arkhins.wink.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +84,15 @@ fun WinkApp() {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Phones that installed before the battery step existed get the dialog once.
+    val batteryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+    LaunchedEffect(vm.gate, granted) {
+        if (granted && vm.gate == Gate.Ready && !app.session.batteryAsked) {
+            app.session.markBatteryAsked()
+            if (!Battery.isExempt(context)) runCatching { batteryLauncher.launch(Battery.requestExemption(context)) }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Night)) {

@@ -31,7 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.arkhins.wink.ui.Battery
 import com.arkhins.wink.BuildConfig
 import com.arkhins.wink.Config
 import com.arkhins.wink.LocalApp
@@ -111,6 +115,7 @@ fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit) {
             GhostButton(if (showPassword) "Close" else "Change password") { showPassword = !showPassword }
         }
         GhostButton("Archive", onClick = onArchive)
+        BackgroundPanel()
         if (showPassword) ChangePasswordPanel { showPassword = false }
 
         UpdatePanel(vm)
@@ -163,6 +168,31 @@ private fun ChangePasswordPanel(onDone: () -> Unit) {
                         busy = false
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Whether the phone lets the app stay alive in the background, with the switches to fix it. */
+@Composable
+private fun BackgroundPanel() {
+    val context = LocalContext.current
+    var exempt by remember { mutableStateOf(Battery.isExempt(context)) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { exempt = Battery.isExempt(context) }
+    Panel {
+        Column {
+            Text("Background", style = MaterialTheme.typography.titleMedium, color = Snow)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (exempt) "Battery optimisation is off for Wink, so popups arrive while the phone sleeps."
+                else "Battery optimisation is on: the phone may hold back popups while it sleeps.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (exempt) SnowFaint else Gold,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!exempt) GoldButton("Allow in background") { runCatching { launcher.launch(Battery.requestExemption(context)) } }
+                Battery.autostartIntent(context)?.let { intent -> GhostButton("Autostart settings") { runCatching { context.startActivity(intent) } } }
             }
         }
     }

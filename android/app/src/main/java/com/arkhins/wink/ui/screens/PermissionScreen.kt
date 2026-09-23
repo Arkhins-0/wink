@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.arkhins.wink.Config
+import com.arkhins.wink.ui.Battery
 import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.components.GoldButton
@@ -58,8 +59,14 @@ fun PermissionScreen(onGranted: () -> Unit) {
     var denied by remember { mutableStateOf(false) }
     var asks by remember { mutableIntStateOf(0) }
 
+    // Last, the battery dialog, so the phone does not put the app to sleep; then in.
+    val battery = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { onGranted() }
+    val askBattery = {
+        if (Battery.isExempt(context)) onGranted()
+        else runCatching { battery.launch(Battery.requestExemption(context)) }.onFailure { onGranted() }
+    }
     // Voice notes and location sharing: asked right after, but the app runs without them.
-    val optional = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onGranted() }
+    val optional = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { askBattery() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         asks++
         if (result.values.all { it }) {
