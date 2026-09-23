@@ -97,7 +97,8 @@ fun HomeScreen(
                 val inboxJob = async { app.api.get("/api/messages", MessagesResponse.serializer()) }
 
                 next = nextJob.await()
-                chats = chatsJob.await().take(3)
+                // Only chats something has been said in, newest first.
+                chats = chatsJob.await().filter { it.lastMessageAt != null }.take(3)
                 val today = LocalDate.now().toString()
                 val active = weekendsJob.await().filter { it.endsOn >= today }.sortedBy { it.startsOn }
                 channels = active.map { w ->
