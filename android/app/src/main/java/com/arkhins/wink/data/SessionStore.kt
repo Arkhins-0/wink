@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
@@ -26,14 +27,36 @@ class SessionStore(private val context: Context) {
     var pushToken: String? = null
         private set
 
+    /** The screen that was open when the app was last in the foreground, and when. */
+    @Volatile
+    var lastRoute: String? = null
+        private set
+    @Volatile
+    var lastRouteAt: Long = 0L
+        private set
+
     private val tokenKey = stringPreferencesKey("token")
     private val pushKey = stringPreferencesKey("push")
+    private val routeKey = stringPreferencesKey("route")
+    private val routeAtKey = longPreferencesKey("routeAt")
 
     /** Called once at start-up; the first DataStore read is quick. */
     fun load() = runBlocking {
         val prefs = context.dataStore.data.first()
         token = prefs[tokenKey]
         pushToken = prefs[pushKey]
+        lastRoute = prefs[routeKey]
+        lastRouteAt = prefs[routeAtKey] ?: 0L
+    }
+
+    /** Remembered so a restart (the system killing the app in the background) comes back to the same screen. */
+    suspend fun saveRoute(route: String) {
+        lastRoute = route
+        lastRouteAt = System.currentTimeMillis()
+        context.dataStore.edit {
+            it[routeKey] = route
+            it[routeAtKey] = lastRouteAt
+        }
     }
 
     suspend fun save(newToken: String) {
@@ -48,7 +71,12 @@ class SessionStore(private val context: Context) {
 
     suspend fun clear() {
         token = null
-        context.dataStore.edit { it.remove(tokenKey) }
+        lastRoute = null
+        context.dataStore.edit {
+            it.remove(tokenKey)
+            it.remove(routeKey)
+            it.remove(routeAtKey)
+        }
     }
 
     val signedIn: Boolean get() = !token.isNullOrBlank()

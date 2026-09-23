@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,7 @@ import com.arkhins.wink.ui.screens.SetPasswordScreen
 import com.arkhins.wink.ui.screens.WeekendScreen
 import com.arkhins.wink.ui.screens.allGranted
 import com.arkhins.wink.ui.theme.Night
+import kotlinx.coroutines.launch
 
 /**
  * The whole app: the permission gate first, then sign-in or the signed-in
@@ -157,6 +159,34 @@ private fun MainNav(vm: AppViewModel) {
         val link = pending ?: return@LaunchedEffect
         Links.pending.value = null
         Links.route(link)?.let { r -> if (!r.startsWith("setpassword/")) nav.navigate(r) }
+    }
+
+    // The system may kill the app while the phone is locked and start it
+    // again from scratch. The last screen is kept in DataStore, so a restart
+    // within a few hours goes back to it (unless a link or notification says
+    // where to go instead).
+    val restoreScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        val saved = app.session.lastRoute
+        val fresh = System.currentTimeMillis() - app.session.lastRouteAt < 6 * 60 * 60 * 1000L
+        if (Links.pending.value == null && saved != null && saved != "home" && fresh) {
+            runCatching { nav.navigate(saved) { launchSingleTop = true } }
+        }
+    }
+    DisposableEffect(nav) {
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, arguments ->
+            val pattern = destination.route ?: return@OnDestinationChangedListener
+            // Screens that make sense to come back to; not viewers or forms.
+            val concrete = when {
+                pattern in setOf("home", "schedule", "chats", "people", "account") -> pattern
+                pattern.startsWith("chat/") || pattern.startsWith("weekend/") || pattern.startsWith("person/") ->
+                    pattern.replace("{id}", arguments?.getString("id") ?: return@OnDestinationChangedListener)
+                else -> return@OnDestinationChangedListener
+            }
+            restoreScope.launch { app.session.saveRoute(concrete) }
+        }
+        nav.addOnDestinationChangedListener(listener)
+        onDispose { nav.removeOnDestinationChangedListener(listener) }
     }
 
     val openWeekend: (String) -> Unit = { nav.navigate("weekend/$it") }
