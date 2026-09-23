@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { APP_NAME } from "@/lib/config";
 
 /** The frame for every page a signed-out person sees: the mark on the left on a laptop, the form on the right. */
@@ -26,6 +27,14 @@ export function AuthCard({ title, children }: { title: string; children: React.R
           <h1 className="mb-5 text-lg font-semibold">{title}</h1>
           {children}
         </div>
+        <p className="mt-6 flex gap-4 text-xs text-snow-faint">
+          <Link href="/privacy" className="hover:text-snow">
+            Privacy Policy
+          </Link>
+          <Link href="/terms" className="hover:text-snow">
+            Terms and Conditions
+          </Link>
+        </p>
       </section>
     </main>
   );

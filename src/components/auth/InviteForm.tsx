@@ -24,8 +24,9 @@ export function InviteForm({ token }: { token: string }) {
       </p>
       <PasswordForm
         label="Create account"
+        agreement
         onSubmit={async (password) => {
-          await api(`/api/auth/invite/${token}`, { method: "POST", json: { password } });
+          await api(`/api/auth/invite/${token}`, { method: "POST", json: { password, acceptTerms: true } });
           router.replace("/onboarding");
           router.refresh();
         }}

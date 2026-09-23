@@ -10,6 +10,7 @@ import {
   tokenUser,
 } from "@/lib/auth";
 import { run } from "@/lib/db";
+import { TERMS_VERSION } from "@/lib/legal";
 import { fail, json } from "@/lib/http";
 import { ROLE_LABEL } from "@/lib/roles";
 import { audit, toPublic } from "@/lib/users";
@@ -32,17 +33,22 @@ export const POST = handle<Params<"token">>(async (request, { params }) => {
   if (user.status === "banned" || user.status === "dismissed") return fail(`This account is ${user.status}.`, 403);
 
   const b = await body(request);
+  if (b.acceptTerms !== true) {
+    return fail("Agree to the Terms and Conditions and the Privacy Policy to continue. If there is no box to tick, update the app.");
+  }
   const password = str(b.password, 200);
   const problem = passwordProblem(password);
   if (problem) return fail(problem);
   const platform = b.platform === "android" ? "android" : "web";
 
-  await run("UPDATE users SET password_hash = $2, status = CASE WHEN status = 'pending' THEN 'active' ELSE status END WHERE id = $1", [
-    user.id,
-    await hashPassword(password),
-  ]);
+  await run(
+    `UPDATE users SET password_hash = $2, status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
+            terms_accepted_at = now(), terms_version = $3
+     WHERE id = $1`,
+    [user.id, await hashPassword(password), TERMS_VERSION],
+  );
   await consumeToken(token);
-  await audit(user.id, user.id, "invite.accepted");
+  await audit(user.id, user.id, "invite.accepted", { termsVersion: TERMS_VERSION });
 
   const session = await createSession(user.id, platform);
   if (platform === "web") (await cookies()).set(SESSION_COOKIE, session, sessionCookieOptions());

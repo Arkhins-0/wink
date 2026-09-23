@@ -1,9 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
-/** Choose a password, twice. `onSubmit` does the call; errors come back as a message. */
-export function PasswordForm({ onSubmit, label = "Save password" }: { onSubmit: (password: string) => Promise<void>; label?: string }) {
+/**
+ * Choose a password, twice. `onSubmit` does the call; errors come back as a
+ * message. With `agreement`, a box to agree to the Terms and the Privacy
+ * Policy sits above the button, which stays off until it is ticked.
+ */
+export function PasswordForm({
+  onSubmit,
+  label = "Save password",
+  agreement = false,
+}: {
+  onSubmit: (password: string) => Promise<void>;
+  label?: string;
+  agreement?: boolean;
+}) {
+  const [agreed, setAgreed] = useState(false);
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +52,23 @@ export function PasswordForm({ onSubmit, label = "Save password" }: { onSubmit: 
         </label>
         <input id="pw2" className="input" type="password" autoComplete="new-password" required value={again} onChange={(e) => setAgain(e.target.value)} />
       </div>
-      <button className="btn-gold w-full" disabled={busy}>
+      {agreement && (
+        <label className="flex cursor-pointer items-start gap-3 text-sm text-snow-soft">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-gold" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+          <span>
+            I agree to the{" "}
+            <Link href="/terms" target="_blank" className="text-gold hover:underline">
+              Terms and Conditions
+            </Link>{" "}
+            and the{" "}
+            <Link href="/privacy" target="_blank" className="text-gold hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+      )}
+      <button className="btn-gold w-full" disabled={busy || (agreement && !agreed)}>
         {busy ? "Saving…" : label}
       </button>
     </form>
