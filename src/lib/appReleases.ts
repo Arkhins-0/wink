@@ -81,5 +81,47 @@ export async function latestRelease(force = false): Promise<ReleaseInfo | null> 
   return resolved;
 }
 
+export type ChangelogEntry = { version: string; date: string; changes: string[] };
+
+let listCache: { at: number; list: ChangelogEntry[] } | null = null;
+
+/** A release body as its list of changes, without the "; v0.1.2.3" a release commit ends with. */
+function changeLines(body: string): string[] {
+  return body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#") && !line.includes("Full Changelog"))
+    .map((line) => line.replace(/^[-*]\s*/, "").replace(/;\s*v\d+(\.\d+)+\s*$/i, "").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Every published release, newest first, for the app's "What's new" page.
+ * Cached like the latest release: GitHub is asked at most every 30 minutes.
+ */
+export async function allReleases(): Promise<ChangelogEntry[]> {
+  if (listCache && Date.now() - listCache.at < CHECK_INTERVAL_MS) return listCache.list;
+  if (!env.githubRepo) return [];
+  try {
+    const response = await fetch(`https://api.github.com/repos/${env.githubRepo}/releases?per_page=50`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "wink-server",
+        ...(env.githubToken ? { Authorization: `Bearer ${env.githubToken}` } : {}),
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) return listCache?.list ?? [];
+    const data = (await response.json()) as { tag_name?: string; published_at?: string; body?: string; draft?: boolean; prerelease?: boolean }[];
+    const list = data
+      .filter((r) => r.tag_name && !r.draft && !r.prerelease)
+      .map((r) => ({ version: r.tag_name!.replace(/^v/i, ""), date: r.published_at ?? "", changes: changeLines(r.body ?? "") }));
+    listCache = { at: Date.now(), list };
+    return list;
+  } catch {
+    return listCache?.list ?? [];
+  }
+}
+
 /** The GitHub releases page, for when there is no release yet. */
 export const releasesPage = (): string => `https://github.com/${env.githubRepo}/releases`;
