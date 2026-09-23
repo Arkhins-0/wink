@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { MessageOut } from "@/lib/messages";
+import type { MessageOut, ReplyRef } from "@/lib/messages";
 import { formatBytes, timeAgo } from "@/lib/client";
 import { Avatar } from "./Avatar";
 import { DocumentDialog } from "./DocumentDialog";
@@ -127,17 +127,102 @@ export function MessageItem({ m, showSender = true, highlight = false }: { m: Me
   );
 }
 
-/** A chat bubble: gold on the right for what you sent, dark on the left for what came in. */
-export function Bubble({ m }: { m: MessageOut }) {
+const TICK_LABEL = { sent: "Sent", delivered: "Delivered", read: "Read" } as const;
+
+/** One tick sent, two delivered, three read (the read ones in blue). */
+export function Ticks({ status }: { status: NonNullable<MessageOut["status"]> }) {
+  const n = status === "read" ? 3 : status === "delivered" ? 2 : 1;
+  return (
+    <svg
+      viewBox={`0 0 ${10 + (n - 1) * 5} 10`}
+      className={`ml-1 inline-block h-2.5 align-[-1px] ${status === "read" ? "text-sky-700" : "text-night/60"}`}
+      style={{ width: `${(10 + (n - 1) * 5) * 1.1}px` }}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={TICK_LABEL[status]}
+    >
+      <title>{TICK_LABEL[status]}</title>
+      {Array.from({ length: n }, (_, i) => (
+        <path key={i} d={`M${1 + i * 5} 5.5l2.5 2.5L${9 + i * 5} 2`} />
+      ))}
+    </svg>
+  );
+}
+
+/** One line saying what a message was: its text, or what it carried. */
+export function snippet(r: { body: string; fileName: string | null; fileMime: string | null; deleted: boolean }): string {
+  if (r.deleted) return "This message was deleted";
+  if (locationIn(r.body)) return "📍 Location";
+  if (r.body.trim()) return r.body.trim();
+  if (r.fileMime?.startsWith("image/")) return "📷 Photo";
+  if (r.fileMime?.startsWith("audio/")) return "🎤 Voice note";
+  return r.fileName ? `📄 ${r.fileName}` : "";
+}
+
+/** A message this one answers, quoted inside the bubble. Clicking it goes there. */
+function Quote({ r, onDark, onClick }: { r: ReplyRef; onDark: boolean; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className={`mb-1 block w-full rounded-lg border-l-4 px-2 py-1 text-left ${onDark ? "border-gold bg-night" : "border-night/50 bg-night/10"}`}
+    >
+      <span className={`block text-xs font-semibold ${onDark ? "text-gold" : "text-night"}`}>{r.mine ? "You" : r.senderName}</span>
+      <span className={`line-clamp-2 block text-xs ${r.deleted ? "italic " : ""}${onDark ? "text-snow-soft" : "text-night/70"}`}>{snippet(r)}</span>
+    </button>
+  );
+}
+
+/**
+ * A chat bubble: gold on the right for what you sent, dark on the left for
+ * what came in. In a private chat a tap selects it (its actions show under
+ * it), a quoted reply jumps to the original, and a jumped-to bubble flashes.
+ */
+export function Bubble({
+  m,
+  quote = m.replyTo,
+  onSelect,
+  onQuote,
+  flash = false,
+  children,
+}: {
+  m: MessageOut;
+  quote?: ReplyRef | null;
+  onSelect?: () => void;
+  onQuote?: (id: string) => void;
+  flash?: boolean;
+  children?: React.ReactNode;
+}) {
   const loc = locationIn(m.body);
   return (
-    <div className={`flex ${m.mine ? "justify-end" : "justify-start"}`}>
-      <div className={m.mine ? "bubble-mine" : "bubble-theirs"}>
-        {m.urgent && <span className={`chip mb-1 px-2 py-0 text-[10px] ${m.mine ? "border-night/30 bg-night/10 text-night" : "border-danger/40 bg-danger/10 text-danger"}`}>Urgent</span>}
-        {loc ? <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} /> : m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
-        {m.file && <Attachment file={m.file} onDark={!m.mine} />}
-        <p className={`mt-1 text-right text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>{timeOnly(m.createdAt)}</p>
+    <div id={`m-${m.id}`} className={`-mx-2 rounded-xl px-2 py-0.5 transition-colors duration-700 ${flash ? "bg-gold/20" : "bg-transparent"}`}>
+      <div className={`flex ${m.mine ? "justify-end" : "justify-start"}`}>
+        <div className={`${m.mine ? "bubble-mine" : "bubble-theirs"} ${onSelect && !m.deleted ? "cursor-pointer" : ""}`} onClick={m.deleted ? undefined : onSelect}>
+          {m.deleted ? (
+            <p className={`italic ${m.mine ? "text-night/70" : "text-snow-faint"}`}>This message was deleted</p>
+          ) : (
+            <>
+              {quote && <Quote r={quote} onDark={!m.mine} onClick={() => onQuote?.(quote.id)} />}
+              {m.urgent && <span className={`chip mb-1 px-2 py-0 text-[10px] ${m.mine ? "border-night/30 bg-night/10 text-night" : "border-danger/40 bg-danger/10 text-danger"}`}>Urgent</span>}
+              {loc ? <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} /> : m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+              {m.file && <Attachment file={m.file} onDark={!m.mine} />}
+            </>
+          )}
+          <p className={`mt-1 text-right text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>
+            {m.editedAt && !m.deleted ? "edited · " : ""}
+            {timeOnly(m.createdAt)}
+            {m.status && !m.deleted && <Ticks status={m.status} />}
+          </p>
+        </div>
       </div>
+      {children}
     </div>
   );
 }

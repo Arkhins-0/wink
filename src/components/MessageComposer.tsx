@@ -8,6 +8,9 @@ const DOCS = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
 
 export type Draft = { body: string; fileId: string | null; urgent: boolean };
 
+/** What sits above the field: the message being answered or edited. */
+export type Banner = { title: string; text: string; onCancel: () => void };
+
 /**
  * The message box, the way a chat app does it: the clip and send inside
  * the field; with nothing to send, a mic that records a voice note; a
@@ -19,11 +22,16 @@ export function MessageComposer({
   placeholder = "Message",
   urgentOption = true,
   submitLabel = "Send",
+  banner = null,
+  editText = null,
 }: {
   send: (draft: Draft) => Promise<void>;
   placeholder?: string;
   urgentOption?: boolean;
   submitLabel?: string;
+  banner?: Banner | null;
+  /** Set while editing a message: the field holds its text, and attachments and voice notes step aside. */
+  editText?: string | null;
 }) {
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -39,6 +47,19 @@ export function MessageComposer({
   const audioInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const discard = useRef(false);
+  const editing = editText !== null;
+  const lastEdit = useRef<string | null>(null);
+
+  // Starting an edit fills the field; starting a reply or edit puts the cursor there.
+  useEffect(() => {
+    if (editText !== null) setBody(editText);
+    else setBody((b) => (b === lastEdit.current ? "" : b));
+    lastEdit.current = editText;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editText]);
+  useEffect(() => {
+    if (banner) textarea.current?.focus();
+  }, [banner?.title, banner?.text]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!recording) return setSeconds(0);
@@ -135,6 +156,17 @@ export function MessageComposer({
   return (
     <div className="relative rounded-3xl border border-night-line bg-night-panel px-2 py-1.5">
       {error && <p className="error mx-1 mb-2">{error}</p>}
+      {banner && (
+        <div className="mx-1 mb-1 mt-0.5 flex items-start gap-2 rounded-2xl border-l-4 border-gold bg-night px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-gold">{banner.title}</p>
+            <p className="truncate text-xs text-snow-soft">{banner.text}</p>
+          </div>
+          <button type="button" className="text-snow-faint hover:text-snow" title="Cancel" aria-label="Cancel" onClick={banner.onCancel} disabled={busy}>
+            <Icon name="close" className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {file && (
         <div className="mx-2 mb-1 flex items-center gap-2 text-xs text-snow-soft">
           <Icon name={file.type.startsWith("image/") ? "gallery" : file.type.startsWith("audio/") ? "audio" : "document"} className="h-4 w-4 text-gold" />
@@ -164,6 +196,7 @@ export function MessageComposer({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               onKeyDown={(e) => {
+                if (e.key === "Escape" && banner) banner.onCancel();
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   doSend(false);
@@ -172,9 +205,11 @@ export function MessageComposer({
               maxLength={5000}
               disabled={busy}
             />
-            <button type="button" className="btn-icon" title="Attach" aria-label="Attach" disabled={busy} onClick={() => setMenu(menu === "attach" ? "none" : "attach")}>
-              <Icon name="clip" className="h-5 w-5" />
-            </button>
+            {!editing && (
+              <button type="button" className="btn-icon" title="Attach" aria-label="Attach" disabled={busy} onClick={() => setMenu(menu === "attach" ? "none" : "attach")}>
+                <Icon name="clip" className="h-5 w-5" />
+              </button>
+            )}
           </>
         )}
         {busy ? (
@@ -186,7 +221,7 @@ export function MessageComposer({
             <button type="button" className="btn-icon text-gold hover:text-gold" title={submitLabel} aria-label={submitLabel} onClick={() => doSend(false)}>
               <Icon name="send" className="h-5 w-5" />
             </button>
-            {urgentOption && (
+            {urgentOption && !editing && (
               <button type="button" className="btn-icon -ml-2 h-9 w-6 text-snow-faint" title="More ways to send" aria-label="More ways to send" onClick={() => setMenu(menu === "send" ? "none" : "send")}>
                 ▾
               </button>
@@ -196,6 +231,10 @@ export function MessageComposer({
           <button type="button" className="btn-icon text-gold hover:text-gold" title="Send voice note" aria-label="Send voice note" onClick={() => stopRecording(true)}>
             <Icon name="send" className="h-5 w-5" />
           </button>
+        ) : editing ? (
+          <span className="btn-icon text-snow-faint">
+            <Icon name="send" className="h-5 w-5" />
+          </span>
         ) : (
           <button type="button" className="btn-icon text-gold hover:text-gold" title="Record a voice note" aria-label="Record a voice note" onClick={startRecording}>
             <Icon name="mic" className="h-5 w-5" />
