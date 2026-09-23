@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui
 
+import com.arkhins.wink.ui.screens.LegalScreen
 import com.arkhins.wink.ui.screens.ChangelogScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -151,7 +152,11 @@ private fun AuthNav(vm: AppViewModel) {
                 token = entry.arguments?.getString("token") ?: "",
                 onSignedIn = vm::signedIn,
                 onDone = { nav.navigate("login") { popUpTo("login") { inclusive = true } } },
+                onLegal = { nav.navigate("legal/$it") },
             )
+        }
+        composable("legal/{doc}") { e ->
+            LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onBack = { nav.popBackStack() })
         }
     }
 }
@@ -254,8 +259,9 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
-                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }, onChangelog = { nav.navigate("changelog") }) }
+                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) }
                 composable("changelog") { ChangelogScreen() }
+                composable("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
                 composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
                 composable("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
                 composable("scanner") { ScannerScreen(onOpenChat = { nav.navigate("chat/$it") }) }

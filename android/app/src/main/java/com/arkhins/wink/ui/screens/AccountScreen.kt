@@ -1,6 +1,5 @@
 package com.arkhins.wink.ui.screens
 
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.Lifecycle
@@ -68,7 +67,7 @@ import kotlinx.serialization.json.put
 
 /** The account: photo, code and QR, status, the scanner, password, updates, sign out. */
 @Composable
-fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, onChangelog: () -> Unit) {
+fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, onChangelog: () -> Unit, onLegal: (String) -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val me = vm.me ?: return
@@ -127,11 +126,10 @@ fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, o
         if (showPassword) ChangePasswordPanel { showPassword = false }
 
         UpdatePanel(vm)
-        val uri = LocalUriHandler.current
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhostButton("What's new", onClick = onChangelog)
-            GhostButton("Privacy") { runCatching { uri.openUri("${Config.BASE_URL}/privacy") } }
-            GhostButton("Terms") { runCatching { uri.openUri("${Config.BASE_URL}/terms") } }
+            GhostButton("Privacy") { onLegal("privacy") }
+            GhostButton("Terms") { onLegal("terms") }
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

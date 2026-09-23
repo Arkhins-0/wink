@@ -157,7 +157,7 @@ fun ForgotScreen(onBack: () -> Unit) {
 
 /** The invite link (choose a first password) and the reset link (choose a new one). */
 @Composable
-fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit, onDone: () -> Unit) {
+fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit, onDone: () -> Unit, onLegal: (String) -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val invite = kind == "invite"
@@ -209,7 +209,7 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
                 Field(again, { again = it }, "Repeat password", password = true, enabled = !busy)
                 Spacer(Modifier.height(16.dp))
                 if (invite) {
-                    Agreement(agreed, enabled = !busy) { agreed = it }
+                    Agreement(agreed, enabled = !busy, onLegal = onLegal) { agreed = it }
                     Spacer(Modifier.height(12.dp))
                 }
                 GoldButton(
@@ -249,7 +249,7 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
 
 /** "I agree to the Terms and Conditions and the Privacy Policy", one box, both documents linked. */
 @Composable
-private fun Agreement(checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+private fun Agreement(checked: Boolean, enabled: Boolean, onLegal: (String) -> Unit, onChange: (Boolean) -> Unit) {
     val links = TextLinkStyles(SpanStyle(color = Gold, textDecoration = TextDecoration.Underline))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Checkbox(
@@ -261,9 +261,9 @@ private fun Agreement(checked: Boolean, enabled: Boolean, onChange: (Boolean) ->
         Text(
             buildAnnotatedString {
                 append("I agree to the ")
-                withLink(LinkAnnotation.Url("${Config.BASE_URL}/terms", links)) { append("Terms and Conditions") }
+                withLink(LinkAnnotation.Clickable("terms", links) { onLegal("terms") }) { append("Terms and Conditions") }
                 append(" and the ")
-                withLink(LinkAnnotation.Url("${Config.BASE_URL}/privacy", links)) { append("Privacy Policy") }
+                withLink(LinkAnnotation.Clickable("privacy", links) { onLegal("privacy") }) { append("Privacy Policy") }
                 append(".")
             },
             style = MaterialTheme.typography.bodySmall,

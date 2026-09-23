@@ -84,6 +84,17 @@ data class Message(
     val status: String? = null,
 )
 
+/** The Privacy Policy or the Terms, as /api/legal/<doc> gives them. */
+@Serializable
+data class LegalDoc(val title: String, val updated: String = "", val intro: List<LegalBlock> = emptyList(), val sections: List<LegalSection> = emptyList())
+
+@Serializable
+data class LegalSection(val title: String, val blocks: List<LegalBlock> = emptyList())
+
+/** A paragraph (p) or a bulleted list (ul). */
+@Serializable
+data class LegalBlock(val p: String? = null, val ul: List<String>? = null)
+
 @Serializable
 data class ChangelogEntry(val version: String, val date: String = "", val changes: List<String> = emptyList())
 
