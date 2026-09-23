@@ -85,6 +85,12 @@ data class Message(
 )
 
 @Serializable
+data class ChangelogEntry(val version: String, val date: String = "", val changes: List<String> = emptyList())
+
+@Serializable
+data class ChangelogResponse(val releases: List<ChangelogEntry> = emptyList())
+
+@Serializable
 data class ReplyRef(
     val id: String,
     val senderName: String = "",

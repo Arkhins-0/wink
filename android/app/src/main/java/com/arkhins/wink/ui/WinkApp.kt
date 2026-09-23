@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui
 
+import com.arkhins.wink.ui.screens.ChangelogScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -223,6 +224,7 @@ private fun MainNav(vm: AppViewModel) {
         "newperson" -> "Add person"
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
+        "changelog" -> "What's new"
         "archive" -> if (route == "archive") "Archive" else title.ifBlank { "Season" }
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
@@ -252,7 +254,8 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
-                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }) }
+                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }, onChangelog = { nav.navigate("changelog") }) }
+                composable("changelog") { ChangelogScreen() }
                 composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
                 composable("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
                 composable("scanner") { ScannerScreen(onOpenChat = { nav.navigate("chat/$it") }) }

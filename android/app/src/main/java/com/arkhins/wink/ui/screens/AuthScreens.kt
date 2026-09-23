@@ -1,5 +1,15 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.theme.Night
+import com.arkhins.wink.ui.theme.Gold
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -159,6 +169,7 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf(false) }
+    var agreed by remember { mutableStateOf(false) }
 
     LaunchedEffect(token) {
         try {
@@ -197,7 +208,15 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
                 Spacer(Modifier.height(10.dp))
                 Field(again, { again = it }, "Repeat password", password = true, enabled = !busy)
                 Spacer(Modifier.height(16.dp))
-                GoldButton(if (busy) "Saving…" else if (invite) "Create account" else "Save password", Modifier.fillMaxWidth(), enabled = !busy && password.length >= 8) {
+                if (invite) {
+                    Agreement(agreed, enabled = !busy) { agreed = it }
+                    Spacer(Modifier.height(12.dp))
+                }
+                GoldButton(
+                    if (busy) "Saving…" else if (invite) "Create account" else "Save password",
+                    Modifier.fillMaxWidth(),
+                    enabled = !busy && password.length >= 8 && (!invite || agreed),
+                ) {
                     if (password != again) {
                         error = "The passwords do not match."
                         return@GoldButton
@@ -210,6 +229,7 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
                                 val r = app.api.post("/api/auth/invite/$token", LoginResponse.serializer()) {
                                     put("password", password)
                                     put("platform", "android")
+                                    put("acceptTerms", true)
                                 }
                                 onSignedIn(r.token ?: throw IllegalStateException("No session returned."))
                             } else {
@@ -224,5 +244,30 @@ fun SetPasswordScreen(kind: String, token: String, onSignedIn: (String) -> Unit,
                 }
             }
         }
+    }
+}
+
+/** "I agree to the Terms and Conditions and the Privacy Policy", one box, both documents linked. */
+@Composable
+private fun Agreement(checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val links = TextLinkStyles(SpanStyle(color = Gold, textDecoration = TextDecoration.Underline))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onChange,
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(checkedColor = Gold, checkmarkColor = Night, uncheckedColor = SnowFaint),
+        )
+        Text(
+            buildAnnotatedString {
+                append("I agree to the ")
+                withLink(LinkAnnotation.Url("${Config.BASE_URL}/terms", links)) { append("Terms and Conditions") }
+                append(" and the ")
+                withLink(LinkAnnotation.Url("${Config.BASE_URL}/privacy", links)) { append("Privacy Policy") }
+                append(".")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = SnowSoft,
+        )
     }
 }
