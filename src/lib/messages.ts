@@ -83,8 +83,8 @@ function out(row: Row, viewerId: string): MessageOut {
       ? { id: row.file_id, name: row.file_name ?? "file", mime: row.file_mime ?? "", size: Number(row.file_size ?? 0) }
       : null,
     urgent: row.urgent,
-    createdAt: String(row.created_at),
-    readAt: row.read_at ? String(row.read_at) : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
     mine: row.sender_id === viewerId,
   };
 }
@@ -314,7 +314,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
       status: r.o_status,
     },
     iOpened: r.owner_id === user.id,
-    lastMessageAt: r.last_message_at ? String(r.last_message_at) : null,
+    lastMessageAt: r.last_message_at ? new Date(r.last_message_at).toISOString() : null,
     lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
     unread: Number(r.unread),
   }));

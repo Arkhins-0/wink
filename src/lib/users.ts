@@ -45,7 +45,7 @@ export function toPublic(u: SessionUser): PublicUser {
     photoUrl: u.photo_key ? `/api/users/${u.id}/photo` : null,
     verifyCode: u.verify_code,
     profileComplete: Boolean(u.profile_completed_at),
-    createdAt: String(u.created_at),
+    createdAt: new Date(u.created_at).toISOString(),
   };
 }
 

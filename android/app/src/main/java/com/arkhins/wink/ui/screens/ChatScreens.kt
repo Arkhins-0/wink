@@ -46,7 +46,7 @@ import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.PublicUser
 import com.arkhins.wink.data.UsersResponse
 import com.arkhins.wink.ui.AppViewModel
-import com.arkhins.wink.ui.ago
+import com.arkhins.wink.ui.whenLabel
 import com.arkhins.wink.ui.components.Attachment
 import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Avatar
@@ -84,7 +84,8 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
 
     LaunchedEffect(vm.refreshTick) {
         try {
-            chats = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations
+            // A chat with nothing said in it yet is not worth a row.
+            chats = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations.filter { it.lastMessageAt != null }
             error = null
         } catch (e: Exception) {
             if (chats == null) error = e.message
@@ -115,10 +116,16 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(chat.other.name, style = MaterialTheme.typography.titleMedium, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(chat.other.roleLabel, style = MaterialTheme.typography.bodySmall, color = SnowFaint)
+                                        Text(
+                                            chat.lastMessage ?: chat.other.roleLabel,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (chat.unread > 0) Snow else SnowFaint,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
-                                        chat.lastMessageAt?.let { Text(ago(it), style = MaterialTheme.typography.labelSmall, color = if (chat.unread > 0) Gold else SnowFaint) }
+                                        chat.lastMessageAt?.let { Text(whenLabel(it), style = MaterialTheme.typography.labelSmall, color = if (chat.unread > 0) Gold else SnowFaint) }
                                         if (chat.unread > 0) {
                                             Spacer(Modifier.height(4.dp))
                                             Box(Modifier.background(Gold, RoundedCornerShape(999.dp)).padding(horizontal = 7.dp, vertical = 2.dp)) {

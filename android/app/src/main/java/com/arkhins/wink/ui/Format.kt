@@ -12,7 +12,13 @@ private val dateTime = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.g
 private val timeOnly = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 private val dayOnly = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
 
-fun instant(iso: String): Instant = runCatching { Instant.parse(iso) }.getOrDefault(Instant.EPOCH)
+private val jsDate = DateTimeFormatter.ofPattern("EEE MMM dd yyyy HH:mm:ss 'GMT'Z", Locale.US)
+
+/** An ISO instant — or the "Wed Sep 23 2026 12:46:14 GMT+0000 (…)" text JavaScript's Date prints. */
+fun instant(iso: String): Instant =
+    runCatching { Instant.parse(iso) }.getOrNull()
+        ?: runCatching { java.time.ZonedDateTime.parse(iso.substringBefore(" (").trim(), jsDate).toInstant() }.getOrNull()
+        ?: Instant.EPOCH
 
 /** In the phone's own zone. */
 fun localDateTime(iso: String): String = dateTime.format(instant(iso).atZone(ZoneId.systemDefault()))
