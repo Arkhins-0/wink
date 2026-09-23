@@ -42,11 +42,11 @@ at a JDK 21 on the command line (or set it as Android Studio's Gradle JDK).
 sdk.dir=C:/Users/you/AppData/Local/Android/Sdk
 ```
 
-`app/google-services.json` (from the Firebase console, Android app
-`com.arkhins.wink`) must be present; it is gitignored. The debug build keeps
-its `.debug` application-id suffix only once that file also lists
-`com.arkhins.wink.debug` — add a second Android app with that package in
-Firebase and re-download the file.
+`app/google-services.json` (Firebase console → project settings → Android app
+`com.arkhins.wink`) must be present; it is gitignored, so download it once per
+machine. The debug build keeps its `.debug` application-id suffix only once
+that file also lists `com.arkhins.wink.debug` — add a second Android app with
+that package in Firebase and re-download the file.
 
 ```bash
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
@@ -76,7 +76,8 @@ Push a tag `vX.Y.Z.W` matching `winkVersionName` in `app/build.gradle.kts`.
 `.github/workflows/release.yml` builds and signs the APKs and publishes the
 GitHub Release. Repository secrets: `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and
-`GOOGLE_SERVICES_JSON` (the raw contents of `google-services.json`).
+`GOOGLE_SERVICES_JSON` (the raw contents of `app/google-services.json`; the
+build fails without it).
 
 The release certificate's SHA-256 is listed in the site's
 `public/.well-known/assetlinks.json`; a new keystore means updating that file.
