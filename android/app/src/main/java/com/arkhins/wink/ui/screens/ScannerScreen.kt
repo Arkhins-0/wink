@@ -50,6 +50,7 @@ import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.components.GoldButton
+import com.arkhins.wink.ui.components.IdCard
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.components.StatusChip
 import com.arkhins.wink.ui.theme.Snow
@@ -121,7 +122,7 @@ fun ScannerScreen(initialToken: String? = null) {
             GoldButton("Check", enabled = !busy && code.isNotBlank()) { lookup("code=${URLEncoder.encode(code, "UTF-8")}") }
         }
         ErrorText(error)
-        result?.let { VerifiedCard(it) }
+        result?.let { IdCard(it) }
     }
 }
 

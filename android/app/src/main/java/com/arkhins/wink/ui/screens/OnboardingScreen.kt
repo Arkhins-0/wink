@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.UserResponse
+import com.arkhins.wink.ui.components.DateField
 import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.GhostButton
@@ -96,7 +97,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         Field(name, { name = it }, "Full name", enabled = !busy)
         Spacer(Modifier.height(10.dp))
-        Field(dob, { dob = it }, "Date of birth", placeholder = "YYYY-MM-DD", keyboard = KeyboardType.Number, enabled = !busy)
+        DateField(dob, { dob = it }, "Date of birth", enabled = !busy, maxToday = true)
         Spacer(Modifier.height(10.dp))
         Field(phone, { phone = it }, "Contact number", keyboard = KeyboardType.Phone, enabled = !busy)
         Spacer(Modifier.height(16.dp))
@@ -106,8 +107,8 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 error = "Add a photo of yourself."
                 return@GoldButton
             }
-            if (!Regex("\\d{4}-\\d{2}-\\d{2}").matches(dob.trim())) {
-                error = "Enter the date of birth as YYYY-MM-DD."
+            if (dob.isBlank()) {
+                error = "Choose the date of birth."
                 return@GoldButton
             }
             busy = true

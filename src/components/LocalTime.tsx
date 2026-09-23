@@ -9,10 +9,10 @@ export function LocalTime({ iso, mode = "datetime" }: { iso: string; mode?: "dat
     const d = new Date(iso);
     setText(
       mode === "time"
-        ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+        ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })
         : mode === "date"
           ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
-          : d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+          : d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }),
     );
   }, [iso, mode]);
   return <time dateTime={iso}>{text}</time>;

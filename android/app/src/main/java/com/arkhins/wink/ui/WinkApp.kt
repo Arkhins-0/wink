@@ -38,6 +38,7 @@ import com.arkhins.wink.ui.screens.EmailScreen
 import com.arkhins.wink.ui.screens.ForgotScreen
 import com.arkhins.wink.ui.screens.HomeScreen
 import com.arkhins.wink.ui.screens.LoginScreen
+import com.arkhins.wink.ui.screens.NewChatScreen
 import com.arkhins.wink.ui.screens.NewPersonScreen
 import com.arkhins.wink.ui.screens.OnboardingScreen
 import com.arkhins.wink.ui.screens.PdfScreen
@@ -163,6 +164,7 @@ private fun MainNav(vm: AppViewModel) {
         "people" -> "People"
         "account" -> "Account"
         "compose" -> "New message"
+        "newchat" -> "New chat"
         "newperson" -> "Add person"
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
@@ -184,7 +186,8 @@ private fun MainNav(vm: AppViewModel) {
                 composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onCompose = { nav.navigate("compose") }, onOpenPdf = openPdf) }
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend) }
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", openPdf) }
-                composable("chats") { ChatsScreen(vm) { nav.navigate("chat/$it") } }
+                composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
+                composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", openPdf) { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }

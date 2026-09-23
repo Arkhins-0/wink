@@ -72,18 +72,6 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
 
     private var lastPoll: String? = null
 
-    init {
-        refreshMe()
-        checkForUpdate()
-        viewModelScope.launch { Notifications.events.collect { popup = it; refreshTick++ } }
-        viewModelScope.launch {
-            while (true) {
-                delay(20_000)
-                if (gate == Gate.Ready) poll()
-            }
-        }
-    }
-
     /** Ask the server who we are. Decides which part of the app shows. */
     fun refreshMe() {
         if (!app.session.signedIn) {
@@ -259,4 +247,18 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
     }
 
     fun openInstallSettings() = app.updater.openInstallSettings()
+
+    // Last, on purpose: an init block runs in declaration order, so it must
+    // come after every property above has been initialised.
+    init {
+        refreshMe()
+        checkForUpdate()
+        viewModelScope.launch { Notifications.events.collect { popup = it; refreshTick++ } }
+        viewModelScope.launch {
+            while (true) {
+                delay(20_000)
+                if (gate == Gate.Ready) poll()
+            }
+        }
+    }
 }

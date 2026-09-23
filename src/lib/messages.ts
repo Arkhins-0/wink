@@ -3,7 +3,8 @@ import "server-only";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { fileById } from "./files";
-import { filterBelow, isBelow } from "./hierarchy";
+import { canChat, filterBelow } from "./hierarchy";
+import { userById } from "./users";
 import { activeUserIds, deliver, preview } from "./notify";
 import { CHANNEL_POSTERS, ROLE_LABEL, type Role } from "./roles";
 import { APP_NAME } from "./config";
@@ -203,25 +204,30 @@ export type ConversationOut = {
   unread: number;
 };
 
-/** The private chat between a superior and someone below them, created on first use by the superior. */
-export async function openDirect(owner: SessionUser, memberId: string): Promise<string> {
-  if (!(await isBelow(owner, memberId))) throw new AuthError(403, "You can only start a chat with someone below you.");
-  const existing = await one<{ id: string }>(
-    "SELECT id FROM conversations WHERE kind = 'direct' AND owner_id = $1 AND member_id = $2",
-    [owner.id, memberId],
-  );
+/**
+ * The private chat between two people, created on first use by either of
+ * them. One row per pair: the lower id is stored as owner, the higher as
+ * member, and lookups accept either order (older rows were superior-first).
+ */
+export async function openDirect(user: SessionUser, otherId: string): Promise<string> {
+  const other = await userById(otherId);
+  if (!other || other.status !== "active") throw new AuthError(404, "No such person.");
+  if (!canChat(user, other)) throw new AuthError(403, "You cannot open a private chat with this person.");
+  const find = () =>
+    one<{ id: string }>(
+      `SELECT id FROM conversations WHERE kind = 'direct'
+       AND ((owner_id = $1 AND member_id = $2) OR (owner_id = $2 AND member_id = $1))`,
+      [user.id, other.id],
+    );
+  const existing = await find();
   if (existing) return existing.id;
+  const [low, high] = [user.id, other.id].sort();
   const created = await one<{ id: string }>(
     `INSERT INTO conversations (kind, owner_id, member_id) VALUES ('direct', $1, $2)
      ON CONFLICT DO NOTHING RETURNING id`,
-    [owner.id, memberId],
+    [low, high],
   );
-  if (created) return created.id;
-  const again = await one<{ id: string }>(
-    "SELECT id FROM conversations WHERE kind = 'direct' AND owner_id = $1 AND member_id = $2",
-    [owner.id, memberId],
-  );
-  return again!.id;
+  return created?.id ?? (await find())!.id;
 }
 
 type ConvRow = {
@@ -319,11 +325,16 @@ export async function conversationMessages(user: SessionUser, conversationId: st
   return rows.reverse().map((r) => out(r, user.id));
 }
 
-/** Everything that reached this person, newest first, plus what they sent themselves. */
+/**
+ * The announcements that reached this person — broadcasts and channel
+ * posts — newest first, plus what they sent themselves. Private chats are
+ * not here; they have their own page.
+ */
 export async function inbox(user: SessionUser, limit = 60, before?: string): Promise<MessageOut[]> {
   const rows = await q<Row>(
     `${SELECT}
      WHERE (r.user_id = $1 OR m.sender_id = $1)
+       AND (c.kind IS NULL OR c.kind <> 'direct')
        AND ($2::timestamptz IS NULL OR m.created_at < $2)
      ORDER BY m.created_at DESC LIMIT $3`,
     [user.id, before ?? null, limit],

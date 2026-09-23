@@ -60,9 +60,9 @@ export function formatIn(date: Date | string, tz: string, withDate = true): stri
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     ...(withDate ? { weekday: "short", day: "numeric", month: "short" } : {}),
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
-    hourCycle: "h23",
+    hour12: true,
   }).format(d);
 }
 

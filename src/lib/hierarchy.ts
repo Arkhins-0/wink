@@ -85,3 +85,33 @@ export function canEdit(actor: Pick<SessionUser, "id" | "role">, target: Pick<Us
 export function parentFor(creator: SessionUser): string {
   return creator.id;
 }
+
+type ChatParty = Pick<UserRow, "id" | "role" | "parent_id">;
+
+/**
+ * Private chats run in both directions between almost anyone. The
+ * exceptions: race officials have no private chat; a volunteer reaches
+ * only other volunteers and their own coordinator; security reaches only
+ * coordinators. Admins reach everyone that has a chat at all.
+ */
+export function canChat(a: ChatParty, b: ChatParty): boolean {
+  if (a.id === b.id) return false;
+  if (a.role === "race_official" || b.role === "race_official") return false;
+  if (a.role === "admin" || b.role === "admin") return true;
+  const pair = (x: ChatParty, y: ChatParty): boolean => {
+    if (x.role === "volunteer") return y.role === "volunteer" || (y.role === "coordinator" && x.parent_id === y.id);
+    if (x.role === "security") return y.role === "coordinator";
+    return true;
+  };
+  return pair(a, b) && pair(b, a);
+}
+
+/** Everyone this person may open a chat with. */
+export async function chatCandidates(user: SessionUser): Promise<UserRow[]> {
+  if (user.role === "race_official") return [];
+  const all = await q<UserRow>(
+    `SELECT ${USER_COLUMNS} FROM users WHERE status = 'active' AND id <> $1 ORDER BY role, name NULLS LAST, email`,
+    [user.id],
+  );
+  return all.filter((other) => canChat(user, other));
+}

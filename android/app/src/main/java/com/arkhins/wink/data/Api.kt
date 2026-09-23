@@ -1,5 +1,6 @@
 package com.arkhins.wink.data
 
+import android.util.Log
 import com.arkhins.wink.BuildConfig
 import com.arkhins.wink.Config
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ConnectionPool
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,9 +40,20 @@ class WinkApi(private val session: SessionStore) {
         explicitNulls = false
     }
 
+    /*
+     * Connections are reused across calls. A reused HTTP/2 connection that
+     * died while the phone slept would otherwise stall every request on it
+     * for the whole read timeout, so idle connections are dropped after a
+     * short while and live ones are pinged, which finds a dead one in
+     * seconds instead of a minute.
+     */
     val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS)
+        .connectionPool(ConnectionPool(5, 20, TimeUnit.SECONDS))
+        .retryOnConnectionFailure(true)
         .addInterceptor { chain ->
             val request = chain.request()
             val token = session.token
@@ -60,11 +73,14 @@ class WinkApi(private val session: SessionStore) {
     fun absolute(path: String?): String? = path?.let { url(it) }
 
     private fun execute(request: Request): Response {
+        val started = System.currentTimeMillis()
         val response = try {
             http.newCall(request).execute()
         } catch (e: IOException) {
+            Log.w(TAG, "${request.method} ${request.url.encodedPath} failed after ${System.currentTimeMillis() - started} ms: ${e.message}")
             throw NoConnectionException(e)
         }
+        Log.d(TAG, "${request.method} ${request.url.encodedPath} -> ${response.code} in ${System.currentTimeMillis() - started} ms")
         if (!response.isSuccessful) {
             val body = response.body?.string().orEmpty()
             response.close()
@@ -168,5 +184,7 @@ class WinkApi(private val session: SessionStore) {
             put("platform", "android")
         }
 }
+
+private const val TAG = "WinkApi"
 
 typealias JsonObjectBuilderScope = kotlinx.serialization.json.JsonObjectBuilder.() -> Unit

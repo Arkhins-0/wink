@@ -46,5 +46,5 @@ npm-debug.log*
 # Firebase service account (server push credentials): never in git.
 *firebase-adminsdk*.json
 
-# Firebase app config: added per machine / from the GOOGLE_SERVICES_JSON secret in CI.
+# Firebase app config: kept per machine; CI writes it from the GOOGLE_SERVICES_JSON secret.
 android/app/google-services.json

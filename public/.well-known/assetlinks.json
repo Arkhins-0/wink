@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.arkhins.wink",
       "sha256_cert_fingerprints": [
-        "A8:37:DF:12:48:25:50:A7:F5:13:4A:9E:23:84:61:9F:E2:17:50:33:19:13:91:46:5A:94:D8:03:C9:7E:A1:32"
+        "A8:37:DF:12:48:25:50:A7:F5:13:4A:9E:23:84:61:9F:E2:17:50:33:19:13:91:46:5A:94:D8:03:C9:7E:A1:32",
+        "2A:D6:EA:A1:FD:95:27:30:A7:AB:DF:4C:EC:BB:4A:2D:B0:3A:8A:9E:2D:33:C2:52:E6:84:35:76:9B:AE:67:F0"
       ]
     }
   },

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { PersonActions } from "@/components/PersonActions";
 import { StatusBadge } from "@/components/StatusBadge";
-import { canEdit, isBelow } from "@/lib/hierarchy";
+import { canChat, canEdit, isBelow } from "@/lib/hierarchy";
 import { requireProfile } from "@/lib/session";
 import { toPublic, userById } from "@/lib/users";
 import { q } from "@/lib/db";
@@ -48,7 +48,7 @@ export default async function Person({ params }: { params: Promise<{ id: string 
       <PersonActions
         person={p}
         editable={editable}
-        canChat={user.id !== me.id}
+        canChat={canChat(me, user)}
         coordinators={coordinators.map((c) => ({ id: c.id, name: c.name || c.email }))}
       />
     </div>

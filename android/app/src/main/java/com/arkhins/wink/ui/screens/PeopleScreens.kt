@@ -40,6 +40,7 @@ import com.arkhins.wink.data.UsersResponse
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Composer
+import com.arkhins.wink.ui.components.DateField
 import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
@@ -267,7 +268,7 @@ private fun EditProfilePanel(u: PublicUser, busy: Boolean, onCancel: () -> Unit,
     Panel {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Field(name, { name = it }, "Full name", enabled = !busy)
-            Field(dob, { dob = it }, "Date of birth", placeholder = "YYYY-MM-DD", enabled = !busy)
+            DateField(dob, { dob = it }, "Date of birth", enabled = !busy, maxToday = true)
             Field(phone, { phone = it }, "Contact number", keyboard = KeyboardType.Phone, enabled = !busy)
             if (u.role == "team_manager") Field(team, { team = it }, "Team", enabled = !busy)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

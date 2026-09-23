@@ -47,6 +47,7 @@ class UpdateChecker {
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS)
         .build()
 
     /**

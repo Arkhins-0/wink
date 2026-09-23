@@ -8,8 +8,8 @@ import java.util.Locale
 
 /* Times, as the screens show them. The server sends ISO instants. */
 
-private val dateTime = DateTimeFormatter.ofPattern("EEE d MMM, HH:mm", Locale.getDefault())
-private val timeOnly = DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
+private val dateTime = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a", Locale.getDefault())
+private val timeOnly = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 private val dayOnly = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
 
 fun instant(iso: String): Instant = runCatching { Instant.parse(iso) }.getOrDefault(Instant.EPOCH)

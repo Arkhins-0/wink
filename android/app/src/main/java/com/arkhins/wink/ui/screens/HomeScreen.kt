@@ -58,7 +58,8 @@ fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> 
         try {
             next = runCatching { app.api.get("/api/next-race", NextRace.serializer()) }.getOrNull()
             val r = app.api.get("/api/messages", MessagesResponse.serializer())
-            messages = r.messages
+            // Announcements only: private chats live on the Chats tab.
+            messages = r.messages.filter { it.kind != "direct" }
             error = null
             val unread = r.messages.filter { it.readAt == null && !it.mine }.map { it.id }
             if (unread.isNotEmpty()) {

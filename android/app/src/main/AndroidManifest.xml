@@ -44,8 +44,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Invite, password-reset and verification links open here when
-                 the app is installed (verified against /.well-known/assetlinks.json). -->
+            <!-- Links into the app open here when it is installed (verified
+                 against the site's /.well-known/assetlinks.json): invites,
+                 password resets, verification codes, and every signed-in page.
+                 The sign-in page itself and /download stay in the browser. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -54,6 +56,15 @@
                 <data android:pathPrefix="/invite/" />
                 <data android:pathPrefix="/reset/" />
                 <data android:pathPrefix="/v/" />
+                <data android:path="/home" />
+                <data android:pathPrefix="/home?" />
+                <data android:path="/schedule" />
+                <data android:pathPrefix="/w/" />
+                <data android:path="/chats" />
+                <data android:pathPrefix="/chats/" />
+                <data android:path="/people" />
+                <data android:pathPrefix="/people/" />
+                <data android:path="/account" />
             </intent-filter>
         </activity>
 
