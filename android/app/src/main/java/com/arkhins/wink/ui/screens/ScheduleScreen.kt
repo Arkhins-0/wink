@@ -106,7 +106,7 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit, onArchive:
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SectionTitle("RACE WEEKENDS", Modifier.weight(1f))
-                if (isAdmin) IconAction(Icons.Outlined.Add, "New race weekend", Night, filled = true) { creating = true }
+                if (isAdmin) IconAction(Icons.Outlined.Add, "New race weekend", Gold) { creating = true }
             }
         }
         when {
@@ -150,7 +150,7 @@ private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () 
                 IconAction(painterResource(R.drawable.ic_archive), "Archive", SnowSoft, onClick = onArchive)
                 if (isAdmin) {
                     IconAction(Icons.Outlined.Settings, if (open) "Close" else "Manage seasons", if (open) Gold else SnowSoft) { open = !open }
-                    IconAction(Icons.Outlined.Add, "New season", Night, filled = true) { creating = true }
+                    IconAction(Icons.Outlined.Add, "New season", Gold) { creating = true }
                 }
             }
             ErrorText(error)
@@ -306,7 +306,7 @@ fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () 
             if (isAdmin) {
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    IconAction(Icons.Outlined.Add, "Add session", Night, filled = true) { adding = true }
+                    IconAction(Icons.Outlined.Add, "Add session", Gold) { adding = true }
                     IconAction(Icons.Outlined.Edit, "Edit weekend", SnowSoft) { editingWeekend = true }
                     IconAction(Icons.Outlined.Delete, "Delete weekend", Danger) { confirmDelete = true }
                 }
