@@ -133,7 +133,7 @@ export type SeasonArchive = {
     posts: ArchivedMessage[];
   }[];
   announcements: ArchivedMessage[];
-  chats: { other: { id: string; name: string; roleLabel: string; photoUrl: string | null }; messages: ArchivedMessage[] }[];
+  chats: { other: { id: string; name: string; role: Role; roleLabel: string; photoUrl: string | null }; messages: ArchivedMessage[] }[];
 };
 
 type MRow = {
@@ -235,7 +235,7 @@ export async function seasonArchive(user: SessionUser, id: string): Promise<Seas
     })),
     announcements,
     chats: others.map((o) => ({
-      other: { id: o.id, name: o.name || o.email, roleLabel: ROLE_LABEL[o.role], photoUrl: o.photo_key ? `/api/users/${o.id}/photo` : null },
+      other: { id: o.id, name: o.name || o.email, role: o.role, roleLabel: ROLE_LABEL[o.role], photoUrl: o.photo_key ? `/api/users/${o.id}/photo` : null },
       messages: (byOther.get(o.id) ?? []).map((r) => message(r, user.id)),
     })),
   };
