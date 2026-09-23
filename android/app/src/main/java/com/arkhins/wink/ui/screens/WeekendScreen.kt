@@ -18,12 +18,12 @@ import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.ChannelResponse
 import com.arkhins.wink.data.IdResponse
-import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.data.WeekendResponse
 import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.components.Composer
 import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
+import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.MessageCard
 import com.arkhins.wink.ui.theme.Snow
@@ -33,7 +33,7 @@ import kotlinx.serialization.json.put
 
 /** One race weekend: its sessions and its channel. */
 @Composable
-fun WeekendScreen(vm: AppViewModel, weekendId: String, onOpenPdf: (SavedDocument) -> Unit) {
+fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Unit) {
     val app = LocalApp.current
     var weekend by remember { mutableStateOf<WeekendResponse?>(null) }
     var channel by remember { mutableStateOf<ChannelResponse?>(null) }
@@ -81,7 +81,7 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onOpenPdf: (SavedDocument
                 when {
                     c == null -> item { Loading() }
                     c.messages.isEmpty() -> item { Empty("No posts yet.") }
-                    else -> items(c.messages.reversed(), key = { it.id }) { m -> MessageCard(m, onOpenPdf) }
+                    else -> items(c.messages.reversed(), key = { it.id }) { m -> MessageCard(m, onView) }
                 }
             }
         }

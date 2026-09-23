@@ -28,10 +28,10 @@ import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.MessagesResponse
 import com.arkhins.wink.data.NextRace
 import com.arkhins.wink.data.Ok
-import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
+import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.GoldButton
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.MessageCard
@@ -47,7 +47,7 @@ import kotlinx.serialization.json.putJsonArray
 
 /** The inbox, with the next race on top. */
 @Composable
-fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> Unit, onCompose: () -> Unit, onOpenPdf: (SavedDocument) -> Unit) {
+fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> Unit, onCompose: () -> Unit, onView: (FileView) -> Unit) {
     val app = LocalApp.current
     var messages by remember { mutableStateOf<List<Message>?>(null) }
     var next by remember { mutableStateOf<NextRace?>(null) }
@@ -103,7 +103,7 @@ fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> 
             error != null && m == null -> item { ErrorText(error) }
             m == null -> item { Loading() }
             m.isEmpty() -> item { Empty("Nothing yet. Messages sent to you appear here.") }
-            else -> items(m, key = { it.id }) { msg -> MessageCard(msg, onOpenPdf, highlight = msg.id == highlight) }
+            else -> items(m, key = { it.id }) { msg -> MessageCard(msg, onView, highlight = msg.id == highlight) }
         }
         item { Spacer(Modifier.fillMaxWidth().height(8.dp)) }
     }

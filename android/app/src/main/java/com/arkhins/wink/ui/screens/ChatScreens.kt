@@ -44,11 +44,11 @@ import com.arkhins.wink.data.ConversationsResponse
 import com.arkhins.wink.data.IdResponse
 import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.PublicUser
-import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.data.UsersResponse
 import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.ago
-import com.arkhins.wink.ui.components.AttachmentRow
+import com.arkhins.wink.ui.components.Attachment
+import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Composer
@@ -212,7 +212,7 @@ private val dayHeader: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, d 
 
 /** One private chat: bubbles, yours on the right, with day separators and the composer pinned below. */
 @Composable
-fun ChatScreen(vm: AppViewModel, conversationId: String, onOpenPdf: (SavedDocument) -> Unit, onTitle: (String) -> Unit) {
+fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onTitle: (String) -> Unit) {
     val app = LocalApp.current
     var detail by remember { mutableStateOf<ConversationDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -253,7 +253,7 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onOpenPdf: (SavedDocume
                             lastDay = day
                             item(key = "day-$day") { DaySeparator(day) }
                         }
-                        item(key = m.id) { Bubble(m, onOpenPdf) }
+                        item(key = m.id) { Bubble(m, onView) }
                     }
                 }
             }
@@ -282,7 +282,7 @@ private fun DaySeparator(day: String) {
 
 /** A chat bubble: gold on the right for what you sent, dark on the left for what came in. */
 @Composable
-private fun Bubble(m: Message, onOpenPdf: (SavedDocument) -> Unit) {
+private fun Bubble(m: Message, onView: (FileView) -> Unit) {
     val mine = m.mine
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -307,7 +307,7 @@ private fun Bubble(m: Message, onOpenPdf: (SavedDocument) -> Unit) {
             }
             if (m.file != null) {
                 if (m.body.isNotBlank()) Spacer(Modifier.height(6.dp))
-                AttachmentRow(m.file, onOpenPdf)
+                Attachment(m.file, onView, onDark = !mine)
             }
             Spacer(Modifier.height(2.dp))
             Text(

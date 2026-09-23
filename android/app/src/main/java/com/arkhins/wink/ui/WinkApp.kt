@@ -25,7 +25,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.data.FileInfo
 import com.arkhins.wink.data.SavedDocument
+import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.BottomNav
 import com.arkhins.wink.ui.components.PopupCard
 import com.arkhins.wink.ui.components.TopBar
@@ -37,6 +39,7 @@ import com.arkhins.wink.ui.screens.ComposeScreen
 import com.arkhins.wink.ui.screens.EmailScreen
 import com.arkhins.wink.ui.screens.ForgotScreen
 import com.arkhins.wink.ui.screens.HomeScreen
+import com.arkhins.wink.ui.screens.ImageScreen
 import com.arkhins.wink.ui.screens.LoginScreen
 import com.arkhins.wink.ui.screens.NewChatScreen
 import com.arkhins.wink.ui.screens.NewPersonScreen
@@ -146,6 +149,7 @@ private fun MainNav(vm: AppViewModel) {
     val tab = route.substringBefore("/").substringBefore("?")
     var title by remember { mutableStateOf("") }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
+    var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
 
     LaunchedEffect(pending) {
@@ -155,7 +159,12 @@ private fun MainNav(vm: AppViewModel) {
     }
 
     val openWeekend: (String) -> Unit = { nav.navigate("weekend/$it") }
-    val openPdf: (SavedDocument) -> Unit = { pdf = it; nav.navigate("pdf") }
+    val view: (FileView) -> Unit = {
+        when (it) {
+            is FileView.Pdf -> { pdf = it.doc; nav.navigate("pdf") }
+            is FileView.Image -> { image = it.file; nav.navigate("image") }
+        }
+    }
     val isTab = tab in setOf("home", "schedule", "chats", "people", "account")
     val screenTitle = when (tab) {
         "home" -> "Wink"
@@ -169,6 +178,7 @@ private fun MainNav(vm: AppViewModel) {
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
         "pdf" -> pdf?.name ?: "Document"
+        "image" -> image?.name ?: "Photo"
         "weekend" -> "Race weekend"
         else -> title
     }
@@ -178,17 +188,17 @@ private fun MainNav(vm: AppViewModel) {
             title = screenTitle,
             onBack = if (isTab) null else ({ nav.popBackStack() }),
             onOpenWeekend = openWeekend,
-            showCountdown = tab != "pdf",
+            showCountdown = tab != "pdf" && tab != "image",
         )
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
-                composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onCompose = { nav.navigate("compose") }, onOpenPdf = openPdf) }
-                composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onCompose = { nav.navigate("compose") }, onOpenPdf = openPdf) }
+                composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onCompose = { nav.navigate("compose") }, onView = view) }
+                composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend) }
-                composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", openPdf) }
+                composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", openPdf) { title = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view) { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
                 composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") }) { title = it } }
@@ -199,6 +209,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("scanner") { ScannerScreen() }
                 composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token")) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
+                composable("image") { image?.let { ImageScreen(it) } }
             }
             vm.popup?.let { event ->
                 Box(Modifier.align(Alignment.TopCenter)) {

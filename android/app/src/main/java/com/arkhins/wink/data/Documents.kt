@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /** A document once it is on the phone. */
 data class SavedDocument(val uri: Uri, val name: String, val mime: String)
@@ -21,13 +22,44 @@ data class SavedDocument(val uri: Uri, val name: String, val mime: String)
  * are there afterwards without the app. Android 10+ writes through
  * MediaStore (no permission needed); older versions write the folder
  * directly, which is what the storage permission on first launch is for.
+ * A file already in the folder is reused rather than fetched again.
  */
 class Documents(private val context: Context, private val api: WinkApi) {
 
-    suspend fun download(file: FileInfo, onProgress: (Float) -> Unit): SavedDocument = withContext(Dispatchers.IO) {
-        val name = safeName(file.name)
+    private val known = ConcurrentHashMap<String, SavedDocument>()
+
+    /** The copy already on the phone, if there is one. */
+    fun find(file: FileInfo): SavedDocument? {
+        known[file.id]?.let { return it }
+        val name = savedName(file)
         val mime = file.mime.ifBlank { "application/octet-stream" }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val found = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.DISPLAY_NAME} = ? AND ${MediaStore.Downloads.RELATIVE_PATH} LIKE ?",
+                arrayOf(name, "%Wink%"),
+                null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val id = c.getLong(0)
+                    SavedDocument(Uri.withAppendedPath(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id.toString()), name, mime)
+                } else null
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val target = File(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Wink"), name)
+            if (target.exists() && target.length() > 0) SavedDocument(FileProvider.getUriForFile(context, "${context.packageName}.updates", target), name, mime) else null
+        }
+        if (found != null) known[file.id] = found
+        return found
+    }
+
+    suspend fun download(file: FileInfo, onProgress: (Float) -> Unit): SavedDocument = withContext(Dispatchers.IO) {
+        find(file)?.let { return@withContext it }
+        val name = savedName(file)
+        val mime = file.mime.ifBlank { "application/octet-stream" }
+        val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -56,18 +88,28 @@ class Documents(private val context: Context, private val api: WinkApi) {
             target.outputStream().use { api.download(file.id, it, onProgress) }
             SavedDocument(FileProvider.getUriForFile(context, "${context.packageName}.updates", target), name, mime)
         }
+        known[file.id] = saved
+        saved
     }
 
-    /** Hand the saved document to whatever app opens that kind of file. */
+    /** Hand the saved document to whatever app opens that kind of file. False when nothing on the phone can. */
     fun openWith(doc: SavedDocument): Boolean {
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(doc.uri, doc.mime)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (intent.resolveActivity(context.packageManager) == null) return false
         return runCatching {
             context.startActivity(Intent.createChooser(intent, doc.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }.isSuccess
     }
 
-    private fun safeName(name: String): String =
-        name.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").trim().ifBlank { "document" }.take(150)
+    /**
+     * The name in Downloads: the original name with the file id's first
+     * characters in front, so two documents called "briefing.pdf" never
+     * overwrite each other and an already-saved one can be found again.
+     */
+    private fun savedName(file: FileInfo): String {
+        val clean = file.name.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").trim().ifBlank { "document" }.take(120)
+        return "${file.id.take(8)}-$clean"
+    }
 }
