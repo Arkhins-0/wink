@@ -167,6 +167,8 @@ private fun MainNav(vm: AppViewModel) {
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
+    // Opened by a notification or link: that decides the screen, not the last one seen.
+    val openedByLink = remember { Links.pending.value != null }
 
     LaunchedEffect(pending) {
         val link = pending ?: return@LaunchedEffect
@@ -182,7 +184,7 @@ private fun MainNav(vm: AppViewModel) {
     LaunchedEffect(Unit) {
         val saved = app.session.lastRoute
         val fresh = System.currentTimeMillis() - app.session.lastRouteAt < 6 * 60 * 60 * 1000L
-        if (Links.pending.value == null && saved != null && saved != "home" && fresh) {
+        if (!openedByLink && Links.pending.value == null && saved != null && saved != "home" && fresh) {
             runCatching { nav.navigate(saved) { launchSingleTop = true } }
         }
     }

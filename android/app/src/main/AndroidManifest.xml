@@ -50,6 +50,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- A tapped push notification (the server's click_action), with
+                 the in-app link to open in its "link" extra. -->
+            <intent-filter>
+                <action android:name="OPEN_LINK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- Links into the app open here when it is installed (verified
                  against the site's /.well-known/assetlinks.json): invites,
                  password resets, verification codes, and every signed-in page.
