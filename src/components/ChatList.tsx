@@ -16,7 +16,7 @@ export function ChatList({ conversations, canOpen, children }: { conversations: 
   const shown = conversations.filter((c) => !filter || `${c.other.name} ${c.other.roleLabel} ${c.lastMessage ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
 
   return (
-    <div className="grid gap-6 lg:h-[calc(100vh-7.5rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
+    <div className="grid gap-6 lg:h-[calc(100dvh-7.5rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
       <aside className={`${onList ? "block" : "hidden lg:block"} card flex min-h-0 flex-col p-0 lg:h-full`}>
         <div className="flex items-center gap-2 border-b border-night-line p-3">
           <div className="relative flex-1">

@@ -75,7 +75,7 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
             </div>
           </header>
 
-          <main className={`flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-6 ${immersive ? "pb-4" : "pb-24 lg:pb-8"}`}>
+          <main className={`flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-6 ${immersive ? "pb-2 pt-3 lg:pb-8 lg:pt-6" : "pb-24 lg:pb-8"}`}>
             <div className="mx-auto w-full max-w-6xl">{children}</div>
           </main>
         </div>

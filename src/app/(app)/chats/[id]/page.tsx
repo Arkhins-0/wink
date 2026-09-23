@@ -22,7 +22,7 @@ export default async function Chat({ params }: { params: Promise<{ id: string }>
   await markConversationRead(user.id, id);
 
   return (
-    <div className="card flex h-[calc(100vh-8.5rem)] flex-1 flex-col p-0 lg:h-full">
+    <div className="card flex h-[calc(100dvh-6.25rem)] flex-1 flex-col p-0 lg:h-full">
       <div className="flex items-center gap-3 border-b border-night-line px-3 py-2.5">
         <Link href="/chats" className="btn-icon lg:hidden" aria-label="Back to chats">
           <Icon name="back" className="h-5 w-5" />
