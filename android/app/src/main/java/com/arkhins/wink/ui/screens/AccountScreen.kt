@@ -1,5 +1,9 @@
 package com.arkhins.wink.ui.screens
 
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
+import androidx.compose.runtime.DisposableEffect
 import android.graphics.Bitmap
 import android.graphics.Color as AColor
 import androidx.compose.foundation.Image
@@ -207,21 +211,49 @@ private fun ChatStoragePanel() {
 private fun BackgroundPanel() {
     val context = LocalContext.current
     var exempt by remember { mutableStateOf(Battery.isExempt(context)) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { exempt = Battery.isExempt(context) }
+    var autostart by remember { mutableStateOf(Battery.autostartAllowed(context)) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        exempt = Battery.isExempt(context)
+        autostart = Battery.autostartAllowed(context)
+    }
+    // Back from a settings page (it opens in its own task, so no result comes back): look again.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                exempt = Battery.isExempt(context)
+                autostart = Battery.autostartAllowed(context)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val autostartPage = remember { Battery.autostartIntent(context) }
+    val allSet = exempt && autostart != false
     Panel {
         Column {
             Text("Background", style = MaterialTheme.typography.titleMedium, color = Snow)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (exempt) "Battery optimisation is off for Wink, so popups arrive while the phone sleeps."
-                else "Battery optimisation is on: the phone may hold back popups while it sleeps.",
+                when {
+                    !exempt -> "Battery optimisation is on: the phone may hold back popups while it sleeps."
+                    autostart == false -> "Autostart is off: popups stop once recent apps are cleared."
+                    autostart == true -> "Battery optimisation is off and autostart is on, so popups arrive even after recent apps are cleared."
+                    else -> "Battery optimisation is off for Wink, so popups arrive while the phone sleeps."
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (exempt) SnowFaint else Gold,
+                color = if (allSet) SnowFaint else Gold,
             )
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!exempt) GoldButton("Allow in background") { runCatching { launcher.launch(Battery.requestExemption(context)) } }
-                Battery.autostartIntent(context)?.let { intent -> GhostButton("Autostart settings") { runCatching { context.startActivity(intent) } } }
+            // All set and the phone confirmed it: nothing to press.
+            if (!exempt || autostart != true) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!exempt) GoldButton("Allow in background") { runCatching { launcher.launch(Battery.requestExemption(context)) } }
+                    autostartPage?.let { intent ->
+                        if (autostart == false) GoldButton("Turn on autostart") { runCatching { context.startActivity(intent) } }
+                        else GhostButton("Autostart settings") { runCatching { context.startActivity(intent) } }
+                    }
+                }
             }
         }
     }
