@@ -1,0 +1,108 @@
+name: Release
+
+# Push a tag like v0.0.0.1 to build the Android app in android/ and publish a
+# GitHub Release with the APKs attached. The app checks that release (through wink.arkhins.com,
+# or GitHub directly) and shows its update popup when the tag is newer than
+# the installed build. The release APK is signed with the keystore held in
+# the repository secrets below; without them it is built unsigned and will
+# not install on a device.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    env:
+      # A step's `if:` can't reference `secrets` directly, so its presence
+      # is surfaced here first, as a plain env var, and checked from there.
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Decode signing key
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.keystore.jks
+          echo "WINK_KEYSTORE_PATH=release.keystore.jks" >> "$GITHUB_ENV"
+          echo "WINK_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "WINK_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "WINK_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+      - name: Build
+        # gradle.properties caps the heap at 1536m for a development machine.
+        # A runner has 16 GB, and R8 plus an in-process Kotlin compile of
+        # both variants wants more than that.
+        env:
+          WINK_BASE_URL: ${{ vars.WINK_BASE_URL || 'https://wink.arkhins.com' }}
+          WINK_UPDATE_URL: ${{ vars.WINK_UPDATE_URL || '' }}
+          WINK_GITHUB_REPO: ${{ vars.WINK_GITHUB_REPO || github.repository }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
+      - name: Stage APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk dist/app-release.apk
+          cp app/build/outputs/apk/debug/*.apk dist/app-debug.apk
+      - name: Refuse to ship an unsigned release APK
+        # Android rejects an unsigned APK with "package appears to be invalid",
+        # so fail here, loudly, rather than publish one.
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$BT/apksigner" verify --print-certs dist/app-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: android/dist/
+
+  release:
+    needs: build
+    # Only a real tag push publishes a release; a manual workflow_dispatch
+    # run (used to test the build) stops after the build job, above.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # The whole history, so the last tag can be found.
+      - uses: actions/download-artifact@v4
+        with:
+          name: apks
+          path: apks
+      - name: Write the changelog
+        # Every commit since the last tag becomes the release body. The app
+        # shows this in its update popup, so it has to read as a changelog.
+        run: |
+          previous=$(git describe --tags --abbrev=0 "${{ github.ref_name }}^" 2>/dev/null || true)
+          range="${previous:+$previous..}${{ github.ref_name }}"
+          {
+            echo "## What changed"
+            echo
+            git log --no-merges --pretty='- %s' "$range" | grep -v '^- Version [0-9]' || echo "- Small fixes and improvements."
+          } > NOTES.md
+          cat NOTES.md
+      - name: Rename and checksum
+        run: |
+          mkdir -p dist
+          cp apks/app-release.apk "dist/Wink-${{ github.ref_name }}.apk"
+          cp apks/app-debug.apk "dist/Wink-debug-${{ github.ref_name }}.apk"
+          cd dist && sha256sum * > SHA256SUMS.txt
+          ls -la
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: NOTES.md

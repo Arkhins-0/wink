@@ -1,0 +1,44 @@
+# Gradle / Android Studio
+.gradle/
+.kotlin/
+.idea/
+*.iml
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# Secrets: database, storage and API keys live here and in the server, never in git.
+.env
+.env.*
+!.env.example
+
+# Build outputs: uploaded to GitHub Releases, not tracked in git.
+*.apk
+*.aab
+/dist/
+
+# Signing keys: never commit these.
+*.jks
+*.keystore
+
+# JVM crash dumps from a Gradle daemon that ran out of memory
+hs_err_pid*.log
+replay_pid*.log
+
+# OS / tooling noise
+.DS_Store
+Thumbs.db
+/.claude/
+
+# Website (Next.js)
+node_modules/
+.next/
+.next-verify/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+/data/
+npm-debug.log*
