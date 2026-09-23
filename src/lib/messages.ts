@@ -337,6 +337,23 @@ export async function conversationMessages(user: SessionUser, conversationId: st
 }
 
 /**
+ * For a phone that keeps its own copy of a chat: the messages after
+ * `after` (oldest first), and the ids of every message still live, so the
+ * phone can drop what was archived or deleted since.
+ */
+export async function conversationDelta(user: SessionUser, conversationId: string, after: string): Promise<{ messages: MessageOut[]; liveIds: string[] }> {
+  const rows = await q<Row>(
+    `${SELECT} WHERE m.conversation_id = $2 AND ${LIVE_SEASON("m")} AND m.created_at > $3::timestamptz ORDER BY m.created_at LIMIT 500`,
+    [user.id, conversationId, after],
+  );
+  const ids = await q<{ id: string }>(
+    `SELECT m.id FROM messages m WHERE m.conversation_id = $1 AND ${LIVE_SEASON("m")} ORDER BY m.created_at`,
+    [conversationId],
+  );
+  return { messages: rows.map((r) => out(r, user.id)), liveIds: ids.map((r) => r.id) };
+}
+
+/**
  * The announcements that reached this person — broadcasts and channel
  * posts — newest first, plus what they sent themselves. Private chats are
  * not here; they have their own page.
