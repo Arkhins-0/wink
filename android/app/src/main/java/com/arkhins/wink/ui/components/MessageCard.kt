@@ -72,7 +72,11 @@ fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = tr
                     Spacer(Modifier.width(8.dp))
                     Text(whenLabel(m.createdAt), style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                 }
-                if (m.body.isNotBlank()) {
+                val loc = locationIn(m.body)
+                if (loc != null) {
+                    Spacer(Modifier.height(6.dp))
+                    LocationCard(loc.first, loc.second)
+                } else if (m.body.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
                     Text(m.body, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
                 }

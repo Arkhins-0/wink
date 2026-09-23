@@ -42,6 +42,16 @@ const ALLOWED_MIME = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/ogg",
+  "audio/webm",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/3gpp",
+  "audio/amr",
 ]);
 
 export const isAllowedMime = (mime: string): boolean => ALLOWED_MIME.has(mime);

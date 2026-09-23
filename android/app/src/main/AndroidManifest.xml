@@ -13,6 +13,10 @@
         android:maxSdkVersion="28" />
     <!-- The QR scanner on the account page. Asked when it is opened. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Voice notes and sharing where you are, from the message box. Asked on first launch. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

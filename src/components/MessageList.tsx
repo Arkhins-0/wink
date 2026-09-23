@@ -10,6 +10,14 @@ import { DocumentDialog } from "./DocumentDialog";
 /** A document line inside a message; tapping it opens the download/view dialog. */
 export function Attachment({ file }: { file: NonNullable<MessageOut["file"]> }) {
   const [open, setOpen] = useState(false);
+  if (file.mime.startsWith("audio/")) {
+    return (
+      <div className="mt-2 rounded-xl border border-night-line bg-night px-3 py-2">
+        <audio controls preload="none" src={`/api/files/${file.id}/content?inline=1`} className="w-full max-w-xs" />
+        <p className="mt-1 truncate text-xs text-snow-faint">{file.name}</p>
+      </div>
+    );
+  }
   return (
     <>
       <button

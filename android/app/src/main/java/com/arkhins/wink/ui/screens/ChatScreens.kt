@@ -57,6 +57,8 @@ import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.Loading
+import com.arkhins.wink.ui.components.LocationCard
+import com.arkhins.wink.ui.components.locationIn
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.localTime
@@ -309,7 +311,10 @@ private fun Bubble(m: Message, onView: (FileView) -> Unit) {
                 Chip("Urgent", if (mine) Night else Danger, filled = mine)
                 Spacer(Modifier.height(4.dp))
             }
-            if (m.body.isNotBlank()) {
+            val loc = locationIn(m.body)
+            if (loc != null) {
+                LocationCard(loc.first, loc.second, onDark = !mine)
+            } else if (m.body.isNotBlank()) {
                 Text(m.body, style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow)
             }
             if (m.file != null) {

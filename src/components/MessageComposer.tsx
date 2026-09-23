@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { api, uploadFile } from "@/lib/client";
 
-const ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,image/jpeg,image/png,image/webp";
+const ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,image/jpeg,image/png,image/webp,audio/*";
 
 /**
  * Text, an optional document, an urgent switch, send. Used by channels,

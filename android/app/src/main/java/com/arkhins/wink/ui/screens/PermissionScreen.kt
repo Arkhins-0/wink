@@ -58,9 +58,15 @@ fun PermissionScreen(onGranted: () -> Unit) {
     var denied by remember { mutableStateOf(false) }
     var asks by remember { mutableIntStateOf(0) }
 
+    // Voice notes and location sharing: asked right after, but the app runs without them.
+    val optional = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onGranted() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         asks++
-        if (result.values.all { it }) onGranted() else denied = true
+        if (result.values.all { it }) {
+            optional.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else {
+            denied = true
+        }
     }
 
     Column(
