@@ -62,6 +62,12 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
     var unread: Int by mutableStateOf(0)
         private set
 
+    /** Unread announcements (the Home tab) and unread private messages (the Chats tab). */
+    var unreadHome: Int by mutableStateOf(0)
+        private set
+    var unreadChats: Int by mutableStateOf(0)
+        private set
+
     /** The latest foreground popup, if any. */
     var popup: PushEvent? by mutableStateOf(null)
         private set
@@ -83,6 +89,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                 val m = app.api.me()
                 me = m
                 unread = m.unread
+                unreadHome = m.unreadHome
+                unreadChats = m.unreadChats
                 gate = if (m.user.profileComplete) Gate.Ready else Gate.Onboarding
                 registerPush()
             } catch (e: ApiException) {
@@ -113,6 +121,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         app.session.clear()
         me = null
         unread = 0
+        unreadHome = 0
+        unreadChats = 0
         gate = Gate.SignedOut
     }
 
@@ -139,6 +149,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             lastPoll = r.now
             if (r.unread != unread) refreshTick++
             unread = r.unread
+            unreadHome = r.unreadHome
+            unreadChats = r.unreadChats
             if (!first && r.messages.isNotEmpty() && me?.pushConfigured != true) {
                 val m = r.messages.first()
                 popup = PushEvent(
@@ -160,8 +172,10 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         popup = null
     }
 
-    fun markAllRead(n: Int) {
-        unread = n
+    /** The Home tab was read: its badge clears; the chats badge is untouched. */
+    fun homeRead() {
+        unreadHome = 0
+        unread = unreadChats
     }
 
     fun changed() {

@@ -150,7 +150,7 @@ fun PopupCard(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Unit)
 
 /** The bottom navigation: five destinations, a badge on Home. */
 @Composable
-fun BottomNav(current: String, unread: Int, onSelect: (String) -> Unit) {
+fun BottomNav(current: String, unreadHome: Int, unreadChats: Int, onSelect: (String) -> Unit) {
     val items = listOf("home" to "Home", "schedule" to "Schedule", "chats" to "Chats", "people" to "People", "account" to "Account")
     Row(
         Modifier
@@ -171,10 +171,15 @@ fun BottomNav(current: String, unread: Int, onSelect: (String) -> Unit) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(label, style = MaterialTheme.typography.labelMedium, color = if (active) Snow else SnowFaint)
-                    if (route == "home" && unread > 0) {
+                    val badge = when (route) {
+                        "home" -> unreadHome
+                        "chats" -> unreadChats
+                        else -> 0
+                    }
+                    if (badge > 0) {
                         Spacer(Modifier.width(4.dp))
                         Box(Modifier.background(Gold, RoundedCornerShape(999.dp)).padding(horizontal = 5.dp)) {
-                            Text(if (unread > 99) "99+" else "$unread", style = MaterialTheme.typography.labelSmall, color = Night)
+                            Text(if (badge > 99) "99+" else "$badge", style = MaterialTheme.typography.labelSmall, color = Night)
                         }
                     }
                 }

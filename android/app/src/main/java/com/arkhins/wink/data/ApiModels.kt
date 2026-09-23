@@ -41,6 +41,8 @@ data class Me(
     val canBulkEmail: Boolean = false,
     val isAdmin: Boolean = false,
     val unread: Int = 0,
+    val unreadChats: Int = 0,
+    val unreadHome: Int = 0,
     val pushConfigured: Boolean = false,
 )
 
@@ -78,7 +80,7 @@ data class Message(
 data class MessagesResponse(val messages: List<Message>)
 
 @Serializable
-data class UnseenResponse(val messages: List<Message>, val unread: Int, val now: String)
+data class UnseenResponse(val messages: List<Message>, val unread: Int, val unreadChats: Int = 0, val unreadHome: Int = 0, val now: String)
 
 @Serializable
 data class OtherUser(val id: String, val name: String, val role: String, val roleLabel: String, val photoUrl: String? = null, val status: String = "active")

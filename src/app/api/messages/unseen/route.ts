@@ -1,7 +1,7 @@
 import { handle } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { json } from "@/lib/http";
-import { unreadCount, unseenSince } from "@/lib/messages";
+import { unread, unseenSince } from "@/lib/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -9,5 +9,6 @@ export const dynamic = "force-dynamic";
 export const GET = handle(async (request) => {
   const user = await requireUser();
   const since = new URL(request.url).searchParams.get("since") || null;
-  return json({ messages: await unseenSince(user, since), unread: await unreadCount(user.id), now: new Date().toISOString() });
+  const counts = await unread(user.id);
+  return json({ messages: await unseenSince(user, since), unread: counts.total, unreadChats: counts.chats, unreadHome: counts.home, now: new Date().toISOString() });
 });

@@ -1,7 +1,7 @@
 import { handle } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { json } from "@/lib/http";
-import { unreadCount } from "@/lib/messages";
+import { unread } from "@/lib/messages";
 import { isPushConfigured } from "@/lib/push";
 import { CREATE_RULES, CHANNEL_POSTERS, ROLE_LABEL } from "@/lib/roles";
 import { qrUrl, toPublic, userById } from "@/lib/users";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export const GET = handle(async () => {
   const user = await requireUser();
   const parent = user.parent_id ? await userById(user.parent_id) : undefined;
+  const counts = await unread(user.id);
   return json({
     user: toPublic(user),
     qrUrl: qrUrl(user),
@@ -21,7 +22,9 @@ export const GET = handle(async () => {
     canRelay: user.role === "coordinator",
     canBulkEmail: user.role === "admin",
     isAdmin: user.role === "admin",
-    unread: await unreadCount(user.id),
+    unread: counts.total,
+    unreadChats: counts.chats,
+    unreadHome: counts.home,
     pushConfigured: isPushConfigured(),
   });
 });

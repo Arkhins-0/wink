@@ -19,7 +19,7 @@ function linkFor(m: MessageOut): string {
  * has it) and by a short poll, so nothing is missed while a tab is open.
  * Whatever is new is shown in one panel with a way to open it.
  */
-export function Notifier({ onUnread }: { onUnread?: (n: number) => void }) {
+export function Notifier({ onUnread }: { onUnread?: (home: number, chats: number) => void }) {
   const [fresh, setFresh] = useState<MessageOut[]>([]);
   const since = useRef<string | null>(null);
   const seen = useRef<Set<string>>(new Set());
@@ -29,11 +29,11 @@ export function Notifier({ onUnread }: { onUnread?: (n: number) => void }) {
 
     const poll = async () => {
       try {
-        const r = await api<{ messages: MessageOut[]; unread: number; now: string }>(
+        const r = await api<{ messages: MessageOut[]; unread: number; unreadHome: number; unreadChats: number; now: string }>(
           `/api/messages/unseen${since.current ? `?since=${encodeURIComponent(since.current)}` : ""}`,
         );
         if (!alive) return;
-        onUnread?.(r.unread);
+        onUnread?.(r.unreadHome, r.unreadChats);
         const first = since.current === null;
         since.current = r.now;
         // The first poll only sets the clock: old unread mail is in the inbox, not a popup.

@@ -64,7 +64,7 @@ fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> 
             val unread = r.messages.filter { it.readAt == null && !it.mine }.map { it.id }
             if (unread.isNotEmpty()) {
                 runCatching { app.api.post("/api/messages/read", Ok.serializer()) { putJsonArray("ids") { unread.forEach { add(it) } } } }
-                vm.markAllRead(0)
+                vm.homeRead()
             }
             if (highlight != null) {
                 val idx = r.messages.indexOfFirst { it.id == highlight }

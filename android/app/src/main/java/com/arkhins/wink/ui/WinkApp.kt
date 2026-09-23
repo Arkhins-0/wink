@@ -218,11 +218,13 @@ private fun MainNav(vm: AppViewModel) {
             }
         }
         if (isTab) {
-            BottomNav(current = tab, unread = vm.unread) { dest ->
+            // A tab always shows its own page: everything above Home is
+            // dropped first, nothing is restored (a chat opened from a popup
+            // would otherwise come back on top of Home).
+            BottomNav(current = tab, unreadHome = vm.unreadHome, unreadChats = vm.unreadChats) { dest ->
                 nav.navigate(dest) {
-                    popUpTo("home") { saveState = true }
+                    popUpTo("home") { inclusive = dest == "home" }
                     launchSingleTop = true
-                    restoreState = true
                 }
             }
         }

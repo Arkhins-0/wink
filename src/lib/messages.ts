@@ -363,12 +363,26 @@ export async function markConversationRead(userId: string, conversationId: strin
   );
 }
 
-export async function unreadCount(userId: string): Promise<number> {
-  const row = await one<{ n: string }>(
-    "SELECT count(*)::text AS n FROM message_recipients WHERE user_id = $1 AND read_at IS NULL",
+export type Unread = { total: number; chats: number; home: number };
+
+/** What is unread, split the way the tabs are: private chats, and everything else (Home). */
+export async function unread(userId: string): Promise<Unread> {
+  const row = await one<{ chats: string; home: string }>(
+    `SELECT count(*) FILTER (WHERE c.kind = 'direct')::text AS chats,
+            count(*) FILTER (WHERE c.kind IS NULL OR c.kind <> 'direct')::text AS home
+     FROM message_recipients r
+     JOIN messages m ON m.id = r.message_id
+     LEFT JOIN conversations c ON c.id = m.conversation_id
+     WHERE r.user_id = $1 AND r.read_at IS NULL`,
     [userId],
   );
-  return Number(row?.n ?? 0);
+  const chats = Number(row?.chats ?? 0);
+  const home = Number(row?.home ?? 0);
+  return { total: chats + home, chats, home };
+}
+
+export async function unreadCount(userId: string): Promise<number> {
+  return (await unread(userId)).total;
 }
 
 /** Unread messages newer than `since`: what the web popup and the app's foreground check poll for. */

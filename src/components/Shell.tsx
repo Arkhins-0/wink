@@ -18,10 +18,10 @@ const NAV = [
 ];
 
 /** The signed-in frame: a top bar with the countdown, a nav, the popup. */
-export function Shell({ unread: initialUnread, children }: { unread: number; children: React.ReactNode }) {
+export function Shell({ unreadHome, unreadChats, children }: { unreadHome: number; unreadChats: number; children: React.ReactNode }) {
   const pathname = usePathname();
-  const [unread, setUnread] = useState(initialUnread);
-  const onUnread = useCallback((n: number) => setUnread(n), []);
+  const [badges, setBadges] = useState({ home: unreadHome, chats: unreadChats });
+  const onUnread = useCallback((home: number, chats: number) => setBadges({ home, chats }), []);
 
   return (
     <PermissionGate>
@@ -52,9 +52,12 @@ export function Shell({ unread: initialUnread, children }: { unread: number; chi
                   }`}
                 >
                   {item.label}
-                  {item.href === "/home" && unread > 0 && (
+                  {((item.href === "/home" && badges.home > 0) || (item.href === "/chats" && badges.chats > 0)) && (
                     <span className="absolute -right-1 -top-1 rounded-full bg-gold px-1.5 text-[10px] font-bold text-night">
-                      {unread > 99 ? "99+" : unread}
+                      {(() => {
+                        const n = item.href === "/home" ? badges.home : badges.chats;
+                        return n > 99 ? "99+" : n;
+                      })()}
                     </span>
                   )}
                 </Link>
