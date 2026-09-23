@@ -87,6 +87,11 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         viewModelScope.launch {
             try {
                 val m = app.api.me()
+                // Someone else signed in on this phone: the last person's chats are not theirs to see.
+                if (app.chatCache.claim(m.user.id)) {
+                    app.chatCache.wipe()
+                    app.chatMedia.wipe()
+                }
                 me = m
                 app.currentUserId = m.user.id
                 unread = m.unread
@@ -95,7 +100,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                 gate = if (m.user.profileComplete) Gate.Ready else Gate.Onboarding
                 registerPush()
             } catch (e: ApiException) {
-                if (e.code == 401 || e.code == 403) signOutLocally() else if (gate == Gate.Loading) gate = Gate.Ready
+                if (e.code == 401 || e.code == 403) signOutLocally(wipe = e.reason == "banned")
+                else if (gate == Gate.Loading) gate = Gate.Ready
             } catch (_: Exception) {
                 // Offline: stay where we were, or assume ready with whatever we cached.
                 if (gate == Gate.Loading) gate = if (me?.user?.profileComplete == false) Gate.Onboarding else Gate.Ready
@@ -118,10 +124,13 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         }
     }
 
-    private suspend fun signOutLocally() {
+    /** Chats stay on the phone through a sign-out or a suspension; only a ban clears them. */
+    private suspend fun signOutLocally(wipe: Boolean = false) {
         app.session.clear()
-        app.chatCache.wipe()
-        app.chatMedia.wipe()
+        if (wipe) {
+            app.chatCache.wipe()
+            app.chatMedia.wipe()
+        }
         me = null
         app.currentUserId = null
         unread = 0
@@ -171,6 +180,9 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                     },
                 )
             }
+        } catch (e: ApiException) {
+            // Refused: the account may have been suspended or banned; the full check decides what to do.
+            if (e.code == 401) refreshMe()
         } catch (_: Exception) {
             // Next time.
         }

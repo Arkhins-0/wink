@@ -25,8 +25,8 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
-/** The server answered with an error the person should see. 401 means "sign in again". */
-class ApiException(val code: Int, message: String) : IOException(message)
+/** The server answered with an error the person should see. 401 means "sign in again"; [reason] "banned" means the account is gone for good. */
+class ApiException(val code: Int, message: String, val reason: String? = null) : IOException(message)
 
 /**
  * The Wink server, as the app sees it. Every call carries the session
@@ -84,8 +84,10 @@ class WinkApi(private val session: SessionStore) {
         if (!response.isSuccessful) {
             val body = response.body?.string().orEmpty()
             response.close()
-            val message = runCatching { json.parseToJsonElement(body).jsonObject["error"]?.jsonPrimitive?.content }.getOrNull()
-            throw ApiException(response.code, message ?: "Request failed (${response.code}).")
+            val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+            val message = obj?.get("error")?.jsonPrimitive?.content
+            val reason = runCatching { obj?.get("code")?.jsonPrimitive?.content }.getOrNull()
+            throw ApiException(response.code, message ?: "Request failed (${response.code}).", reason)
         }
         return response
     }

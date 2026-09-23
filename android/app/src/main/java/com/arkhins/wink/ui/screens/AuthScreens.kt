@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.Config
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.data.ApiException
 import com.arkhins.wink.R
 import com.arkhins.wink.data.InviteInfo
 import com.arkhins.wink.data.LoginResponse
@@ -99,6 +100,11 @@ fun LoginScreen(onSignedIn: (String) -> Unit, onForgot: () -> Unit) {
                     val r = app.api.login(email.trim(), password)
                     onSignedIn(r.token ?: throw IllegalStateException("No session returned."))
                 } catch (e: Exception) {
+                    // A banned account: nothing it left on this phone stays.
+                    if ((e as? ApiException)?.reason == "banned") {
+                        app.chatCache.wipe()
+                        app.chatMedia.wipe()
+                    }
                     error = e.message ?: "Could not sign in."
                     busy = false
                 }

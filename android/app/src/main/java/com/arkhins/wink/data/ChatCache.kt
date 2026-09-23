@@ -105,6 +105,16 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         dir.deleteRecursively()
         dir.mkdirs()
     }
+
+    private val ownerFile = File(context.filesDir, "chats-owner")
+
+    /** Marks whose chats these are. True when they were someone else's and must be cleared first. */
+    fun claim(userId: String): Boolean {
+        val previous = runCatching { ownerFile.readText() }.getOrNull()
+        if (previous == userId) return false
+        ownerFile.writeText(userId)
+        return previous != null
+    }
 }
 
 /**
