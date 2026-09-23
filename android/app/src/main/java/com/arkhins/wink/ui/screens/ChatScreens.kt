@@ -39,7 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.Conversation
-import com.arkhins.wink.data.ConversationDetail
+import com.arkhins.wink.data.CachedChat
 import com.arkhins.wink.data.ConversationsResponse
 import com.arkhins.wink.data.IdResponse
 import com.arkhins.wink.data.Message
@@ -84,10 +84,15 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(Unit) {
+        if (chats == null) app.chatCache.loadList()?.let { chats = it }
+    }
     LaunchedEffect(vm.refreshTick) {
         try {
             // A chat with nothing said in it yet is not worth a row.
-            chats = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations.filter { it.lastMessageAt != null }
+            val fresh = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations.filter { it.lastMessageAt != null }
+            chats = fresh
+            app.chatCache.saveList(fresh)
             error = null
         } catch (e: Exception) {
             if (chats == null) error = e.message
@@ -223,14 +228,25 @@ private val dayHeader: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, d 
 @Composable
 fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onTitle: (String) -> Unit) {
     val app = LocalApp.current
-    var detail by remember { mutableStateOf<ConversationDetail?>(null) }
+    var detail by remember { mutableStateOf<CachedChat?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
     val list = rememberLazyListState()
 
+    // The phone's copy first: the chat is there at once, even offline.
+    LaunchedEffect(conversationId) {
+        app.chatCache.load(conversationId)?.let { cached ->
+            if (detail == null) {
+                detail = cached
+                cached.other?.let { onTitle(it.name) }
+                if (cached.messages.isNotEmpty()) list.scrollToItem(cached.messages.size * 2)
+            }
+        }
+    }
+    // Then only what is new.
     LaunchedEffect(conversationId, reload, vm.refreshTick) {
         try {
-            val d = app.api.get("/api/conversations/$conversationId", ConversationDetail.serializer())
+            val d = app.chatCache.sync(conversationId, markRead = true)
             val grew = d.messages.size != (detail?.messages?.size ?: -1)
             detail = d
             error = null

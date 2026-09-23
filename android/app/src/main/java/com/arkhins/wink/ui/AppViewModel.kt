@@ -120,6 +120,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
 
     private suspend fun signOutLocally() {
         app.session.clear()
+        app.chatCache.wipe()
+        app.chatMedia.wipe()
         me = null
         app.currentUserId = null
         unread = 0
@@ -153,6 +155,10 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             unread = r.unread
             unreadHome = r.unreadHome
             unreadChats = r.unreadChats
+            // New private messages: bring those chats up to date now, pictures and voice notes included.
+            r.messages.filter { it.kind == "direct" }.mapNotNull { it.conversationId }.distinct().forEach { id ->
+                app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
+            }
             if (!first && r.messages.isNotEmpty() && me?.pushConfigured != true) {
                 val m = r.messages.first()
                 popup = PushEvent(

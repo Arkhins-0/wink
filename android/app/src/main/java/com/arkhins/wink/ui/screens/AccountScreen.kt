@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.arkhins.wink.ui.Battery
+import com.arkhins.wink.ui.bytes
+import androidx.compose.runtime.collectAsState
 import com.arkhins.wink.BuildConfig
 import com.arkhins.wink.Config
 import com.arkhins.wink.LocalApp
@@ -116,6 +118,7 @@ fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit) {
         }
         GhostButton("Archive", onClick = onArchive)
         BackgroundPanel()
+        ChatStoragePanel()
         if (showPassword) ChangePasswordPanel { showPassword = false }
 
         UpdatePanel(vm)
@@ -168,6 +171,32 @@ private fun ChangePasswordPanel(onDone: () -> Unit) {
                         busy = false
                     }
                 }
+            }
+        }
+    }
+}
+
+/** How much the phone keeps of private chats, with a way to clear it (it comes back as chats are opened). */
+@Composable
+private fun ChatStoragePanel() {
+    val app = LocalApp.current
+    val landed by app.chatMedia.version.collectAsState()
+    var cleared by remember { mutableStateOf(0) }
+    val size = remember(landed, cleared) { app.chatCache.sizeBytes() + app.chatMedia.sizeBytes() }
+    Panel {
+        Column {
+            Text("Chat storage", style = MaterialTheme.typography.titleMedium, color = Snow)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${bytes(size)} of private chats, pictures and voice notes kept on this phone, so they open at once and without signal.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SnowFaint,
+            )
+            Spacer(Modifier.height(10.dp))
+            GhostButton("Clear", enabled = size > 0) {
+                app.chatCache.wipe()
+                app.chatMedia.wipe()
+                cleared++
             }
         }
     }

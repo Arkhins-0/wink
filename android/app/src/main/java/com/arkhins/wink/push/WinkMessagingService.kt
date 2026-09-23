@@ -28,6 +28,10 @@ class WinkMessagingService : FirebaseMessagingService() {
         val body = message.notification?.body ?: data["body"] ?: ""
         val link = data["link"] ?: "/home"
         Notifications.show(this, title, body, link, message.notification?.tag)
+        val app = application as WinkApplication
+        link.removePrefix("/chats/").takeIf { link.startsWith("/chats/") && it.isNotBlank() }?.let { id ->
+            app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
+        }
         Notifications.events.tryEmit(PushEvent(title, body, link))
     }
 }

@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.R
+import com.arkhins.wink.data.ChatMedia
 import com.arkhins.wink.data.Documents
 import com.arkhins.wink.data.FileInfo
 import com.arkhins.wink.data.UploadSlot
@@ -138,7 +139,7 @@ fun Composer(
         error = null
         scope.launch {
             try {
-                val fileId = attachment?.let { upload(context, app.api, app.documents, it) }
+                val fileId = attachment?.let { upload(context, app.api, app.documents, app.chatMedia, it) }
                 send(Draft(text.trim(), fileId, urgent))
                 body = ""
                 picked = null
@@ -420,7 +421,7 @@ private fun describe(context: Context, uri: Uri): Picked {
 }
 
 /** Copy the picked file to cache, ask for a slot, PUT it, confirm; keep a copy beside received files. */
-private suspend fun upload(context: Context, api: WinkApi, documents: Documents, p: Picked): String = withContext(Dispatchers.IO) {
+private suspend fun upload(context: Context, api: WinkApi, documents: Documents, media: ChatMedia, p: Picked): String = withContext(Dispatchers.IO) {
     val temp = File(context.cacheDir, "upload-${System.currentTimeMillis()}")
     if (p.uri.scheme == "file") {
         File(p.uri.path!!).copyTo(temp, overwrite = true)
@@ -441,7 +442,8 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
             api.putBytes(api.url("/api/files/${slot.id}/content"), temp, p.mime)
         }
         api.post("/api/files/${slot.id}/ready", com.arkhins.wink.data.Ok.serializer())
-        runCatching { documents.keepSent(FileInfo(slot.id, p.name, p.mime, temp.length()), temp) }
+        val info = FileInfo(slot.id, p.name, p.mime, temp.length())
+        if (media.wanted(info)) runCatching { media.put(info, temp) } else runCatching { documents.keepSent(info, temp) }
         slot.id
     } finally {
         temp.delete()

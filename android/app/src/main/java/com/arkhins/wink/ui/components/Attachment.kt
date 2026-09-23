@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -126,8 +127,10 @@ fun LocationCard(lat: Double, lng: Double, onDark: Boolean = true) {
 @Composable
 private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit) {
     val app = LocalApp.current
+    val landed by app.chatMedia.version.collectAsState()
+    val local = remember(file.id, landed) { app.chatMedia.local(file) }
     AsyncImage(
-        model = app.api.url("/api/files/${file.id}/content?inline=1"),
+        model = local ?: app.api.url("/api/files/${file.id}/content?inline=1"),
         contentDescription = file.name,
         contentScale = ContentScale.Crop,
         modifier = Modifier
@@ -174,9 +177,11 @@ private fun AudioAttachment(file: FileInfo, onDark: Boolean) {
         error = null
         scope.launch {
             try {
-                val doc = saved ?: app.documents.download(file) { progress = it }.also { saved = it }
+                val uri = app.chatMedia.local(file)?.let { Uri.fromFile(it) }
+                    ?: saved?.uri
+                    ?: app.chatMedia.fetch(file) { progress = it }.let { Uri.fromFile(it) }
                 val mp = MediaPlayer()
-                mp.setDataSource(context, doc.uri)
+                mp.setDataSource(context, uri)
                 mp.setOnCompletionListener { playing = false; position = 0; runCatching { mp.seekTo(0) } }
                 mp.prepare()
                 duration = mp.duration

@@ -92,7 +92,7 @@ data class Conversation(val id: String, val other: OtherUser, val iOpened: Boole
 data class ConversationsResponse(val conversations: List<Conversation>)
 
 @Serializable
-data class ConversationDetail(val id: String, val iOpened: Boolean = false, val other: OtherUser? = null, val messages: List<Message>)
+data class ConversationDetail(val id: String, val iOpened: Boolean = false, val other: OtherUser? = null, val messages: List<Message>, val liveIds: List<String>? = null)
 
 @Serializable
 data class ChannelResponse(val channelId: String, val open: Boolean, val canPost: Boolean, val messages: List<Message>)

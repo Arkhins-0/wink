@@ -51,7 +51,7 @@ fun ImageScreen(file: FileInfo) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AsyncImage(
-            model = app.api.url("/api/files/${file.id}/content?inline=1"),
+            model = app.chatMedia.local(file) ?: app.api.url("/api/files/${file.id}/content?inline=1"),
             contentDescription = file.name,
             contentScale = ContentScale.Fit,
             modifier = Modifier
@@ -79,7 +79,8 @@ fun ImageScreen(file: FileInfo) {
                 busy = true
                 scope.launch {
                     note = try {
-                        app.documents.download(file) {}
+                        val local = app.chatMedia.local(file)
+                        if (local != null) app.documents.keepSent(file, local) else app.documents.download(file) {}
                         "Saved in Downloads/Wink"
                     } catch (e: Exception) {
                         e.message ?: "Could not save."
