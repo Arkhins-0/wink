@@ -93,8 +93,15 @@ export function MessageComposer({
       const started = Date.now();
       recorder.start();
       setRecording({ recorder, started });
-    } catch {
-      setError("The microphone could not be opened. Allow it in the browser and try again.");
+    } catch (err) {
+      const name = (err as { name?: string }).name;
+      setError(
+        name === "NotAllowedError"
+          ? "Microphone access is blocked. Allow it in the site settings (the icon left of the address, or the app info for the installed app) and try again."
+          : name === "NotFoundError"
+            ? "No microphone was found on this device."
+            : "The microphone could not be opened. Try again.",
+      );
     }
   };
   const stopRecording = () => {

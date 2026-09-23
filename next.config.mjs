@@ -47,8 +47,8 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "same-origin" },
-          // The camera is for the QR scanner on the account page.
-          { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+          // Camera for the QR scanner, microphone for voice notes, location for sharing where you are.
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(self)" },
         ],
       },
     ];
