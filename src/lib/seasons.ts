@@ -129,7 +129,7 @@ export type SeasonArchive = {
     timezone: string;
     startsOn: string;
     endsOn: string;
-    sessions: { id: string; name: string; startsAt: string; endsAt: string }[];
+    sessions: { id: string; weekendId: string; name: string; startsAt: string; endsAt: string }[];
     posts: ArchivedMessage[];
   }[];
   announcements: ArchivedMessage[];
@@ -230,7 +230,7 @@ export async function seasonArchive(user: SessionUser, id: string): Promise<Seas
       endsOn: w.ends_on,
       sessions: sessions
         .filter((s) => s.weekend_id === w.id)
-        .map((s) => ({ id: s.id, name: s.name, startsAt: new Date(s.starts_at).toISOString(), endsAt: new Date(s.ends_at).toISOString() })),
+        .map((s) => ({ id: s.id, weekendId: s.weekend_id, name: s.name, startsAt: new Date(s.starts_at).toISOString(), endsAt: new Date(s.ends_at).toISOString() })),
       posts: posts(w.id),
     })),
     announcements,

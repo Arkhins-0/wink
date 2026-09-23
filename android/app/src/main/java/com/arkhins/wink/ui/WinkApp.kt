@@ -210,7 +210,7 @@ private fun MainNav(vm: AppViewModel) {
         "newperson" -> "Add person"
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
-        "archive" -> if (route == "archive") "Archive" else title
+        "archive" -> if (route == "archive") "Archive" else title.ifBlank { "Season" }
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
         "weekend" -> "Race weekend"

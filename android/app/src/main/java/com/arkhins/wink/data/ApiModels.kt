@@ -98,7 +98,7 @@ data class ConversationDetail(val id: String, val iOpened: Boolean = false, val 
 data class ChannelResponse(val channelId: String, val open: Boolean, val canPost: Boolean, val messages: List<Message>)
 
 @Serializable
-data class RaceSession(val id: String, val weekendId: String, val name: String, val startsAt: String, val endsAt: String)
+data class RaceSession(val id: String, val weekendId: String = "", val name: String, val startsAt: String, val endsAt: String)
 
 @Serializable
 data class Weekend(
