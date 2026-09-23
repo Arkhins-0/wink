@@ -265,8 +265,9 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
     messageId: id,
     recipientIds: [otherId],
     push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}` },
+    // Private chats email only when the sender marks the message urgent.
     email:
-      draft.urgent || file
+      draft.urgent
         ? {
             subject: `${draft.urgent ? "Urgent: " : ""}${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
             title: `Message from ${sender.name || sender.email}`,
