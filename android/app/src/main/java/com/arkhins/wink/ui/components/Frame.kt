@@ -86,7 +86,7 @@ fun CountdownChip(onOpenWeekend: (String) -> Unit) {
 
     LaunchedEffect(Unit) {
         while (true) {
-            next = runCatching { app.api.get("/api/next-race", NextRace.serializer()) }.getOrNull()
+            next = runCatching { app.store.get("/api/next-race", NextRace.serializer()) { if (next == null) next = it } }.getOrNull() ?: next
             // Two minutes, or until the session boundary, whichever is sooner.
             val boundary = next?.session?.let { s ->
                 (if (next?.state == "live") instant(s.endsAt) else instant(s.startsAt)).toEpochMilli() - System.currentTimeMillis()

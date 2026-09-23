@@ -88,7 +88,7 @@ fun ArchiveScreen(onOpen: (String) -> Unit) {
 
     LaunchedEffect(Unit) {
         try {
-            seasons = app.api.get("/api/seasons", SeasonsResponse.serializer()).seasons
+            seasons = app.store.get("/api/seasons", SeasonsResponse.serializer()) { seasons = it.seasons }.seasons
         } catch (e: Exception) {
             error = e.message
         }
@@ -162,7 +162,7 @@ fun SeasonArchiveScreen(vm: AppViewModel, seasonId: String, onView: (FileView) -
 
     LaunchedEffect(seasonId, reload) {
         try {
-            archive = app.api.get("/api/seasons/$seasonId?archive=1", SeasonArchive.serializer())
+            archive = app.store.get("/api/seasons/$seasonId?archive=1", SeasonArchive.serializer()) { if (archive == null) archive = it }
         } catch (e: Exception) {
             error = e.message
         }

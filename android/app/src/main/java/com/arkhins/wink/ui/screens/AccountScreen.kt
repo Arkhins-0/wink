@@ -193,13 +193,13 @@ private fun ChatStoragePanel() {
     val app = LocalApp.current
     val landed by app.chatMedia.version.collectAsState()
     var cleared by remember { mutableStateOf(0) }
-    val size = remember(landed, cleared) { app.chatCache.sizeBytes() + app.chatMedia.sizeBytes() }
+    val size = remember(landed, cleared) { app.chatCache.sizeBytes() + app.chatMedia.sizeBytes() + app.store.sizeBytes() }
     Panel {
         Column {
-            Text("Chat storage", style = MaterialTheme.typography.titleMedium, color = Snow)
+            Text("Kept on this phone", style = MaterialTheme.typography.titleMedium, color = Snow)
             Spacer(Modifier.height(4.dp))
             Text(
-                "${bytes(size)} of private chats, pictures and voice notes kept on this phone, so they open at once and without signal.",
+                "${bytes(size)}: chats, announcements, channels, schedule, people, pictures and voice notes, so everything opens at once and without signal.",
                 style = MaterialTheme.typography.bodySmall,
                 color = SnowFaint,
             )
@@ -207,6 +207,7 @@ private fun ChatStoragePanel() {
             GhostButton("Clear", enabled = size > 0) {
                 app.chatCache.wipe()
                 app.chatMedia.wipe()
+                app.store.wipe()
                 cleared++
             }
         }

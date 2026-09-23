@@ -84,9 +84,10 @@ fun PeopleScreen(me: Me?, onOpen: (String) -> Unit, onAdd: () -> Unit, onEmail: 
 
     LaunchedEffect(Unit) {
         try {
-            people = app.api.get("/api/users", UsersResponse.serializer()).users
+            people = app.store.get("/api/users", UsersResponse.serializer()) { people = it.users }.users
+            error = null
         } catch (e: Exception) {
-            error = e.message
+            if (people == null) error = e.message
         }
     }
 
@@ -163,7 +164,10 @@ fun PersonScreen(me: Me?, userId: String, onOpenChat: (String) -> Unit, onTitle:
 
     LaunchedEffect(userId, reload) {
         try {
-            data = app.api.get("/api/users/$userId", UserResponse.serializer()).also { onTitle(it.user.displayName) }
+            data = app.store.get("/api/users/$userId", UserResponse.serializer()) {
+                if (data == null) data = it
+                onTitle(it.user.displayName)
+            }.also { onTitle(it.user.displayName) }
         } catch (e: Exception) {
             error = e.message
         }

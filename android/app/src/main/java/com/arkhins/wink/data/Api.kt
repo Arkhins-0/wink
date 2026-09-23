@@ -101,6 +101,11 @@ class WinkApi(private val session: SessionStore) {
         execute(builder(path).get().build()).use { json.decodeFromString(serializer, it.body!!.string()) }
     }
 
+    /** The answer as it came, for the phone's copy. */
+    suspend fun getText(path: String): String = withContext(Dispatchers.IO) {
+        execute(builder(path).get().build()).use { it.body!!.string() }
+    }
+
     suspend fun <T> send(method: String, path: String, body: JsonObject, serializer: KSerializer<T>): T =
         withContext(Dispatchers.IO) {
             val request = builder(path).method(method, body.toString().toRequestBody(jsonType)).build()

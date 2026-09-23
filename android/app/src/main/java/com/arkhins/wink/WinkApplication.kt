@@ -7,6 +7,7 @@ import coil.ImageLoaderFactory
 import com.arkhins.wink.data.AppUpdater
 import com.arkhins.wink.data.ChatCache
 import com.arkhins.wink.data.ChatMedia
+import com.arkhins.wink.data.LocalStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,9 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** The phone's own copy of every private chat. */
     val chatCache: ChatCache by lazy { ChatCache(this, api, chatMedia, appScope) }
 
+    /** The phone's copy of every other page: announcements, channels, schedule, people, the account. */
+    val store: LocalStore by lazy { LocalStore(this, api, chatMedia, appScope) }
+
     /** Asks the server (or GitHub) what the latest release is. */
     val updates: UpdateChecker by lazy { UpdateChecker() }
 
@@ -54,7 +58,7 @@ class WinkApplication : Application(), ImageLoaderFactory {
 
     /** Profile photos come from our API, so Coil's client must carry the session. */
     override fun newImageLoader(): ImageLoader =
-        ImageLoader.Builder(this).okHttpClient { api.http }.crossfade(true).build()
+        ImageLoader.Builder(this).okHttpClient { api.http }.respectCacheHeaders(false).crossfade(true).build()
 }
 
 val LocalApp = staticCompositionLocalOf<WinkApplication> { error("WinkApplication is not provided") }

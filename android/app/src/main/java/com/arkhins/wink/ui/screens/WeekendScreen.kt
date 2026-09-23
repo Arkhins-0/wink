@@ -42,8 +42,8 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
 
     LaunchedEffect(weekendId, reload, vm.refreshTick) {
         try {
-            weekend = app.api.get("/api/weekends/$weekendId", WeekendResponse.serializer())
-            channel = app.api.get("/api/weekends/$weekendId/channel", ChannelResponse.serializer())
+            weekend = app.store.get("/api/weekends/$weekendId", WeekendResponse.serializer()) { if (weekend == null) weekend = it }
+            channel = app.store.get("/api/weekends/$weekendId/channel", ChannelResponse.serializer()) { if (channel == null) channel = it }
             error = null
         } catch (e: Exception) {
             if (weekend == null) error = e.message

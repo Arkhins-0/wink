@@ -70,9 +70,9 @@ export default function Privacy() {
           </li>
         </ul>
         <p>
-          The app keeps a copy of your private chats, photos and voice notes in its own storage on your phone, so they open quickly and without signal. You can
-          clear it at any time under Account → Chat storage. It is cleared automatically if another person signs in on the same phone, or if your account is
-          banned.
+          The app keeps a copy of what it shows you (your chats, announcements, channel posts, the schedule, the people list, your account, and the photos and
+          voice notes in them) in its own storage on your phone, so it opens quickly and without signal. You can clear it at any time under Account → Kept on
+          this phone. It is cleared automatically if another person signs in on the same phone, or if your account is banned.
         </p>
       </Section>
 

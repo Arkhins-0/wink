@@ -60,7 +60,7 @@ fun ComposeScreen(onSent: () -> Unit) {
 
     LaunchedEffect(Unit) {
         try {
-            people = app.api.get("/api/users", UsersResponse.serializer()).users.filter { it.status == "active" }
+            people = app.store.get("/api/users", UsersResponse.serializer()) { c -> people = c.users.filter { it.status == "active" } }.users.filter { it.status == "active" }
         } catch (e: Exception) {
             error = e.message
         }

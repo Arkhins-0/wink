@@ -92,11 +92,11 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit, onArchive:
 
     LaunchedEffect(reload) {
         try {
-            seasons = runCatching { app.api.get("/api/seasons", SeasonsResponse.serializer()).seasons }.getOrDefault(emptyList())
-            weekends = app.api.get("/api/weekends", WeekendsResponse.serializer()).weekends
+            seasons = runCatching { app.store.get("/api/seasons", SeasonsResponse.serializer()) { seasons = it.seasons }.seasons }.getOrDefault(seasons)
+            weekends = app.store.get("/api/weekends", WeekendsResponse.serializer()) { weekends = it.weekends }.weekends
             error = null
         } catch (e: Exception) {
-            error = e.message
+            if (weekends == null) error = e.message
         }
     }
 

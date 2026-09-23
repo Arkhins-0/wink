@@ -51,9 +51,9 @@ fun ChangelogScreen() {
 
     LaunchedEffect(Unit) {
         try {
-            releases = app.api.get("/api/app-version/releases", ChangelogResponse.serializer()).releases
+            releases = app.store.get("/api/app-version/releases", ChangelogResponse.serializer()) { releases = it.releases }.releases
         } catch (e: Exception) {
-            error = e.message ?: "Could not load the changelog."
+            if (releases == null) error = e.message ?: "Could not load the changelog."
         }
     }
 

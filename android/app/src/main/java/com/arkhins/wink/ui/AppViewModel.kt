@@ -85,12 +85,26 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             return
         }
         viewModelScope.launch {
+            if (me == null) {
+                app.store.read("/api/me", Me.serializer())?.let { cached ->
+                    if (me == null) {
+                        me = cached
+                        app.currentUserId = cached.user.id
+                        unread = cached.unread
+                        unreadHome = cached.unreadHome
+                        unreadChats = cached.unreadChats
+                        if (gate == Gate.Loading) gate = if (cached.user.profileComplete) Gate.Ready else Gate.Onboarding
+                    }
+                }
+            }
             try {
-                val m = app.api.me()
-                // Someone else signed in on this phone: the last person's chats are not theirs to see.
+                val m = app.store.fetch("/api/me", Me.serializer())
+                // Someone else signed in on this phone: the last person's copy is not theirs to see.
                 if (app.chatCache.claim(m.user.id)) {
                     app.chatCache.wipe()
                     app.chatMedia.wipe()
+                    app.store.wipe()
+                    app.store.put("/api/me", m, Me.serializer())
                 }
                 me = m
                 app.currentUserId = m.user.id
@@ -127,9 +141,12 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
     /** Chats stay on the phone through a sign-out or a suspension; only a ban clears them. */
     private suspend fun signOutLocally(wipe: Boolean = false) {
         app.session.clear()
+        // Who was signed in is forgotten either way; what they saw stays unless the account was banned.
+        app.store.remove("/api/me")
         if (wipe) {
             app.chatCache.wipe()
             app.chatMedia.wipe()
+            app.store.wipe()
         }
         me = null
         app.currentUserId = null

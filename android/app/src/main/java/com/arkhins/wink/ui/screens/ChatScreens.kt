@@ -207,7 +207,7 @@ fun NewChatScreen(onOpened: (String) -> Unit) {
 
     LaunchedEffect(Unit) {
         try {
-            people = app.api.get("/api/users?chat=1", UsersResponse.serializer()).users
+            people = app.store.get("/api/users?chat=1", UsersResponse.serializer()) { people = it.users }.users
         } catch (e: Exception) {
             error = e.message
         }

@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,7 +65,19 @@ import kotlinx.serialization.json.putJsonArray
 import java.time.LocalDate
 
 /** A weekend that is still on, with its latest channel post. */
-private data class ChannelSummary(val weekend: Weekend, val latest: Message?)
+@Serializable
+private data class ChannelSummary(val weekend: Weekend, val latest: Message? = null)
+
+/** Home as last seen, kept on the phone so it shows at once. */
+@Serializable
+private data class HomeSnapshot(
+    val next: NextRace? = null,
+    val chats: List<Conversation> = emptyList(),
+    val channels: List<ChannelSummary> = emptyList(),
+    val messages: List<Message> = emptyList(),
+)
+
+private const val HOME_KEY = "snapshot:home"
 
 /**
  * Home: the next race, the last three private chats, the latest post of
@@ -88,13 +101,25 @@ fun HomeScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val list = rememberLazyListState()
 
+    LaunchedEffect(Unit) {
+        if (messages == null) {
+            app.store.read(HOME_KEY, HomeSnapshot.serializer())?.let { s ->
+                if (messages == null) {
+                    next = s.next
+                    chats = s.chats
+                    channels = s.channels
+                    messages = s.messages
+                }
+            }
+        }
+    }
     LaunchedEffect(vm.refreshTick) {
         try {
             coroutineScope {
                 val nextJob = async { runCatching { app.api.get("/api/next-race", NextRace.serializer()) }.getOrNull() }
                 val chatsJob = async { runCatching { app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations }.getOrDefault(emptyList()) }
                 val weekendsJob = async { runCatching { app.api.get("/api/weekends", WeekendsResponse.serializer()).weekends }.getOrDefault(emptyList()) }
-                val inboxJob = async { app.api.get("/api/messages", MessagesResponse.serializer()) }
+                val inboxJob = async { app.store.fetch("/api/messages", MessagesResponse.serializer()) }
 
                 next = nextJob.await()
                 // Only chats something has been said in, newest first.
@@ -102,13 +127,14 @@ fun HomeScreen(
                 val today = LocalDate.now().toString()
                 val active = weekendsJob.await().filter { it.endsOn >= today }.sortedBy { it.startsOn }
                 channels = active.map { w ->
-                    async { ChannelSummary(w, runCatching { app.api.get("/api/weekends/${w.id}/channel", ChannelResponse.serializer()).messages.lastOrNull() }.getOrNull()) }
+                    async { ChannelSummary(w, runCatching { app.store.fetch("/api/weekends/${w.id}/channel", ChannelResponse.serializer()).messages.lastOrNull() }.getOrNull()) }
                 }.map { it.await() }
 
                 val r = inboxJob.await()
                 // Announcements only: chats and channels have their own sections above.
                 messages = r.messages.filter { it.kind == "broadcast" }
                 error = null
+                app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.orEmpty()), HomeSnapshot.serializer())
                 val unread = r.messages.filter { it.readAt == null && !it.mine && it.kind != "direct" }.map { it.id }
                 if (unread.isNotEmpty()) {
                     runCatching { app.api.post("/api/messages/read", Ok.serializer()) { putJsonArray("ids") { unread.forEach { add(it) } } } }
