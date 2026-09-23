@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { AppChooser } from "@/components/AppChooser";
 import { APP_NAME, SITE_URL } from "@/lib/config";
 import "./globals.css";
 
@@ -33,7 +34,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={body.variable}>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        <AppChooser />
+      </body>
     </html>
   );
 }
