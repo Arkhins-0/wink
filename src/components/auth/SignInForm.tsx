@@ -57,7 +57,7 @@ export function SignInForm({ next }: { next?: string }) {
           Forgot password
         </Link>
         <a href="/download" className="hover:text-snow">
-          Get the Android app
+          Open the Android app
         </a>
       </div>
     </form>

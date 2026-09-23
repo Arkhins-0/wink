@@ -40,7 +40,7 @@ export function AccountActions({ appVersion }: { appVersion: string | null }) {
       {panel === "password" && <ChangePassword onDone={() => setPanel("none")} />}
       <p className="text-xs text-snow-faint">
         <a href="/download" className="hover:text-snow">
-          Android app{appVersion ? ` v${appVersion}` : ""}
+          Open the Android app{appVersion ? ` (v${appVersion})` : ""}
         </a>
       </p>
     </section>
