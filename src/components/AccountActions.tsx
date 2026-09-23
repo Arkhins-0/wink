@@ -28,6 +28,9 @@ export function AccountActions({ appVersion }: { appVersion: string | null }) {
         >
           Change password
         </button>
+        <a href="/archive" className="btn-ghost px-4 py-1.5 text-xs">
+          Archive
+        </a>
         <button className="btn-ghost ml-auto px-4 py-1.5 text-xs" onClick={signOut}>
           Sign out
         </button>

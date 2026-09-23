@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client";
 import type { Session, Weekend } from "@/lib/races";
+import type { Season } from "@/lib/seasons";
 import { formatIn, utcToZonedInput } from "@/lib/time";
 
 /** The admin's schedule: weekends and their sessions, edited in place. Every time change goes out to everyone. */
-export function ScheduleEditor({ weekends }: { weekends: Weekend[] }) {
+export function ScheduleEditor({ weekends, seasons }: { weekends: Weekend[]; seasons: Season[] }) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
 
@@ -22,6 +23,7 @@ export function ScheduleEditor({ weekends }: { weekends: Weekend[] }) {
       </div>
       {creating && (
         <WeekendForm
+          seasons={seasons}
           onDone={() => {
             setCreating(false);
             router.refresh();
@@ -30,14 +32,21 @@ export function ScheduleEditor({ weekends }: { weekends: Weekend[] }) {
         />
       )}
       {weekends.length === 0 && !creating && <p className="card text-sm text-snow-faint">No race weekend yet.</p>}
-      {weekends.map((w) => (
-        <WeekendCard key={w.id} weekend={w} onChanged={() => router.refresh()} />
+      {Array.from(new Set(weekends.map((w) => w.seasonName ?? ""))).map((seasonName) => (
+        <div key={seasonName || "none"} className="space-y-4">
+          {seasonName && <h2 className="text-xs font-semibold uppercase tracking-wide text-snow-faint">{seasonName}</h2>}
+          {weekends
+            .filter((w) => (w.seasonName ?? "") === seasonName)
+            .map((w) => (
+              <WeekendCard key={w.id} weekend={w} seasons={seasons} onChanged={() => router.refresh()} />
+            ))}
+        </div>
       ))}
     </div>
   );
 }
 
-function WeekendCard({ weekend: w, onChanged }: { weekend: Weekend; onChanged: () => void }) {
+function WeekendCard({ weekend: w, seasons, onChanged }: { weekend: Weekend; seasons: Season[]; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -67,6 +76,7 @@ function WeekendCard({ weekend: w, onChanged }: { weekend: Weekend; onChanged: (
     return (
       <WeekendForm
         weekend={w}
+        seasons={seasons}
         onDone={() => {
           setEditing(false);
           onChanged();
@@ -148,7 +158,7 @@ function WeekendCard({ weekend: w, onChanged }: { weekend: Weekend; onChanged: (
   );
 }
 
-function WeekendForm({ weekend, onDone, onCancel }: { weekend?: Weekend; onDone: () => void; onCancel: () => void }) {
+function WeekendForm({ weekend, seasons, onDone, onCancel }: { weekend?: Weekend; seasons: Season[]; onDone: () => void; onCancel: () => void }) {
   const [f, setF] = useState({
     name: weekend?.name ?? "",
     venue: weekend?.venue ?? "",
@@ -158,11 +168,12 @@ function WeekendForm({ weekend, onDone, onCancel }: { weekend?: Weekend; onDone:
     startsOn: weekend?.startsOn ?? "",
     endsOn: weekend?.endsOn ?? "",
     channelOpen: weekend?.channelOpen ?? true,
+    seasonId: weekend?.seasonId ?? seasons.find((s) => s.current)?.id ?? "",
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setF({ ...f, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,6 +197,16 @@ function WeekendForm({ weekend, onDone, onCancel }: { weekend?: Weekend; onDone:
         </Field>
         <Field label="Time zone (track)">
           <input className="input" required value={f.timezone} onChange={set("timezone")} placeholder="Asia/Kuala_Lumpur" />
+        </Field>
+        <Field label="Season">
+          <select className="input" value={f.seasonId} onChange={set("seasonId")}>
+            {seasons.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.current ? " (current)" : ""}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="Venue">
           <input className="input" value={f.venue} onChange={set("venue")} />
