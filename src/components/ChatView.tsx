@@ -54,7 +54,7 @@ export function ChatView({ conversationId, initial }: { conversationId: string; 
         {messages.length === 0 && <p className="py-8 text-center text-sm text-snow-faint">No messages yet. Say hello.</p>}
         {rows}
       </div>
-      <div className="border-t border-night-line p-2 sm:p-3">
+      <div className="shrink-0 border-t border-night-line p-2 sm:p-3">
         <MessageComposer
           placeholder="Message"
           send={async (draft) => {

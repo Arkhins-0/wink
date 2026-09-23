@@ -38,6 +38,7 @@ export function MessageComposer({
   const docInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const discard = useRef(false);
 
   useEffect(() => {
     if (!recording) return setSeconds(0);
@@ -83,6 +84,7 @@ export function MessageComposer({
       recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        if (discard.current) return;
         const type = recorder.mimeType.split(";")[0] || "audio/webm";
         const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
         const secs = Math.round((Date.now() - started) / 1000);
@@ -91,6 +93,7 @@ export function MessageComposer({
         doSend(false, note, "");
       };
       const started = Date.now();
+      discard.current = false;
       recorder.start();
       setRecording({ recorder, started });
     } catch (err) {
@@ -104,7 +107,8 @@ export function MessageComposer({
       );
     }
   };
-  const stopRecording = () => {
+  const stopRecording = (send: boolean) => {
+    discard.current = !send;
     recording?.recorder.stop();
     setRecording(null);
   };
@@ -145,7 +149,10 @@ export function MessageComposer({
         {recording ? (
           <div className="flex min-h-[44px] flex-1 items-center gap-2 px-3 text-sm">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" />
-            Recording {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} · stop to send
+            Recording {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+            <button type="button" className="btn-icon ml-auto text-danger hover:text-danger" title="Delete recording" aria-label="Delete recording" onClick={() => stopRecording(false)}>
+              <Icon name="trash" className="h-5 w-5" />
+            </button>
           </div>
         ) : (
           <>
@@ -186,8 +193,8 @@ export function MessageComposer({
             )}
           </span>
         ) : recording ? (
-          <button type="button" className="btn-icon text-danger hover:text-danger" title="Stop and send" aria-label="Stop and send" onClick={stopRecording}>
-            <Icon name="stop" className="h-5 w-5" />
+          <button type="button" className="btn-icon text-gold hover:text-gold" title="Send voice note" aria-label="Send voice note" onClick={() => stopRecording(true)}>
+            <Icon name="send" className="h-5 w-5" />
           </button>
         ) : (
           <button type="button" className="btn-icon text-gold hover:text-gold" title="Record a voice note" aria-label="Record a voice note" onClick={startRecording}>

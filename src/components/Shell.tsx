@@ -35,11 +35,13 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
   const badge = (href: string) => (href === "/home" ? badges.home : href === "/chats" ? badges.chats : 0);
   // A chat thread wants the whole phone screen: no bottom bar under the composer.
   const immersive = /^\/chats\/[^/]+$/.test(pathname);
+  // Chats are app-like: header and composer stay put, only the messages scroll.
+  const fixedHeight = pathname === "/chats" || pathname.startsWith("/chats/");
 
   return (
     <PermissionGate>
       <Notifier onUnread={onUnread} />
-      <div className="flex min-h-screen">
+      <div className={`flex ${fixedHeight ? "h-[100dvh] overflow-hidden" : "min-h-screen"}`}>
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-night-line bg-night-panel/40 lg:flex">
           <Link href="/home" className="flex items-center gap-3 px-6 py-6">
             <Image src="/ctr-logo.png" alt="" width={44} height={25} priority />
@@ -63,8 +65,8 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
           </Link>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 border-b border-night-line bg-night/90 backdrop-blur">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 shrink-0 border-b border-night-line bg-night/90 backdrop-blur">
             <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6">
               <Link href="/home" className="flex items-center gap-2.5 lg:hidden">
                 <Image src="/ctr-logo.png" alt="" width={36} height={20} priority />
@@ -75,8 +77,14 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
             </div>
           </header>
 
-          <main className={`flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-6 ${immersive ? "pb-2 pt-3 lg:pb-8 lg:pt-6" : "pb-24 lg:pb-8"}`}>
-            <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <main
+            className={`flex-1 px-4 sm:px-6 lg:px-8 ${
+              fixedHeight
+                ? `min-h-0 overflow-hidden pt-3 lg:py-6 ${immersive ? "pb-2" : "pb-24 lg:pb-6"}`
+                : "py-5 pb-24 lg:py-6 lg:pb-8"
+            }`}
+          >
+            <div className={`mx-auto w-full max-w-6xl ${fixedHeight ? "h-full" : ""}`}>{children}</div>
           </main>
         </div>
       </div>
