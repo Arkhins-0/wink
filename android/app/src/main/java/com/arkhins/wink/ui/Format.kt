@@ -25,6 +25,14 @@ fun trackDay(iso: String, tz: String): String = dayOnly.format(instant(iso).atZo
 
 fun zone(tz: String): ZoneId = runCatching { ZoneId.of(tz) }.getOrDefault(ZoneId.of("UTC"))
 
+private val dayAndTime = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.getDefault())
+
+/** The moment a message was sent: the time today, otherwise the day and time. */
+fun whenLabel(iso: String): String {
+    val at = instant(iso).atZone(ZoneId.systemDefault())
+    return if (at.toLocalDate() == java.time.LocalDate.now()) timeOnly.format(at) else dayAndTime.format(at)
+}
+
 /** "3m", "2h", or the day — for the corner of a message. */
 fun ago(iso: String): String {
     val d = Duration.between(instant(iso), Instant.now())

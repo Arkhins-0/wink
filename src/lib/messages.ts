@@ -201,6 +201,7 @@ export type ConversationOut = {
   other: { id: string; name: string; role: Role; roleLabel: string; photoUrl: string | null; status: string };
   iOpened: boolean;
   lastMessageAt: string | null;
+  lastMessage: string | null;
   unread: number;
 };
 
@@ -287,11 +288,15 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     o_photo: string | null;
     o_status: string;
     unread: string;
+    last_body: string | null;
+    last_file: string | null;
   }>(
     `SELECT c.id, c.owner_id, c.member_id, c.last_message_at,
             o.id AS o_id, o.name AS o_name, o.email AS o_email, o.role AS o_role, o.photo_key AS o_photo, o.status AS o_status,
             (SELECT count(*) FROM messages m JOIN message_recipients r ON r.message_id = m.id AND r.user_id = $1
-              WHERE m.conversation_id = c.id AND r.read_at IS NULL)::text AS unread
+              WHERE m.conversation_id = c.id AND r.read_at IS NULL)::text AS unread,
+            (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_file
      FROM conversations c
      JOIN users o ON o.id = CASE WHEN c.owner_id = $1 THEN c.member_id ELSE c.owner_id END
      WHERE c.kind = 'direct' AND (c.owner_id = $1 OR c.member_id = $1)
@@ -310,6 +315,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     },
     iOpened: r.owner_id === user.id,
     lastMessageAt: r.last_message_at ? String(r.last_message_at) : null,
+    lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
     unread: Number(r.unread),
   }));
 }

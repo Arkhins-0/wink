@@ -86,7 +86,7 @@ data class UnseenResponse(val messages: List<Message>, val unread: Int, val unre
 data class OtherUser(val id: String, val name: String, val role: String, val roleLabel: String, val photoUrl: String? = null, val status: String = "active")
 
 @Serializable
-data class Conversation(val id: String, val other: OtherUser, val iOpened: Boolean = false, val lastMessageAt: String? = null, val unread: Int = 0)
+data class Conversation(val id: String, val other: OtherUser, val iOpened: Boolean = false, val lastMessageAt: String? = null, val lastMessage: String? = null, val unread: Int = 0)
 
 @Serializable
 data class ConversationsResponse(val conversations: List<Conversation>)

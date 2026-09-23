@@ -21,7 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.Message
-import com.arkhins.wink.ui.ago
+import com.arkhins.wink.ui.whenLabel
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.NightLine
@@ -70,7 +70,7 @@ fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = tr
                         Chip("Urgent", Danger)
                     }
                     Spacer(Modifier.width(8.dp))
-                    Text(ago(m.createdAt), style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                    Text(whenLabel(m.createdAt), style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                 }
                 if (m.body.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
