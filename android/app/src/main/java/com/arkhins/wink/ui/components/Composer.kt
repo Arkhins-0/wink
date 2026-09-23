@@ -1,5 +1,13 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -94,6 +102,9 @@ import kotlin.coroutines.resume
 /** What a composer hands back. */
 data class Draft(val body: String, val fileId: String?, val urgent: Boolean)
 
+/** What sits above the field: the message being answered or edited, with a way out. */
+data class ComposerBanner(val title: String, val text: String, val onCancel: () -> Unit)
+
 private data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
 
 /**
@@ -109,6 +120,9 @@ fun Composer(
     placeholder: String = "Message",
     urgentOption: Boolean = true,
     sendLabel: String = "Send",
+    banner: ComposerBanner? = null,
+    /** Set while editing a message: the field holds its text; attachments and voice notes step aside. */
+    editText: String? = null,
     send: suspend (Draft) -> Unit,
 ) {
     val app = LocalApp.current
@@ -123,6 +137,23 @@ fun Composer(
     var recording by remember { mutableStateOf<VoiceRecorder?>(null) }
     var recordSeconds by remember { mutableIntStateOf(0) }
     var locating by remember { mutableStateOf(false) }
+    val editing = editText != null
+    var lastEdit by remember { mutableStateOf<String?>(null) }
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Starting an edit fills the field; leaving it clears what the edit put there.
+    LaunchedEffect(editText) {
+        if (editText != null) body = editText else if (body == lastEdit) body = ""
+        lastEdit = editText
+    }
+    // Starting a reply or an edit puts the cursor in the field.
+    LaunchedEffect(banner?.title, banner?.text) {
+        if (banner != null) {
+            runCatching { focus.requestFocus() }
+            keyboard?.show()
+        }
+    }
 
     val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) picked = describe(context, uri)
@@ -170,6 +201,24 @@ fun Composer(
         if (error != null) {
             ErrorText(error, Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
         }
+        banner?.let { b ->
+            Row(
+                Modifier
+                    .padding(horizontal = 2.dp, vertical = 2.dp)
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Night),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.width(4.dp).fillMaxHeight().background(Gold))
+                Column(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text(b.title, style = MaterialTheme.typography.labelMedium, color = Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(b.text, style = MaterialTheme.typography.bodySmall, color = SnowSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                PlainIcon(rememberVectorPainter(Icons.Outlined.Close), "Cancel", SnowFaint, enabled = !busy) { b.onCancel() }
+            }
+        }
         picked?.let { p ->
             Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -205,6 +254,7 @@ fun Composer(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 44.dp)
+                        .focusRequester(focus)
                         .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
                     decorationBox = { inner ->
                         Box {
@@ -213,7 +263,7 @@ fun Composer(
                         }
                     },
                 )
-                PlainIcon(painterResource(R.drawable.ic_clip), "Attach", SnowSoft, enabled = !busy) { sheet = true }
+                if (!editing) PlainIcon(painterResource(R.drawable.ic_clip), "Attach", SnowSoft, enabled = !busy) { sheet = true }
             }
 
             val canSend = !busy && (body.isNotBlank() || picked != null)
@@ -223,9 +273,12 @@ fun Composer(
                     canSend -> Box(
                         Modifier
                             .size(44.dp)
-                            .combinedClickable(onClick = { doSend(false) }, onLongClick = { if (urgentOption) menu = true }),
+                            .combinedClickable(onClick = { doSend(false) }, onLongClick = { if (urgentOption && !editing) menu = true }),
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = sendLabel, tint = Gold, modifier = Modifier.size(24.dp)) }
+                    editing -> Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = sendLabel, tint = SnowFaint, modifier = Modifier.size(24.dp))
+                    }
                     else -> Box(
                         Modifier
                             .size(44.dp)

@@ -74,6 +74,25 @@ data class Message(
     val createdAt: String,
     val readAt: String? = null,
     val mine: Boolean = false,
+    /** The message this one answers, as it read when fetched. */
+    val replyTo: ReplyRef? = null,
+    val editedAt: String? = null,
+    val deleted: Boolean = false,
+    /** Last edited, deleted, delivered or read; the phone asks for changes after the newest of these. */
+    val changedAt: String? = null,
+    /** Your own private message: "sent", "delivered" or "read" (one, two, three ticks). */
+    val status: String? = null,
+)
+
+@Serializable
+data class ReplyRef(
+    val id: String,
+    val senderName: String = "",
+    val mine: Boolean = false,
+    val body: String = "",
+    val fileName: String? = null,
+    val fileMime: String? = null,
+    val deleted: Boolean = false,
 )
 
 @Serializable

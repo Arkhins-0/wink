@@ -64,7 +64,8 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     suspend fun sync(id: String, markRead: Boolean): CachedChat = locks.getOrPut(id) { Mutex() }.withLock {
         withContext(Dispatchers.IO) {
             val cached = load(id)
-            val after = cached?.messages?.lastOrNull()?.createdAt
+            // The newest thing the phone knows: a new message, or an edit, delete or tick on an old one.
+            val after = cached?.messages?.maxByOrNull { instant(it.changedAt ?: it.createdAt) }?.let { it.changedAt ?: it.createdAt }
             val query = buildList {
                 if (after != null) add("after=" + URLEncoder.encode(after, "UTF-8"))
                 if (!markRead) add("read=0")
@@ -80,6 +81,9 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                     .values
                     .sortedBy { instant(it.createdAt) }
             }
+            // Deleted for both: its picture or voice note goes from the phone too.
+            val deletedNow = d.messages.filter { it.deleted }.map { it.id }.toSet()
+            cached?.messages?.filter { it.id in deletedNow }?.mapNotNull { it.file }?.forEach { media.remove(it) }
             val out = CachedChat(d.other ?: cached?.other, merged)
             write(file(id), json.encodeToString(CachedChat.serializer(), out))
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
@@ -169,6 +173,10 @@ class ChatMedia(context: Context, private val api: WinkApi) {
     }
 
     fun sizeBytes(): Long = dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+
+    fun remove(file: FileInfo) {
+        if (target(file).delete()) _version.value++
+    }
 
     fun wipe() {
         dir.deleteRecursively()
