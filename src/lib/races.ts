@@ -4,6 +4,7 @@ import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { activeUserIds, deliver } from "./notify";
 import { formatIn } from "./time";
+import { currentSeason, LIVE_SEASON } from "./seasons";
 
 /*
  * Race weekends and their sessions. The admin keeps the times; everyone
@@ -20,6 +21,9 @@ export type Weekend = {
   startsOn: string;
   endsOn: string;
   channelOpen: boolean;
+  seasonId: string | null;
+  seasonName: string | null;
+  seasonArchived: boolean;
   sessions: Session[];
 };
 
@@ -35,10 +39,15 @@ type WRow = {
   starts_on: string;
   ends_on: string;
   channel_open: boolean;
+  season_id: string | null;
+  season_name: string | null;
+  season_status: string | null;
 };
 type SRow = { id: string; weekend_id: string; name: string; starts_at: string; ends_at: string };
 
-const W = "id, name, venue, city, country, timezone, starts_on::text AS starts_on, ends_on::text AS ends_on, channel_open";
+const W = `w.id, w.name, w.venue, w.city, w.country, w.timezone, w.starts_on::text AS starts_on, w.ends_on::text AS ends_on, w.channel_open,
+  w.season_id, s.name AS season_name, s.status AS season_status`;
+const FROM = "FROM race_weekends w LEFT JOIN seasons s ON s.id = w.season_id";
 
 const session = (s: SRow): Session => ({
   id: s.id,
@@ -48,8 +57,11 @@ const session = (s: SRow): Session => ({
   endsAt: new Date(s.ends_at).toISOString(),
 });
 
-export async function listWeekends(): Promise<Weekend[]> {
-  const weekends = await q<WRow>(`SELECT ${W} FROM race_weekends ORDER BY starts_on DESC`);
+/** Weekends of live seasons — or, with a season id, that season's (archived or not). */
+export async function listWeekends(seasonId?: string): Promise<Weekend[]> {
+  const weekends = seasonId
+    ? await q<WRow>(`SELECT ${W} ${FROM} WHERE w.season_id = $1 ORDER BY w.starts_on DESC`, [seasonId])
+    : await q<WRow>(`SELECT ${W} ${FROM} WHERE ${LIVE_SEASON("w")} ORDER BY w.starts_on DESC`);
   if (weekends.length === 0) return [];
   const sessions = await q<SRow>(
     "SELECT id, weekend_id, name, starts_at, ends_at FROM race_sessions WHERE weekend_id = ANY($1::uuid[]) ORDER BY starts_at",
@@ -65,12 +77,15 @@ export async function listWeekends(): Promise<Weekend[]> {
     startsOn: w.starts_on,
     endsOn: w.ends_on,
     channelOpen: w.channel_open,
+    seasonId: w.season_id,
+    seasonName: w.season_name,
+    seasonArchived: w.season_status === "archived",
     sessions: sessions.filter((s) => s.weekend_id === w.id).map(session),
   }));
 }
 
 export async function weekendById(id: string): Promise<Weekend | null> {
-  const w = await one<WRow>(`SELECT ${W} FROM race_weekends WHERE id = $1`, [id]);
+  const w = await one<WRow>(`SELECT ${W} ${FROM} WHERE w.id = $1`, [id]);
   if (!w) return null;
   const sessions = await q<SRow>(
     "SELECT id, weekend_id, name, starts_at, ends_at FROM race_sessions WHERE weekend_id = $1 ORDER BY starts_at",
@@ -86,6 +101,9 @@ export async function weekendById(id: string): Promise<Weekend | null> {
     startsOn: w.starts_on,
     endsOn: w.ends_on,
     channelOpen: w.channel_open,
+    seasonId: w.season_id,
+    seasonName: w.season_name,
+    seasonArchived: w.season_status === "archived",
     sessions: sessions.map(session),
   };
 }
@@ -103,7 +121,9 @@ export type NextRace =
 /** The session running now, or the next one to start. */
 export async function nextRace(): Promise<NextRace> {
   const s = await one<SRow>(
-    "SELECT id, weekend_id, name, starts_at, ends_at FROM race_sessions WHERE ends_at > now() ORDER BY starts_at LIMIT 1",
+    `SELECT rs.id, rs.weekend_id, rs.name, rs.starts_at, rs.ends_at FROM race_sessions rs
+     JOIN race_weekends w ON w.id = rs.weekend_id
+     WHERE rs.ends_at > now() AND ${LIVE_SEASON("w")} ORDER BY rs.starts_at LIMIT 1`,
   );
   if (!s) return { state: "none" };
   const w = await weekendById(s.weekend_id);
@@ -130,13 +150,16 @@ export type WeekendInput = {
   startsOn: string;
   endsOn: string;
   channelOpen: boolean;
+  /** The season it belongs to; the current one when left out. */
+  seasonId?: string | null;
 };
 
 export async function createWeekend(input: WeekendInput): Promise<string> {
+  const seasonId = input.seasonId || (await currentSeason()).id;
   const row = await one<{ id: string }>(
-    `INSERT INTO race_weekends (name, venue, city, country, timezone, starts_on, ends_on, channel_open)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [input.name, input.venue, input.city, input.country, input.timezone, input.startsOn, input.endsOn, input.channelOpen],
+    `INSERT INTO race_weekends (name, venue, city, country, timezone, starts_on, ends_on, channel_open, season_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [input.name, input.venue, input.city, input.country, input.timezone, input.startsOn, input.endsOn, input.channelOpen, seasonId],
   );
   return row!.id;
 }
@@ -144,8 +167,8 @@ export async function createWeekend(input: WeekendInput): Promise<string> {
 export async function updateWeekend(id: string, input: WeekendInput): Promise<void> {
   const n = await run(
     `UPDATE race_weekends SET name = $2, venue = $3, city = $4, country = $5, timezone = $6,
-       starts_on = $7, ends_on = $8, channel_open = $9 WHERE id = $1`,
-    [id, input.name, input.venue, input.city, input.country, input.timezone, input.startsOn, input.endsOn, input.channelOpen],
+       starts_on = $7, ends_on = $8, channel_open = $9, season_id = COALESCE($10, season_id) WHERE id = $1`,
+    [id, input.name, input.venue, input.city, input.country, input.timezone, input.startsOn, input.endsOn, input.channelOpen, input.seasonId || null],
   );
   if (n === 0) throw new AuthError(404, "No such race weekend.");
 }
@@ -184,8 +207,8 @@ export async function deleteSession(weekendId: string, id: string): Promise<void
 export async function announceScheduleChange(admin: SessionUser, weekend: Weekend, what: string): Promise<void> {
   const body = `Race schedule updated — ${weekend.name}: ${what}`;
   const row = await one<{ id: string }>(
-    "INSERT INTO messages (conversation_id, sender_id, body, urgent) VALUES (NULL, $1, $2, true) RETURNING id",
-    [admin.id, body],
+    "INSERT INTO messages (conversation_id, sender_id, body, urgent, season_id) VALUES (NULL, $1, $2, true, $3) RETURNING id",
+    [admin.id, body, weekend.seasonId ?? (await currentSeason()).id],
   );
   await deliver({
     messageId: row!.id,

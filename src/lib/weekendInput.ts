@@ -24,5 +24,6 @@ export function weekendInput(b: Record<string, unknown>): WeekendInput | { error
     startsOn,
     endsOn,
     channelOpen: b.channelOpen === undefined ? true : bool(b.channelOpen),
+    seasonId: str(b.seasonId, 64) || null,
   };
 }

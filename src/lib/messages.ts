@@ -8,6 +8,7 @@ import { userById } from "./users";
 import { activeUserIds, deliver, preview } from "./notify";
 import { CHANNEL_POSTERS, ROLE_LABEL, type Role } from "./roles";
 import { APP_NAME } from "./config";
+import { currentSeason, LIVE_SEASON } from "./seasons";
 
 /*
  * Messages, three ways: a one-off broadcast to chosen people below, a post
@@ -104,10 +105,11 @@ function senderLabel(sender: SessionUser): string {
 }
 
 async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, fileId: string | null) {
+  const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
-    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
-    [conversationId, sender.id, draft.body, fileId, Boolean(draft.urgent)],
+    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+    [conversationId, sender.id, draft.body, fileId, Boolean(draft.urgent), season.id],
   );
   if (conversationId) {
     await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [conversationId, row!.created_at]);
@@ -149,7 +151,7 @@ export async function sendBroadcast(
 
 export async function channelFor(weekendId: string): Promise<{ id: string; open: boolean; name: string } | null> {
   const weekend = await one<{ id: string; name: string; channel_open: boolean }>(
-    "SELECT id, name, channel_open FROM race_weekends WHERE id = $1",
+    `SELECT id, name, (channel_open AND ${LIVE_SEASON("race_weekends")}) AS channel_open FROM race_weekends WHERE id = $1`,
     [weekendId],
   );
   if (!weekend) return null;
@@ -290,17 +292,19 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     unread: string;
     last_body: string | null;
     last_file: string | null;
+    live_last_at: string | null;
   }>(
     `SELECT c.id, c.owner_id, c.member_id, c.last_message_at,
             o.id AS o_id, o.name AS o_name, o.email AS o_email, o.role AS o_role, o.photo_key AS o_photo, o.status AS o_status,
             (SELECT count(*) FROM messages m JOIN message_recipients r ON r.message_id = m.id AND r.user_id = $1
-              WHERE m.conversation_id = c.id AND r.read_at IS NULL)::text AS unread,
-            (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_file
+              WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
+            (SELECT m.body FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
+            (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at
      FROM conversations c
      JOIN users o ON o.id = CASE WHEN c.owner_id = $1 THEN c.member_id ELSE c.owner_id END
      WHERE c.kind = 'direct' AND (c.owner_id = $1 OR c.member_id = $1)
-     ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`,
+     ORDER BY live_last_at DESC NULLS LAST, c.created_at DESC`,
     [user.id],
   );
   return rows.map((r) => ({
@@ -314,7 +318,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
       status: r.o_status,
     },
     iOpened: r.owner_id === user.id,
-    lastMessageAt: r.last_message_at ? new Date(r.last_message_at).toISOString() : null,
+    lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
     lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
     unread: Number(r.unread),
   }));
@@ -323,7 +327,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
 /* ───────────────────────────── Reading ───────────────────────────── */
 
 export async function conversationMessages(user: SessionUser, conversationId: string, limit = 100): Promise<MessageOut[]> {
-  const rows = await q<Row>(`${SELECT} WHERE m.conversation_id = $2 ORDER BY m.created_at DESC LIMIT $3`, [
+  const rows = await q<Row>(`${SELECT} WHERE m.conversation_id = $2 AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT $3`, [
     user.id,
     conversationId,
     limit,
@@ -341,6 +345,7 @@ export async function inbox(user: SessionUser, limit = 60, before?: string): Pro
     `${SELECT}
      WHERE (r.user_id = $1 OR m.sender_id = $1)
        AND (c.kind IS NULL OR c.kind <> 'direct')
+       AND ${LIVE_SEASON("m")}
        AND ($2::timestamptz IS NULL OR m.created_at < $2)
      ORDER BY m.created_at DESC LIMIT $3`,
     [user.id, before ?? null, limit],
@@ -379,7 +384,7 @@ export async function unread(userId: string): Promise<Unread> {
      FROM message_recipients r
      JOIN messages m ON m.id = r.message_id
      LEFT JOIN conversations c ON c.id = m.conversation_id
-     WHERE r.user_id = $1 AND r.read_at IS NULL`,
+     WHERE r.user_id = $1 AND r.read_at IS NULL AND ${LIVE_SEASON("m")}`,
     [userId],
   );
   const chats = Number(row?.chats ?? 0);
@@ -395,7 +400,7 @@ export async function unreadCount(userId: string): Promise<number> {
 export async function unseenSince(user: SessionUser, since: string | null): Promise<MessageOut[]> {
   const rows = await q<Row>(
     `${SELECT}
-     WHERE r.user_id = $1 AND r.read_at IS NULL AND ($2::timestamptz IS NULL OR m.created_at > $2)
+     WHERE r.user_id = $1 AND r.read_at IS NULL AND ${LIVE_SEASON("m")} AND ($2::timestamptz IS NULL OR m.created_at > $2)
      ORDER BY m.created_at DESC LIMIT 10`,
     [user.id, since],
   );

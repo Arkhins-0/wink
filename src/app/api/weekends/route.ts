@@ -7,9 +7,10 @@ import { weekendInput } from "@/lib/weekendInput";
 
 export const dynamic = "force-dynamic";
 
-export const GET = handle(async () => {
+export const GET = handle(async (request) => {
   await requireUser();
-  return json({ weekends: await listWeekends() });
+  const season = new URL(request.url).searchParams.get("season") || undefined;
+  return json({ weekends: await listWeekends(season) });
 });
 
 /** Admin: a new race weekend. Sessions are added to it afterwards. */
