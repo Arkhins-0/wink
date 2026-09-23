@@ -39,6 +39,7 @@ export const POST = handle(async (request) => {
     return fail("Wrong email or password.", 401);
   }
   if (user.status === "pending") return fail("Set up your account from the email link first.", 403);
+  if (user.status === "banned") return json({ error: "This account has been banned.", code: "banned" }, 403);
   if (user.status !== "active") return fail(`This account is ${user.status}.`, 403);
 
   await clearAttempts(email);

@@ -90,9 +90,12 @@ export async function destroySession(token: string): Promise<void> {
   await run("DELETE FROM sessions WHERE hash = $1", [hashToken(token)]);
 }
 
-/** Sign a person out everywhere and forget their devices: status changes, password resets. */
-export async function revokeAll(userId: string): Promise<void> {
-  await run("DELETE FROM sessions WHERE user_id = $1", [userId]);
+/**
+ * Sign a person out everywhere and forget their devices: status changes, password resets.
+ * A ban keeps the sessions, so each phone still signed in hears "banned" and clears what it holds.
+ */
+export async function revokeAll(userId: string, opts: { keepSessions?: boolean } = {}): Promise<void> {
+  if (!opts.keepSessions) await run("DELETE FROM sessions WHERE user_id = $1", [userId]);
   await run("DELETE FROM push_tokens WHERE user_id = $1", [userId]);
 }
 
@@ -113,6 +116,12 @@ export async function sessionToken(): Promise<string | null> {
 
 /** The signed-in user, or null. Only active accounts count. */
 export async function currentUser(): Promise<SessionUser | null> {
+  const user = await sessionUser();
+  return user?.status === "active" ? user : null;
+}
+
+/** The session's user, active or banned; any other status ends the session. */
+async function sessionUser(): Promise<SessionUser | null> {
   const token = await sessionToken();
   if (!token) return null;
   const user = await one<SessionUser & { expires_at: string }>(
@@ -122,6 +131,7 @@ export async function currentUser(): Promise<SessionUser | null> {
     [hashToken(token)],
   );
   if (!user) return null;
+  if (user.status === "banned") return user;
   if (user.status !== "active") {
     await run("DELETE FROM sessions WHERE hash = $1", [hashToken(token)]);
     return null;
@@ -138,6 +148,8 @@ export class AuthError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** A reason the app acts on, e.g. "banned". */
+    public code?: string,
   ) {
     super(message);
   }
@@ -145,7 +157,8 @@ export class AuthError extends Error {
 
 /** The signed-in user, or an AuthError the route can turn into a response. */
 export async function requireUser(roles?: Role[]): Promise<SessionUser> {
-  const user = await currentUser();
+  const user = await sessionUser();
+  if (user?.status === "banned") throw new AuthError(401, "This account has been banned.", "banned");
   if (!user) throw new AuthError(401, "Sign in first.");
   if (roles && !roles.includes(user.role)) throw new AuthError(403, "Not allowed.");
   return user;

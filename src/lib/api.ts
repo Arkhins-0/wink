@@ -13,7 +13,10 @@ export function handle<Ctx>(fn: (request: Request, ctx: Ctx) => Promise<Response
     try {
       return await fn(request, ctx);
     } catch (error) {
-      if (error instanceof AuthError) return fail(error.message, error.status);
+      if (error instanceof AuthError)
+        return error.code
+          ? NextResponse.json({ error: error.message, code: error.code }, { status: error.status })
+          : fail(error.message, error.status);
       if (error instanceof SyntaxError) return fail("Bad JSON.", 400);
       console.error(`[api] ${request.method} ${new URL(request.url).pathname}`, error);
       return fail("Something went wrong.", 500);

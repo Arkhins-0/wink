@@ -72,7 +72,9 @@ export const PATCH = handle<Params<"id">>(async (request, { params }) => {
     `UPDATE users SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(", ")} WHERE id = $1`,
     [user.id, ...keys.map((k) => changes[k])],
   );
-  if (changes.status && changes.status !== "active") await revokeAll(user.id);
+  // A ban keeps the sessions so the person's phones learn of it and clear their chats; lifting one ends them.
+  if (changes.status === "banned") await revokeAll(user.id, { keepSessions: true });
+  else if (changes.status && (changes.status !== "active" || user.status === "banned")) await revokeAll(user.id);
   if (changes.team_name !== undefined && user.role === "team_manager") {
     // The team follows the manager: drivers and crew carry the same name.
     await run("UPDATE users SET team_name = $2 WHERE parent_id = $1 AND role IN ('driver', 'crew')", [user.id, changes.team_name]);
