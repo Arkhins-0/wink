@@ -1,7 +1,7 @@
 import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { canRead, conversationById, conversationDelta, conversationMessages, markConversationRead, postDirect } from "@/lib/messages";
+import { canRead, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, postDirect } from "@/lib/messages";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
 import { userById } from "@/lib/users";
 
@@ -26,6 +26,7 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   const delta = after && !Number.isNaN(Date.parse(after)) ? await conversationDelta(user, id, new Date(after).toISOString()) : null;
   const messages = delta ? delta.messages : await conversationMessages(user, id);
   if (query.get("read") !== "0") await markConversationRead(user.id, id);
+  else await markDelivered(user.id);
   return json({
     id,
     iOpened: conv.owner_id === user.id,
@@ -54,6 +55,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
     body: str(b.body, 5000),
     fileId: str(b.fileId, 64) || null,
     urgent: bool(b.urgent),
+    replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
   });
   return json({ id: messageId }, 201);
 });
