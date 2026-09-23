@@ -10,7 +10,7 @@ export default async function Compose() {
   const people = (await descendants(user)).filter((p) => p.status === "active").map(toPublic);
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">New message</h1>
+      <h1 className="page-title">New message</h1>
       {people.length === 0 ? (
         <p className="card text-sm text-snow-faint">There is nobody below you to message yet.</p>
       ) : (

@@ -19,7 +19,8 @@ export default async function Account() {
   ]);
 
   return (
-    <div className="space-y-5">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="space-y-5">
       <section className="card flex items-center gap-4">
         <Avatar src={p.photoUrl} name={p.name ?? p.email} size={72} />
         <div className="min-w-0">
@@ -67,6 +68,7 @@ export default async function Account() {
         </div>
       </section>
 
+      </div>
       <AccountActions appVersion={release?.version ?? null} />
     </div>
   );

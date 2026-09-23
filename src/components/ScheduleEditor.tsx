@@ -123,17 +123,19 @@ function WeekendCard({ weekend: w, seasons, onChanged }: { weekend: Weekend; sea
               />
             </li>
           ) : (
-            <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+            <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
               <span className="font-medium">{s.name}</span>
-              <span className="ml-auto text-right text-xs text-snow-soft">
+              <span className="basis-full text-xs text-snow-soft sm:ml-auto sm:basis-auto sm:text-right">
                 {formatIn(s.startsAt, w.timezone)} – {formatIn(s.endsAt, w.timezone, false)}
               </span>
-              <button className="text-xs text-snow-faint hover:text-snow" onClick={() => setEditingSession(s)}>
-                Edit
-              </button>
-              <button className="text-xs text-danger/80 hover:text-danger" onClick={() => removeSession(s)}>
-                Remove
-              </button>
+              <span className="ml-auto flex gap-3 sm:ml-0">
+                <button className="text-xs text-snow-faint hover:text-snow" onClick={() => setEditingSession(s)}>
+                  Edit
+                </button>
+                <button className="text-xs text-danger/80 hover:text-danger" onClick={() => removeSession(s)}>
+                  Remove
+                </button>
+              </span>
             </li>
           ),
         )}

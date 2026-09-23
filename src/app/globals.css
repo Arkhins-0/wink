@@ -11,16 +11,33 @@
   }
   body {
     @apply bg-night font-body text-snow;
+    padding-bottom: env(safe-area-inset-bottom);
   }
   :focus-visible {
     outline: 2px solid #ffd100;
     outline-offset: 2px;
   }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #26262a;
+    border-radius: 999px;
+    border: 2px solid #0b0b0c;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a40;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #26262a #0b0b0c;
+  }
 }
 
 @layer components {
   .container-x {
-    @apply mx-auto w-full max-w-5xl px-5 sm:px-8;
+    @apply mx-auto w-full max-w-5xl px-4 sm:px-6;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
@@ -33,6 +50,9 @@
   }
   .btn-danger {
     @apply btn border border-danger/40 bg-danger/10 text-danger hover:bg-danger/20;
+  }
+  .btn-icon {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-full text-snow-soft transition-colors hover:bg-snow/10 hover:text-snow disabled:opacity-50;
   }
   .card {
     @apply rounded-2xl border border-night-line bg-night-panel p-5 shadow-card;
@@ -51,5 +71,29 @@
   }
   .row {
     @apply flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-snow/5;
+  }
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-wide text-snow-faint;
+  }
+  .page-title {
+    @apply text-xl font-semibold tracking-tight;
+  }
+  .nav-link {
+    @apply relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-snow-soft transition-colors hover:bg-snow/5 hover:text-snow;
+  }
+  .nav-link-active {
+    @apply bg-snow/10 text-snow;
+  }
+  .badge {
+    @apply inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-gold px-1.5 py-0.5 text-[10px] font-bold leading-none text-night;
+  }
+  .bubble {
+    @apply max-w-[78%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[65%];
+  }
+  .bubble-mine {
+    @apply bubble rounded-br-md bg-gold text-night;
+  }
+  .bubble-theirs {
+    @apply bubble rounded-bl-md border border-night-line bg-night-panel text-snow;
   }
 }

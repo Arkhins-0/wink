@@ -11,7 +11,7 @@ export default async function NewPerson() {
   if (roles.length === 0) notFound();
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Add person</h1>
+      <h1 className="page-title">Add person</h1>
       <NewPersonForm roles={roles} teamName={user.team_name} />
     </div>
   );

@@ -24,8 +24,9 @@ export default async function Schedule() {
         <ScheduleEditor weekends={weekends} seasons={seasons.filter((s) => s.status === "active")} />
       ) : (
         <>
-          <h1 className="text-lg font-semibold">Schedule</h1>
+          <h1 className="page-title">Schedule</h1>
           {weekends.length === 0 && <p className="card text-sm text-snow-faint">No race weekend has been scheduled yet.</p>}
+          <div className="grid gap-5 xl:grid-cols-2">
           {[...upcoming, ...past].map((w) => (
             <section key={w.id} className={`card ${past.includes(w) ? "opacity-60" : ""}`}>
               <Link href={`/w/${w.id}`} className="block">
@@ -61,6 +62,7 @@ export default async function Schedule() {
               )}
             </section>
           ))}
+          </div>
         </>
       )}
     </div>

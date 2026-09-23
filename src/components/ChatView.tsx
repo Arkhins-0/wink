@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client";
 import type { MessageOut } from "@/lib/messages";
 import { MessageComposer, post } from "./MessageComposer";
-import { MessageItem } from "./MessageList";
+import { Bubble } from "./MessageList";
 
-/** A private chat, oldest at the top, the composer at the bottom. */
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+
+/** A private chat: bubbles with day separators, newest at the bottom, the composer under them. */
 export function ChatView({ conversationId, initial }: { conversationId: string; initial: MessageOut[] }) {
   const [messages, setMessages] = useState(initial);
-  const end = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
 
   const reload = async () => {
     try {
@@ -27,22 +29,40 @@ export function ChatView({ conversationId, initial }: { conversationId: string; 
   }, [conversationId]);
 
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
+  const rows: React.ReactNode[] = [];
+  let lastDay = "";
+  for (const m of messages) {
+    const day = dayOf(m.createdAt);
+    if (day !== lastDay) {
+      lastDay = day;
+      rows.push(
+        <div key={`day-${day}`} className="my-2 flex justify-center">
+          <span className="chip text-snow-faint">{day}</span>
+        </div>,
+      );
+    }
+    rows.push(<Bubble key={m.id} m={m} />);
+  }
+
   return (
-    <div className="space-y-3">
-      {messages.length === 0 && <p className="card text-sm text-snow-faint">No messages yet.</p>}
-      {messages.map((m) => (
-        <MessageItem key={m.id} m={m} />
-      ))}
-      <div ref={end} />
-      <MessageComposer
-        send={async (draft) => {
-          await post(`/api/conversations/${conversationId}`, draft);
-          await reload();
-        }}
-      />
-    </div>
+    <>
+      <div ref={scroller} className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3 sm:px-4">
+        {messages.length === 0 && <p className="py-8 text-center text-sm text-snow-faint">No messages yet. Say hello.</p>}
+        {rows}
+      </div>
+      <div className="border-t border-night-line p-2 sm:p-3">
+        <MessageComposer
+          placeholder="Message"
+          send={async (draft) => {
+            await post(`/api/conversations/${conversationId}`, draft);
+            await reload();
+          }}
+        />
+      </div>
+    </>
   );
 }

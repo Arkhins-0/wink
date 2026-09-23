@@ -52,7 +52,10 @@ export function Notifier({ onUnread }: { onUnread?: (home: number, chats: number
     let unsubscribe: (() => void) | undefined;
     (async () => {
       try {
-        if (typeof Notification === "undefined" || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return;
+        if (!("serviceWorker" in navigator)) return;
+        // Registered on every visit: it is what makes the site installable; push rides on it when set up.
+        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
         const { firebase } = await api<{ firebase: WebFirebaseConfig | null }>("/api/config");
         if (!firebase || !alive) return;
         const { initializeApp, getApps } = await import("firebase/app");
@@ -64,7 +67,6 @@ export function Notifier({ onUnread }: { onUnread?: (home: number, chats: number
           messagingSenderId: firebase.messagingSenderId,
           appId: firebase.appId,
         });
-        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
         const messaging = getMessaging(app);
         const token = await getToken(messaging, { vapidKey: firebase.vapidKey, serviceWorkerRegistration: registration });
         if (token) await api("/api/push/register", { method: "POST", json: { token, platform: "web" } });

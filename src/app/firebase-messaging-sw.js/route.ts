@@ -36,7 +36,13 @@ self.addEventListener("notificationclick", (event) => {
 });
 `
     : "// Push is not configured on this deployment.\n";
-  return new Response(body, {
+  // A fetch handler, even a pass-through, is what lets the browser install the site as an app.
+  const installable = `
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", () => {});
+`;
+  return new Response(body + installable, {
     headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" },
   });
 }

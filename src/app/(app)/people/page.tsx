@@ -17,7 +17,7 @@ export default async function People() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">People</h1>
+        <h1 className="page-title">People</h1>
         <div className="flex gap-2">
           {user.role === "coordinator" && (
             <>
@@ -51,9 +51,9 @@ export default async function People() {
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-snow-faint">
             {ROLE_LABEL[g.role]}s · {g.people.length}
           </h2>
-          <div className="card divide-y divide-night-line p-2">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {g.people.map((p) => (
-              <Link key={p.id} href={`/people/${p.id}`} className="row">
+              <Link key={p.id} href={`/people/${p.id}`} className="row border border-night-line bg-night-panel/60 hover:border-gold/40">
                 <Avatar src={p.photoUrl} name={p.name ?? p.email} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{p.name ?? p.email}</span>

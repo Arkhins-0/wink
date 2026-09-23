@@ -13,7 +13,7 @@ export default async function Archive() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-semibold">Archive</h1>
+      <h1 className="page-title">Archive</h1>
       {archived.length === 0 && <p className="card text-sm text-snow-faint">No season has been archived yet.</p>}
       {archived.length > 0 && (
         <div className="card divide-y divide-night-line p-2">

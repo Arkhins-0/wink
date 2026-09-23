@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
   description: "Race-weekend communication: messages, documents and the schedule, delivered down the hierarchy.",
+  manifest: "/manifest.webmanifest",
+  applicationName: APP_NAME,
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: APP_NAME },
+  formatDetection: { telephone: false },
   openGraph: {
     title: APP_NAME,
     description: "Race-weekend communication for the team.",

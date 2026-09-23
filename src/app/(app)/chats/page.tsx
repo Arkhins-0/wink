@@ -1,44 +1,13 @@
-import Link from "next/link";
-import { Avatar } from "@/components/Avatar";
-import { myConversations } from "@/lib/messages";
-import { requireProfile } from "@/lib/session";
-import { timeAgo } from "@/lib/client";
+import { Icon } from "@/components/Icon";
 
 export const metadata = { title: "Chats" };
 
-export default async function Chats() {
-  const user = await requireProfile();
-  const conversations = await myConversations(user);
-  const canOpen = user.role !== "race_official";
-
+/** On a laptop the list is beside this; on a phone the list is the page. */
+export default function Chats() {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Private chats</h1>
-        {canOpen && (
-          <Link href="/chats/new" className="btn-gold px-4 py-1.5 text-xs">
-            New chat
-          </Link>
-        )}
-      </div>
-      {conversations.length === 0 && (
-        <p className="card text-sm text-snow-faint">
-          {canOpen ? "No chats yet. Start one with New chat." : "Race officials do not have private chats."}
-        </p>
-      )}
-      <div className="card divide-y divide-night-line p-2">
-        {conversations.map((c) => (
-          <Link key={c.id} href={`/chats/${c.id}`} className="row">
-            <Avatar src={c.other.photoUrl} name={c.other.name} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{c.other.name}</span>
-              <span className="block truncate text-xs text-snow-faint">{c.other.roleLabel}</span>
-            </span>
-            {c.unread > 0 && <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-night">{c.unread}</span>}
-            {c.lastMessageAt && <span className="text-xs text-snow-faint">{timeAgo(c.lastMessageAt)}</span>}
-          </Link>
-        ))}
-      </div>
+    <div className="card hidden h-full flex-1 flex-col items-center justify-center text-center lg:flex">
+      <Icon name="chat" className="h-10 w-10 text-snow-faint" />
+      <p className="mt-3 text-sm text-snow-soft">Pick a chat, or start one with the pencil.</p>
     </div>
   );
 }

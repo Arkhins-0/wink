@@ -36,7 +36,7 @@ export function SeasonBar({ seasons, isAdmin }: { seasons: Season[]; isAdmin: bo
   return (
     <div className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <p className="label">Season</p>
           <p className="truncate font-semibold">{current?.name ?? "No season yet"}</p>
         </div>

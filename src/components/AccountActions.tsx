@@ -17,7 +17,8 @@ export function AccountActions({ appVersion }: { appVersion: string | null }) {
   };
 
   return (
-    <section className="space-y-3">
+    <section className="card space-y-3 self-start">
+      <p className="section-title">Tools</p>
       <div className="flex flex-wrap gap-2">
         <button className={panel === "scan" ? "btn-gold px-4 py-1.5 text-xs" : "btn-ghost px-4 py-1.5 text-xs"} onClick={() => setPanel(panel === "scan" ? "none" : "scan")}>
           Scan a QR code
