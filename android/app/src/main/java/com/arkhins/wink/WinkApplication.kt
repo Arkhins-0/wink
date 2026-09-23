@@ -1,5 +1,8 @@
 package com.arkhins.wink
 
+import kotlinx.coroutines.launch
+import android.net.Network
+import android.net.ConnectivityManager
 import android.app.Application
 import androidx.compose.runtime.staticCompositionLocalOf
 import coil.ImageLoader
@@ -54,6 +57,17 @@ class WinkApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         session.load()
         Notifications.createChannel(this)
+        runCatching {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onLost(network: Network) {
+                    api.online.value = false
+                }
+
+                override fun onAvailable(network: Network) {
+                    appScope.launch { runCatching { api.getText("/api/health") } }
+                }
+            })
+        }
     }
 
     /** Profile photos come from our API, so Coil's client must carry the session. */

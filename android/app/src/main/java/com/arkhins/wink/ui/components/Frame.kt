@@ -1,5 +1,10 @@
 package com.arkhins.wink.ui.components
 
+import kotlinx.coroutines.launch
+import com.arkhins.wink.ui.theme.Danger
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.collectAsState
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,9 +77,34 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) 
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        OfflineIcon()
         if (showCountdown) CountdownChip(onOpenWeekend)
         Spacer(Modifier.width(8.dp))
     }
+}
+
+/**
+ * Shown beside the countdown while the app cannot sync with the server.
+ * Tapping says what that means and tries again.
+ */
+@Composable
+private fun OfflineIcon() {
+    val app = LocalApp.current
+    val context = LocalContext.current
+    val online by app.api.online.collectAsState()
+    if (online) return
+    Icon(
+        painterResource(R.drawable.ic_cloud_off),
+        contentDescription = "No connection",
+        tint = Danger,
+        modifier = Modifier
+            .padding(end = 8.dp)
+            .size(22.dp)
+            .clickable {
+                Toast.makeText(context, "No connection. Showing what is saved on this phone.", Toast.LENGTH_SHORT).show()
+                app.appScope.launch { runCatching { app.api.getText("/api/health") } }
+            },
+    )
 }
 
 /** Time until the next session, or LIVE. Tapping opens the weekend. */

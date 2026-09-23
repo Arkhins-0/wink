@@ -1,5 +1,6 @@
 package com.arkhins.wink.data
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import android.util.Log
 import com.arkhins.wink.BuildConfig
 import com.arkhins.wink.Config
@@ -72,14 +73,23 @@ class WinkApi(private val session: SessionStore) {
     /** A relative `/api/...` URL from the server as an absolute one. */
     fun absolute(path: String?): String? = path?.let { url(it) }
 
+    /**
+     * Whether the app is in sync with the server: false after a request that
+     * could not get through or that the server failed (5xx), true again on
+     * the next one that works. The no-connection icon follows it.
+     */
+    val online = MutableStateFlow(true)
+
     private fun execute(request: Request): Response {
         val started = System.currentTimeMillis()
         val response = try {
             http.newCall(request).execute()
         } catch (e: IOException) {
             Log.w(TAG, "${request.method} ${request.url.encodedPath} failed after ${System.currentTimeMillis() - started} ms: ${e.message}")
+            online.value = false
             throw NoConnectionException(e)
         }
+        online.value = response.code < 500
         Log.d(TAG, "${request.method} ${request.url.encodedPath} -> ${response.code} in ${System.currentTimeMillis() - started} ms")
         if (!response.isSuccessful) {
             val body = response.body?.string().orEmpty()

@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- To notice at once when the phone loses its connection (the no-connection icon). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- So the app can install its own update, downloaded from a release. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Popups for messages and race changes. Asked on first launch. -->
