@@ -8,10 +8,10 @@ const body = Inter({ subsets: ["latin"], display: "swap", variable: "--font-body
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
-  description: "Wink, by arkhins.com. Get the Android app and keep it up to date.",
+  description: "Race-weekend communication: messages, documents and the schedule, delivered down the hierarchy.",
   openGraph: {
     title: APP_NAME,
-    description: "Wink, by arkhins.com.",
+    description: "Race-weekend communication for the team.",
     url: SITE_URL,
     siteName: APP_NAME,
     images: [{ url: "/og.png", width: 1200, height: 1200 }],

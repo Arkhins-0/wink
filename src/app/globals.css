@@ -23,7 +23,7 @@
     @apply mx-auto w-full max-w-5xl px-5 sm:px-8;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors;
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-gold {
     @apply btn bg-gold text-night hover:bg-gold-deep;
@@ -31,7 +31,25 @@
   .btn-ghost {
     @apply btn border border-snow/15 bg-snow/5 text-snow hover:bg-snow/10;
   }
+  .btn-danger {
+    @apply btn border border-danger/40 bg-danger/10 text-danger hover:bg-danger/20;
+  }
   .card {
     @apply rounded-2xl border border-night-line bg-night-panel p-5 shadow-card;
+  }
+  .input {
+    @apply w-full rounded-xl border border-night-line bg-night px-3.5 py-2.5 text-sm text-snow placeholder:text-snow-faint focus:border-gold/60 focus:outline-none disabled:opacity-60;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-snow-faint;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-night-line bg-night-panel px-3 py-1 text-xs font-semibold;
+  }
+  .error {
+    @apply rounded-xl border border-danger/40 bg-danger/10 px-3.5 py-2.5 text-sm text-danger;
+  }
+  .row {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-snow/5;
   }
 }

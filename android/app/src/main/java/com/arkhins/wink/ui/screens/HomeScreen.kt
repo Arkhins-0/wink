@@ -1,183 +1,109 @@
 package com.arkhins.wink.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.arkhins.wink.BuildConfig
-import com.arkhins.wink.Config
-import com.arkhins.wink.R
-import com.arkhins.wink.data.AppVersionInfo
-import com.arkhins.wink.ui.openSafely
-import com.arkhins.wink.ui.theme.Danger
+import com.arkhins.wink.LocalApp
+import com.arkhins.wink.data.Message
+import com.arkhins.wink.data.MessagesResponse
+import com.arkhins.wink.data.NextRace
+import com.arkhins.wink.data.Ok
+import com.arkhins.wink.data.SavedDocument
+import com.arkhins.wink.ui.AppViewModel
+import com.arkhins.wink.ui.components.Empty
+import com.arkhins.wink.ui.components.ErrorText
+import com.arkhins.wink.ui.components.GoldButton
+import com.arkhins.wink.ui.components.Loading
+import com.arkhins.wink.ui.components.MessageCard
+import com.arkhins.wink.ui.components.Panel
+import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.theme.Gold
-import com.arkhins.wink.ui.theme.Night
-import com.arkhins.wink.ui.theme.NightLine
-import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
+import com.arkhins.wink.ui.trackDateTime
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.putJsonArray
 
-/**
- * The base of the app: the mark, the name, the version, and a card that
- * checks for updates. Everything else is still to come.
- */
+/** The inbox, with the next race on top. */
 @Composable
-fun HomeScreen(
-    updateInfo: AppVersionInfo?,
-    checkingUpdate: Boolean,
-    checkedOnce: Boolean,
-    noReleaseYet: Boolean,
-    updateCheckError: String?,
-    onCheckUpdate: () -> Unit,
-    onUpdate: () -> Unit,
-) {
-    val uri = LocalUriHandler.current
+fun HomeScreen(vm: AppViewModel, highlight: String?, onOpenWeekend: (String) -> Unit, onCompose: () -> Unit, onOpenPdf: (SavedDocument) -> Unit) {
+    val app = LocalApp.current
+    var messages by remember { mutableStateOf<List<Message>?>(null) }
+    var next by remember { mutableStateOf<NextRace?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val list = rememberLazyListState()
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Night)
-            .systemBarsPadding(),
-    ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Image(
-                painterResource(R.drawable.ctr_logo),
-                contentDescription = "CTR",
-                modifier = Modifier.width(180.dp),
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(Config.APP_NAME, style = MaterialTheme.typography.displayMedium, color = Snow)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "v${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.labelMedium,
-                color = SnowFaint,
-            )
-
-            Spacer(Modifier.height(40.dp))
-
-            VersionCard(
-                updateInfo = updateInfo,
-                checkingUpdate = checkingUpdate,
-                checkedOnce = checkedOnce,
-                noReleaseYet = noReleaseYet,
-                updateCheckError = updateCheckError,
-                onCheckUpdate = onCheckUpdate,
-                onUpdate = onUpdate,
-            )
+    LaunchedEffect(vm.refreshTick) {
+        try {
+            next = runCatching { app.api.get("/api/next-race", NextRace.serializer()) }.getOrNull()
+            val r = app.api.get("/api/messages", MessagesResponse.serializer())
+            messages = r.messages
+            error = null
+            val unread = r.messages.filter { it.readAt == null && !it.mine }.map { it.id }
+            if (unread.isNotEmpty()) {
+                runCatching { app.api.post("/api/messages/read", Ok.serializer()) { putJsonArray("ids") { unread.forEach { add(it) } } } }
+                vm.markAllRead(0)
+            }
+            if (highlight != null) {
+                val idx = r.messages.indexOfFirst { it.id == highlight }
+                if (idx >= 0) list.animateScrollToItem(idx + 1)
+            }
+        } catch (e: Exception) {
+            if (messages == null) error = e.message
         }
-
-        Text(
-            "Powered by ${Config.POWERED_BY_NAME}",
-            style = MaterialTheme.typography.bodySmall,
-            color = SnowFaint,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp)
-                .clickable { uri.openSafely(Config.POWERED_BY_URL) },
-        )
     }
-}
 
-@Composable
-private fun VersionCard(
-    updateInfo: AppVersionInfo?,
-    checkingUpdate: Boolean,
-    checkedOnce: Boolean,
-    noReleaseYet: Boolean,
-    updateCheckError: String?,
-    onCheckUpdate: () -> Unit,
-    onUpdate: () -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(NightPanel, RoundedCornerShape(16.dp))
-            .clickable(enabled = !checkingUpdate, onClick = onCheckUpdate)
-            .padding(18.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("App version", style = MaterialTheme.typography.titleMedium, color = Snow, modifier = Modifier.weight(1f))
-            if (checkingUpdate) {
-                CircularProgressIndicator(Modifier.size(16.dp), color = Gold, strokeWidth = 2.dp)
-            } else {
-                Icon(
-                    Icons.Outlined.Refresh,
-                    contentDescription = "Check for updates",
-                    tint = SnowFaint,
-                    modifier = Modifier.size(18.dp),
-                )
+    val canSend = vm.me?.let { it.isAdmin || it.canCreate.isNotEmpty() } ?: false
+
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            val n = next
+            if (n != null && n.state != "none" && n.weekend != null && n.session != null) {
+                Panel(Modifier.clickable { onOpenWeekend(n.weekend.id) }) {
+                    Column {
+                        Text(if (n.state == "live") "LIVE NOW" else "NEXT UP", style = MaterialTheme.typography.labelMedium, color = Gold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(n.weekend.name, style = MaterialTheme.typography.titleLarge, color = Snow)
+                        Text("${n.session.name} · ${localDateTime(n.session.startsAt)}", style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
+                        Text("${trackDateTime(n.session.startsAt, n.weekend.timezone)} track time", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                        if (n.weekend.place.isNotBlank()) Text(n.weekend.place, style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Inbox", style = MaterialTheme.typography.titleMedium, color = Snow, modifier = Modifier.weight(1f))
+                if (canSend) GoldButton("New message", onClick = onCompose)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Text("You have v${BuildConfig.VERSION_NAME}.", style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
-        Spacer(Modifier.height(4.dp))
+        val m = messages
         when {
-            checkingUpdate ->
-                Text("Checking for updates…", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
-            updateCheckError != null ->
-                Text(updateCheckError, style = MaterialTheme.typography.bodySmall, color = Danger)
-            updateInfo != null ->
-                Text("v${updateInfo.version} is available.", style = MaterialTheme.typography.bodyMedium, color = Gold)
-            checkedOnce && noReleaseYet ->
-                Text("No release has been published yet. Tap to check again.", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
-            checkedOnce ->
-                Text("You're up to date. Tap to check again.", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
-            else ->
-                Text("Tap to check for updates.", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
+            error != null && m == null -> item { ErrorText(error) }
+            m == null -> item { Loading() }
+            m.isEmpty() -> item { Empty("Nothing yet. Messages sent to you appear here.") }
+            else -> items(m, key = { it.id }) { msg -> MessageCard(msg, onOpenPdf, highlight = msg.id == highlight) }
         }
-        if (updateInfo != null && !checkingUpdate) {
-            Spacer(Modifier.height(14.dp))
-            Button(
-                onClick = onUpdate,
-                colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Night),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text("Update app", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(NightLine))
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Updates come from ${Config.BASE_URL.removePrefix("https://")}",
-            style = MaterialTheme.typography.labelSmall,
-            color = SnowFaint,
-        )
+        item { Spacer(Modifier.fillMaxWidth().height(8.dp)) }
     }
 }

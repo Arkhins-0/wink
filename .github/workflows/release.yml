@@ -26,12 +26,18 @@ jobs:
       # A step's `if:` can't reference `secrets` directly, so its presence
       # is surfaced here first, as a plain env var, and checked from there.
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      HAS_GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
+      - name: Write google-services.json
+        # The Firebase config for push. Not a secret as such, but kept out of
+        # git; the file's raw JSON goes in this repository secret.
+        if: ${{ env.HAS_GOOGLE_SERVICES == 'true' }}
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
       - name: Decode signing key
         if: ${{ env.HAS_KEYSTORE == 'true' }}
         run: |

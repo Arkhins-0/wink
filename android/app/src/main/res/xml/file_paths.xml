@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What the FileProvider may hand out: only the downloaded update APK. -->
+<!-- What the FileProvider may hand out: the downloaded update APK, and
+     documents saved to Downloads/Wink on Android 9 and older. -->
 <paths>
     <cache-path name="updates" path="updates/" />
+    <external-path name="downloads" path="Download/Wink/" />
 </paths>

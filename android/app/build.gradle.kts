@@ -3,6 +3,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("com.google.gms.google-services")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
@@ -12,8 +13,8 @@ plugins {
 // Four segments. Bump both together for every release: the tag pushed to
 // GitHub is "v" + versionName, and the app compares versionName against the
 // latest release to decide whether to show the update popup.
-val winkVersionName = "0.0.0.0"
-val winkVersionCode = 1
+val winkVersionName = "0.1.0.0"
+val winkVersionCode = 2
 
 // --- Build-time configuration --------------------------------------------------
 // Values reach the app through BuildConfig. Each is looked up, in order, as an
@@ -56,6 +57,12 @@ val keystorePath = setting("WINK_KEYSTORE_PATH", "wink.keystore.path", "release.
 val keystoreFile = rootProject.file(keystorePath).let { if (it.isAbsolute) it else file(keystorePath) }
 val hasSigning = keystoreFile.exists()
 
+// The debug build installs beside the release one under its own id — but
+// only once the Firebase project knows that id (google-services.json lists
+// it), because the Google Services plugin refuses a package it has not seen.
+val googleServices = file("google-services.json")
+val debugSuffixKnown = googleServices.exists() && googleServices.readText().contains("\"com.arkhins.wink.debug\"")
+
 android {
     namespace = "com.arkhins.wink"
     compileSdk = 35
@@ -91,7 +98,7 @@ android {
             if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            if (debugSuffixKnown) applicationIdSuffix = ".debug"
         }
     }
 
@@ -130,6 +137,23 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
+    implementation("androidx.navigation:navigation-compose:2.9.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.7")
+
+    // Push.
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+    implementation("com.google.firebase:firebase-messaging")
+
+    // The QR scanner (camera + barcode reading) and the account QR itself.
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.zxing:core:3.5.3")
+
+    // Profile photos.
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")

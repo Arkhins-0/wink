@@ -42,3 +42,9 @@ next-env.d.ts
 .vercel/
 /data/
 npm-debug.log*
+
+# Firebase service account (server push credentials): never in git.
+*firebase-adminsdk*.json
+
+# Firebase app config: added per machine / from the GOOGLE_SERVICES_JSON secret in CI.
+android/app/google-services.json

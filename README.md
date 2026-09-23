@@ -1,16 +1,56 @@
 # Wink
 
+Race-weekend communication for one championship: messages and documents flow
+**down** a fixed hierarchy, arrive as popups (push) and — when urgent — email,
+and everyone sees the next race and its countdown.
+
 One repository, two halves:
 
 | Path        | What it is | Deploys to |
 |-------------|------------|------------|
-| `/` (root)  | The website and API, Next.js. | `https://wink.arkhins.com` |
+| `/` (root)  | The website and API, Next.js 15. | `https://wink.arkhins.com` (Vercel) |
 | `android/`  | The Android app, Kotlin + Jetpack Compose. See [android/README.md](android/README.md). | GitHub Releases, then into installed apps through the in-app update popup |
 
-Neither has anything inside yet. This is the base: the app is version
-`0.0.0.0` and knows how to update itself; the site serves the endpoint the
-app checks, a download link, and is wired to the database and storage in
-`.env`, ready for whatever comes next.
+## How it works
+
+**Hierarchy.** Admins create admins and coordinators. Coordinators create race
+officials, team managers, security heads and volunteers (a volunteer belongs to
+the coordinator who created them; an admin can move them). Team managers create
+drivers and crew (who inherit the team). Security heads create security.
+Everyone can see, message and email only the people below them
+(`src/lib/hierarchy.ts`).
+
+**Accounts.** Creating a person sends an email with a link. On a phone with the
+app installed the link opens the app (Android App Links, verified through
+`public/.well-known/assetlinks.json`); otherwise the website. The person chooses
+a password, then fills in their profile once — photo, name, date of birth,
+contact number. After that the profile is locked: only their direct manager or
+an admin can change it (a team manager's profile: admin only). Every account
+has a QR code, an 8-character code (`XXXX-XXXX`) and a status: pending, active,
+suspended, dismissed, banned. Anything but active locks the person out.
+
+**Messages.** Three kinds, all landing in the recipient's inbox: a broadcast to
+chosen people below you; a post in a race weekend's channel (admins and
+coordinators post, everyone reads); a private chat a superior opens with one
+person below them (both can then write in it). Messages can carry a document.
+Delivery is push (Firebase) plus, when the message is urgent or carries a
+document, email — except to volunteers and security, who never get automatic
+email. Coordinators forward to them with the "Email volunteers" / "Email
+security" buttons under People; admins email everyone with role checkboxes.
+
+**Schedule.** Admins create race weekends and their sessions (times entered in
+the track's time zone). Any change to a session goes out to everyone as urgent.
+The chip at the top right of every screen counts down to the next session and
+says LIVE while one runs; tapping it opens the weekend.
+
+**Documents.** In the app, opening a document saves it to `Downloads/Wink` at
+the same time; PDFs read in the app, other files open with whatever app handles
+them. On the website a document offers Download or View (PDF and images in the
+page, Office files through Microsoft's viewer).
+
+**Permissions.** The app asks for notifications (and, before Android 10,
+storage) on first launch and does not continue until both are allowed; a
+refusal shows a warning and asks again.
 
 ## Website
 
@@ -18,84 +58,72 @@ Requirements: Node 20 or newer.
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build
-npm start          # serve the production build
+npm run migrate                       # apply db/migrations/*.sql to DATABASE_URL
+npm run create-admin -- you@example.com   # first admin: prints (and emails) the invite link
+npm run dev                           # http://localhost:3000
+npm run build && npm start            # production
 npm run typecheck
 ```
 
 ### Routes
 
-| Route | What it does |
-|---|---|
-| `/` | Landing page: the CTR mark, the name, a download button and the latest version. |
-| `/download` | Redirects to the latest release APK on GitHub (or the releases page if there is none yet). The one link to share. |
-| `/api/app-version` | `{ version, releaseUrl, apkUrl, notes }` for the latest GitHub release, or 404 when none is published yet. The Android app calls this at launch. `?fresh=1` bypasses the half-hour cache. |
-| `/api/health` | Whether the database and storage are configured; `?deep=1` also pings the database. |
+Pages (signed in): `/home` inbox · `/schedule` · `/w/[id]` race weekend and
+channel · `/chats`, `/chats/[id]` · `/compose` · `/people`, `/people/new`,
+`/people/[id]`, `/people/email` · `/account` (QR, code, scanner, password) ·
+`/v/[token]` verification. Signed out: `/` sign in, `/forgot`,
+`/invite/[token]`, `/reset/[token]`, `/onboarding`.
+
+API (`src/app/api/`): `auth/*`, `me`, `me/profile`, `users`, `users/[id]`
+(+`/photo`, `/invite`), `verify`, `messages` (+`/[id]`, `/read`, `/unseen`),
+`conversations` (+`/[id]`), `files` (+`/[id]`, `/[id]/content`,
+`/[id]/ready`), `weekends` (+`/[id]`, `/[id]/sessions`, `/[id]/channel`),
+`next-race`, `email/relay`, `email/bulk`, `push/register`, `config`,
+`app-version`, `health`. The Android app uses the same API with a bearer token.
 
 ### Environment
 
 `.env` at the root holds everything; `.env.example` shows the shape. It is
-gitignored: set the same keys in the host's environment (Vercel → Project →
-Settings → Environment Variables) when deploying.
+gitignored: set the same keys in Vercel → Project → Settings → Environment
+Variables.
 
-| Key | Used by | What it is |
-|---|---|---|
-| `DATABASE_URL`, `DATABASE_URL_POOLED` | site (`src/lib/db.ts`) | Neon Postgres. The pooled URL is preferred when set. |
-| `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | site (`src/lib/storage.ts`) | S3-compatible object storage. Without them the site falls back to a local `data/` folder. |
-| `S3_PREFIX` | site | Folder at the bucket root everything sits under. Default `wink`. |
-| `WINK_GITHUB_REPO` | site and app | `owner/name` whose Releases carry the APKs. |
-| `GITHUB_TOKEN` | site (optional) | Raises GitHub's rate limit for release checks. |
-| `NEXT_PUBLIC_SITE_URL` | site | Public URL for metadata. Default `https://wink.arkhins.com`. |
-| `WINK_BASE_URL`, `WINK_UPDATE_URL` | app only | Where the app looks for its update endpoint. |
+| Key | What it is |
+|---|---|
+| `DATABASE_URL`, `DATABASE_URL_POOLED` | Neon Postgres. The pooled URL is preferred when set. |
+| `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET`, `S3_PREFIX` | Object storage for documents and photos. Browsers and the app upload straight to the bucket through signed URLs, so the bucket's CORS must allow `PUT` from `https://wink.arkhins.com`; uploads under 4 MB fall back to going through the server if it does not. |
+| `EMAIL_PROVIDER`, `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Transactional email through Brevo. The sender domain must be verified in Brevo. A blank key disables email. |
+| `FIREBASE_SERVICE_ACCOUNT` | Push. The Firebase service-account JSON, base64-encoded (`base64 -w0 service-account.json`). `FIREBASE_SERVICE_ACCOUNT_FILE` (a path) also works on a machine that has the file. |
+| `NEXT_PUBLIC_FIREBASE_*` | Push in the browser: the Firebase *web app* config plus its VAPID key (Firebase console → Project settings → Cloud Messaging → Web Push certificates). All five or none. |
+| `WINK_GITHUB_REPO`, `GITHUB_TOKEN` | Where the APK releases live; the token raises GitHub's rate limit. |
+| `NEXT_PUBLIC_SITE_URL` | Public URL for links and metadata. Default `https://wink.arkhins.com`. |
+| `WINK_BASE_URL`, `WINK_UPDATE_URL` | App only: where it finds the server. |
 
-The database and storage secrets are read only by the website. The Android
-build reads only the `WINK_*` keys (see `android/app/build.gradle.kts`).
+### Deploying
 
-### Deploying to wink.arkhins.com
+1. Import the repository in Vercel; root directory is the repository root.
+2. Add the environment variables above (the service account as base64:
+   `base64 -w0 service-account.json`, the same value as in `.env`).
+3. Run `npm run migrate` once against the production database.
+4. Point `wink.arkhins.com` at Vercel (CNAME to `cname.vercel-dns.com`).
+5. `npm run create-admin -- you@example.com` and accept the invite.
 
-The site is a standard Next.js app; Vercel is the zero-config path:
+`public/.well-known/assetlinks.json` lists the SHA-256 of the release signing
+certificate (and the debug one). If the keystore ever changes, update it or
+invite links stop opening the app.
 
-1. Import the repository in Vercel. Root directory: the repository root.
-   `vercel.json` tells it to skip deployments that only touch `android/`.
-2. Add the environment variables above.
-3. Add the domain `wink.arkhins.com` to the project and point its DNS
-   (a CNAME to `cname.vercel-dns.com`) at Vercel.
-
-Any host that runs `npm run build && npm start` with the same environment
-variables works too.
-
-### Code layout
+## Code layout
 
 ```
-src/
-  app/
-    page.tsx                 landing page
-    layout.tsx               fonts, metadata, theme colour
-    globals.css              Tailwind base and the few shared classes
-    icon.png, apple-icon.png favicons (from the CTR mark)
-    download/route.ts        302 to the latest APK
-    api/app-version/route.ts the update endpoint the app calls
-    api/health/route.ts      configuration check
-  lib/
-    config.ts                app name, site URL, credit (safe for client components)
-    env.ts                   every environment variable, read once (server only)
-    db.ts                    Postgres pool: q / one / run / tx / ping
-    storage.ts               S3 (or local disk): put / get / exists / remove / list
-    appReleases.ts           latest GitHub release, cached 30 minutes
-    http.ts                  json() and fail() helpers for route handlers
-public/
-  ctr-logo.png               the CTR mark
-  og.png, icon-512.png       share image and icon
-android/                     the app; see its README
-.github/workflows/release.yml  tag v* → build, sign and publish the APKs
+db/migrations/           schema, applied in order by scripts/migrate.mjs
+scripts/                 migrate.mjs, create-admin.mjs
+src/app/                 pages (App Router) and API routes
+src/components/          client components: shell, inbox, composer, scanner…
+src/lib/
+  auth.ts                passwords (scrypt), sessions, invite/reset tokens
+  hierarchy.ts           who may see / message / edit whom
+  messages.ts            broadcasts, channels, private chats, inbox
+  notify.ts              delivery: recipients → push → email
+  push.ts, email.ts      Firebase Cloud Messaging, Brevo
+  races.ts               weekends, sessions, next-race, schedule announcements
+  files.ts, storage.ts   documents: signed URLs, S3 or local disk
+  users.ts, roles.ts     the user shape and the role table
 ```
-
-## Releasing the app
-
-Bump the version in `android/app/build.gradle.kts`, commit, then tag and
-push (`git tag v0.0.0.1 && git push origin v0.0.0.1`). The workflow builds
-and publishes the APKs to a GitHub Release; the site's `/api/app-version`
-picks it up within half an hour, and installed apps show the update popup
-on their next launch. Details, including the signing secrets the workflow
-needs, are in [android/README.md](android/README.md).

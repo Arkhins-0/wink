@@ -24,6 +24,23 @@ export const env = {
     prefix: read("S3_PREFIX", "wink").replace(/^\/+|\/+$/g, ""),
   },
 
+  /** Transactional email. Only Brevo is implemented; a blank key disables email. */
+  email: {
+    provider: read("EMAIL_PROVIDER", "brevo"),
+    brevoApiKey: read("BREVO_API_KEY"),
+    from: read("EMAIL_FROM"),
+    fromName: read("EMAIL_FROM_NAME", "Wink"),
+  },
+
+  /**
+   * Firebase Cloud Messaging, from the server side. Either the service
+   * account JSON itself (raw or base64) or a path to the file.
+   */
+  firebase: {
+    serviceAccount: read("FIREBASE_SERVICE_ACCOUNT"),
+    serviceAccountFile: read("FIREBASE_SERVICE_ACCOUNT_FILE"),
+  },
+
   /** GitHub "owner/name" whose Releases carry the Android APKs. */
   githubRepo: read("WINK_GITHUB_REPO", "Arkhins-0/wink").replace(/^\/+|\/+$/g, ""),
   /** Optional token so release checks are not limited to 60 an hour. */
@@ -34,3 +51,5 @@ export const isDatabaseConfigured = (): boolean => Boolean(env.databaseUrlPooled
 
 export const isStorageConfigured = (): boolean =>
   Boolean(env.s3.bucket && env.s3.accessKeyId && env.s3.secretAccessKey);
+
+export const isEmailConfigured = (): boolean => Boolean(env.email.brevoApiKey && env.email.from);
