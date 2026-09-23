@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
+import QRCode from "qrcode";
 import { Avatar } from "@/components/Avatar";
 import { PersonActions } from "@/components/PersonActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { canChat, canEdit, isBelow } from "@/lib/hierarchy";
 import { requireProfile } from "@/lib/session";
-import { toPublic, userById } from "@/lib/users";
+import { qrUrl, toPublic, userById } from "@/lib/users";
 import { q } from "@/lib/db";
 
 export const metadata = { title: "Person" };
@@ -17,6 +18,7 @@ export default async function Person({ params }: { params: Promise<{ id: string 
   if (!user || (user.id !== me.id && !(await isBelow(me, user.id)))) notFound();
   const p = toPublic(user);
   const editable = user.id !== me.id && canEdit(me, user);
+  const svg = await QRCode.toString(qrUrl(user), { type: "svg", margin: 1, color: { dark: "#0B0B0C", light: "#FFFFFF" } });
   const coordinators =
     me.role === "admin" && user.role === "volunteer"
       ? await q<{ id: string; name: string | null; email: string }>("SELECT id, name, email FROM users WHERE role = 'coordinator' AND status = 'active' ORDER BY name")
@@ -38,11 +40,14 @@ export default async function Person({ params }: { params: Promise<{ id: string 
         </div>
       </section>
 
-      <section className="card grid gap-3 text-sm sm:grid-cols-2">
-        <Row label="Email" value={p.email} />
-        <Row label="Contact" value={p.phone ?? "—"} />
-        <Row label="Date of birth" value={p.dob ?? "—"} />
-        <Row label="Account code" value={p.verifyCode} mono />
+      <section className="card flex flex-col gap-4 text-sm sm:flex-row sm:items-start">
+        <div className="grid flex-1 gap-3 sm:grid-cols-2">
+          <Row label="Email" value={p.email} />
+          <Row label="Contact" value={p.phone ?? "—"} />
+          <Row label="Date of birth" value={p.dob ?? "—"} />
+          <Row label="Account code" value={p.verifyCode} mono />
+        </div>
+        <div className="w-36 shrink-0 self-center rounded-xl bg-white p-1.5 sm:self-start" dangerouslySetInnerHTML={{ __html: svg }} />
       </section>
 
       <PersonActions
