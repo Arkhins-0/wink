@@ -31,6 +31,7 @@ object Links {
                 else -> "person/$second"
             }
             "account" -> "account"
+            "archive" -> if (second == null) "archive" else "archive/$second"
             else -> null
         }
     }

@@ -57,7 +57,7 @@ import kotlinx.serialization.json.put
 
 /** The account: photo, code and QR, status, the scanner, password, updates, sign out. */
 @Composable
-fun AccountScreen(vm: AppViewModel, onScan: () -> Unit) {
+fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val me = vm.me ?: return
@@ -110,6 +110,7 @@ fun AccountScreen(vm: AppViewModel, onScan: () -> Unit) {
             GoldButton("Scan a QR code", onClick = onScan)
             GhostButton(if (showPassword) "Close" else "Change password") { showPassword = !showPassword }
         }
+        GhostButton("Archive", onClick = onArchive)
         if (showPassword) ChangePasswordPanel { showPassword = false }
 
         UpdatePanel(vm)

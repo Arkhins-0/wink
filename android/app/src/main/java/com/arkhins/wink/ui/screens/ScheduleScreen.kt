@@ -34,6 +34,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.RaceSession
+import com.arkhins.wink.data.Season
+import com.arkhins.wink.data.SeasonResponse
+import com.arkhins.wink.data.SeasonsResponse
 import com.arkhins.wink.data.Weekend
 import com.arkhins.wink.data.WeekendResponse
 import com.arkhins.wink.data.WeekendsResponse
@@ -48,6 +51,7 @@ import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.components.GoldButton
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.Panel
+import com.arkhins.wink.ui.components.SectionTitle
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.localTime
@@ -69,8 +73,9 @@ import java.time.format.DateTimeFormatter
 
 /** Every race weekend and its sessions. Admins create and edit both here. */
 @Composable
-fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit) {
+fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit, onArchive: () -> Unit) {
     val app = LocalApp.current
+    var seasons by remember { mutableStateOf<List<Season>>(emptyList()) }
     var weekends by remember { mutableStateOf<List<Weekend>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
@@ -78,6 +83,7 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit) {
 
     LaunchedEffect(reload) {
         try {
+            seasons = runCatching { app.api.get("/api/seasons", SeasonsResponse.serializer()).seasons }.getOrDefault(emptyList())
             weekends = app.api.get("/api/weekends", WeekendsResponse.serializer()).weekends
             error = null
         } catch (e: Exception) {
@@ -87,6 +93,7 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit) {
 
     val w = weekends
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { SeasonHeader(seasons, isAdmin, onArchive = onArchive, onChanged = { reload++ }) }
         if (isAdmin) {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -98,14 +105,152 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit) {
             error != null && w == null -> item { ErrorText(error) }
             w == null -> item { Loading() }
             w.isEmpty() -> item { Empty(if (isAdmin) "No race weekend yet. Create the first one." else "No race weekend has been scheduled yet.") }
-            else -> items(w, key = { it.id }) { weekend ->
-                WeekendCard(weekend, isAdmin, onOpen = { onOpenWeekend(weekend.id) }, onChanged = { reload++ })
+            else -> {
+                val groups = w.groupBy { it.seasonName ?: "" }
+                groups.forEach { (seasonName, list) ->
+                    if (seasonName.isNotBlank() && groups.size > 1) item(key = "season-$seasonName") { SectionTitle(seasonName.uppercase()) }
+                    items(list, key = { it.id }) { weekend ->
+                        WeekendCard(weekend, isAdmin, onOpen = { onOpenWeekend(weekend.id) }, onChanged = { reload++ })
+                    }
+                }
             }
         }
     }
     if (creating) {
-        WeekendDialog(null, onDismiss = { creating = false }, onSaved = { creating = false; reload++ })
+        WeekendDialog(null, seasons.filter { it.status == "active" }, onDismiss = { creating = false }, onSaved = { creating = false; reload++ })
     }
+}
+
+/** The current season's name; admins get the season list with new / edit / archive / delete. */
+@Composable
+private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () -> Unit, onChanged: () -> Unit) {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Season?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<Pair<Season, String>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val current = seasons.firstOrNull { it.current }
+    Panel {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("SEASON", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                    Text(current?.name ?: "No season yet", style = MaterialTheme.typography.titleMedium, color = Snow)
+                }
+                GhostButton("Archive", onClick = onArchive)
+            }
+            ErrorText(error)
+            if (isAdmin) {
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GhostButton(if (open) "Close" else "Manage seasons") { open = !open }
+                    GoldButton("New season") { creating = true }
+                }
+                if (open) {
+                    Spacer(Modifier.height(6.dp))
+                    seasons.filter { it.status == "active" }.forEachIndexed { i, s ->
+                        if (i > 0) Divider()
+                        Column(Modifier.padding(vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(s.name, style = MaterialTheme.typography.titleSmall, color = Snow, modifier = Modifier.weight(1f))
+                                if (s.current) Chip("Current", Gold)
+                            }
+                            Text(s.startsOn + (s.endsOn?.let { " → $it" } ?: "") + " · ${s.weekends} weekend" + if (s.weekends == 1) "" else "s", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                GhostButton("Edit") { editing = s }
+                                GhostButton("Archive") { confirm = s to "archive" }
+                                GhostButton("Delete", danger = true) { confirm = s to "delete" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (creating || editing != null) {
+        SeasonDialog(editing, onDismiss = { creating = false; editing = null }, onSaved = { creating = false; editing = null; onChanged() })
+    }
+    confirm?.let { (s, what) ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            containerColor = NightPanel,
+            title = { Text(if (what == "delete") "Delete ${s.name}?" else "Archive ${s.name}?", style = MaterialTheme.typography.headlineSmall) },
+            text = {
+                Text(
+                    if (what == "delete") "Its weekends, sessions and every message sent in it go with it. This cannot be undone."
+                    else "Its weekends, channels, announcements and chats become read-only under Archive.",
+                    color = SnowSoft,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    scope.launch {
+                        try {
+                            if (what == "delete") app.api.delete("/api/seasons/${s.id}")
+                            else app.api.patch("/api/seasons/${s.id}", SeasonResponse.serializer()) { put("archived", true) }
+                            onChanged()
+                        } catch (e: Exception) {
+                            error = e.message ?: "Could not do that."
+                        }
+                    }
+                }) { Text(if (what == "delete") "Delete" else "Archive", color = if (what == "delete") Danger else Gold) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Name and dates of a season. The one with the latest first day is current. */
+@Composable
+private fun SeasonDialog(season: Season?, onDismiss: () -> Unit, onSaved: () -> Unit) {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    val year = java.time.LocalDate.now().year
+    var name by remember { mutableStateOf(season?.name ?: "$year Season") }
+    var startsOn by remember { mutableStateOf(season?.startsOn ?: "$year-01-01") }
+    var endsOn by remember { mutableStateOf(season?.endsOn ?: "") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        containerColor = NightPanel,
+        title = { Text(if (season == null) "New season" else "Edit season", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ErrorText(error)
+                Field(name, { name = it }, "Name", enabled = !busy)
+                DateField(startsOn, { startsOn = it }, "First day", enabled = !busy)
+                DateField(endsOn, { endsOn = it }, "Last day (optional)", enabled = !busy)
+                Text("New weekends and messages go into the season with the latest first day.", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && name.isNotBlank() && startsOn.isNotBlank(), onClick = {
+                busy = true
+                error = null
+                scope.launch {
+                    try {
+                        val body: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {
+                            put("name", name.trim())
+                            put("startsOn", startsOn.trim())
+                            if (endsOn.isNotBlank()) put("endsOn", endsOn.trim())
+                        }
+                        if (season == null) app.api.post("/api/seasons", SeasonResponse.serializer(), body)
+                        else app.api.patch("/api/seasons/${season.id}", SeasonResponse.serializer(), body)
+                        onSaved()
+                    } catch (e: Exception) {
+                        error = e.message ?: "Could not save."
+                        busy = false
+                    }
+                }
+            }) { Text(if (busy) "Saving…" else "Save", color = Gold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } },
+    )
 }
 
 /** One weekend: header, sessions, and — for admins — the buttons to change any of it. */
@@ -166,7 +311,7 @@ fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () 
         SessionDialog(w, editing, onDismiss = { editing = null; adding = false }, onSaved = { editing = null; adding = false; onChanged() })
     }
     if (editingWeekend) {
-        WeekendDialog(w, onDismiss = { editingWeekend = false }, onSaved = { editingWeekend = false; onChanged() })
+        WeekendDialog(w, emptyList(), onDismiss = { editingWeekend = false }, onSaved = { editingWeekend = false; onChanged() })
     }
     if (confirmDelete) {
         AlertDialog(
@@ -198,7 +343,7 @@ private fun asInput(iso: String, tz: String): String = inputFormat.format(Instan
 
 /** Name, venue, dates and the track's time zone. */
 @Composable
-private fun WeekendDialog(w: Weekend?, onDismiss: () -> Unit, onSaved: () -> Unit) {
+private fun WeekendDialog(w: Weekend?, seasons: List<Season>, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(w?.name ?: "") }
@@ -209,6 +354,7 @@ private fun WeekendDialog(w: Weekend?, onDismiss: () -> Unit, onSaved: () -> Uni
     var startsOn by remember { mutableStateOf(w?.startsOn ?: "") }
     var endsOn by remember { mutableStateOf(w?.endsOn ?: "") }
     var channelOpen by remember { mutableStateOf(w?.channelOpen ?: true) }
+    var seasonId by remember { mutableStateOf(w?.seasonId ?: seasons.firstOrNull { it.current }?.id ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val day = Regex("\\d{4}-\\d{2}-\\d{2}")
@@ -232,6 +378,12 @@ private fun WeekendDialog(w: Weekend?, onDismiss: () -> Unit, onSaved: () -> Uni
                     Checkbox(channelOpen, { channelOpen = it }, enabled = !busy, colors = CheckboxDefaults.colors(checkedColor = Gold))
                     Text("Channel open for posts", style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
                 }
+                if (seasons.size > 1) {
+                    Text("SEASON", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        seasons.forEach { s -> Chip(s.name, Gold, filled = seasonId == s.id) { seasonId = s.id } }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -249,6 +401,7 @@ private fun WeekendDialog(w: Weekend?, onDismiss: () -> Unit, onSaved: () -> Uni
                             put("startsOn", startsOn.trim())
                             put("endsOn", endsOn.trim())
                             put("channelOpen", channelOpen)
+                            if (seasonId.isNotBlank()) put("seasonId", seasonId)
                         }
                         if (w == null) app.api.post("/api/weekends", WeekendResponse.serializer(), body)
                         else app.api.patch("/api/weekends/${w.id}", WeekendResponse.serializer(), body)

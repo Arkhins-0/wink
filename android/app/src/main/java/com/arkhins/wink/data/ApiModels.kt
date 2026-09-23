@@ -111,6 +111,9 @@ data class Weekend(
     val startsOn: String,
     val endsOn: String,
     val channelOpen: Boolean = true,
+    val seasonId: String? = null,
+    val seasonName: String? = null,
+    val seasonArchived: Boolean = false,
     val sessions: List<RaceSession> = emptyList(),
 ) {
     val place: String get() = listOf(venue, city, country).filter { it.isNotBlank() }.joinToString(", ")
@@ -161,6 +164,65 @@ data class Verified(
     val verifyCode: String,
     val photoUrl: String? = null,
     val profileComplete: Boolean = false,
+)
+
+@Serializable
+data class Season(
+    val id: String,
+    val name: String,
+    val startsOn: String,
+    val endsOn: String? = null,
+    val status: String = "active",
+    val archivedAt: String? = null,
+    val current: Boolean = false,
+    val weekends: Int = 0,
+)
+
+@Serializable
+data class SeasonsResponse(val seasons: List<Season>)
+
+@Serializable
+data class SeasonResponse(val season: Season)
+
+@Serializable
+data class ArchivedSender(val id: String, val name: String, val roleLabel: String = "")
+
+@Serializable
+data class ArchivedMessage(
+    val id: String,
+    val body: String = "",
+    val urgent: Boolean = false,
+    val createdAt: String,
+    val sender: ArchivedSender? = null,
+    val file: FileInfo? = null,
+    val mine: Boolean = false,
+)
+
+@Serializable
+data class ArchivedWeekend(
+    val id: String,
+    val name: String,
+    val venue: String = "",
+    val city: String = "",
+    val country: String = "",
+    val timezone: String = "UTC",
+    val startsOn: String,
+    val endsOn: String,
+    val sessions: List<RaceSession> = emptyList(),
+    val posts: List<ArchivedMessage> = emptyList(),
+) {
+    val place: String get() = listOf(venue, city, country).filter { it.isNotBlank() }.joinToString(", ")
+}
+
+@Serializable
+data class ArchivedChat(val other: OtherUser, val messages: List<ArchivedMessage>)
+
+@Serializable
+data class SeasonArchive(
+    val season: Season,
+    val weekends: List<ArchivedWeekend> = emptyList(),
+    val announcements: List<ArchivedMessage> = emptyList(),
+    val chats: List<ArchivedChat> = emptyList(),
 )
 
 @Serializable

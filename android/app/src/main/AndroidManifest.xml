@@ -65,6 +65,8 @@
                 <data android:path="/people" />
                 <data android:pathPrefix="/people/" />
                 <data android:path="/account" />
+                <data android:path="/archive" />
+                <data android:pathPrefix="/archive/" />
             </intent-filter>
         </activity>
 

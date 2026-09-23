@@ -34,6 +34,8 @@ import com.arkhins.wink.ui.components.PopupCard
 import com.arkhins.wink.ui.components.TopBar
 import com.arkhins.wink.ui.components.UpdateAvailableDialog
 import com.arkhins.wink.ui.screens.AccountScreen
+import com.arkhins.wink.ui.screens.ArchiveScreen
+import com.arkhins.wink.ui.screens.SeasonArchiveScreen
 import com.arkhins.wink.ui.screens.ChatScreen
 import com.arkhins.wink.ui.screens.ChatsScreen
 import com.arkhins.wink.ui.screens.ComposeScreen
@@ -208,6 +210,7 @@ private fun MainNav(vm: AppViewModel) {
         "newperson" -> "Add person"
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
+        "archive" -> if (route == "archive") "Archive" else title
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
         "weekend" -> "Race weekend"
@@ -225,7 +228,7 @@ private fun MainNav(vm: AppViewModel) {
             NavHost(nav, startDestination = "home") {
                 composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
-                composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend) }
+                composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
@@ -236,7 +239,9 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
-                composable("account") { AccountScreen(vm) { nav.navigate("scanner") } }
+                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }) }
+                composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
+                composable("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
                 composable("scanner") { ScannerScreen(onOpenChat = { nav.navigate("chat/$it") }) }
                 composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { nav.navigate("chat/$it") }) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
