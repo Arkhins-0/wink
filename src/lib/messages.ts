@@ -1,11 +1,13 @@
 import "server-only";
 
+import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { fileById } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
 import { activeUserIds, deliver, preview } from "./notify";
+import { pushSync } from "./push";
 import { CHANNEL_POSTERS, ROLE_LABEL, type Role } from "./roles";
 import { APP_NAME } from "./config";
 import { currentSeason, LIVE_SEASON } from "./seasons";
@@ -199,6 +201,7 @@ export async function sendBroadcast(
     messageId: id,
     recipientIds: recipients,
     push: { title: senderLabel(sender), body: text, link: `/home?m=${id}`, tag: `m-${id}` },
+    sync: { scope: "home" },
     email: mail
       ? {
           subject: `${draft.urgent ? "Urgent: " : ""}${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
@@ -248,6 +251,7 @@ export async function postToChannel(sender: SessionUser, weekendId: string, draf
     messageId: id,
     recipientIds: await activeUserIds(sender.id),
     push: { title: `${channel.name} · ${sender.name || sender.email}`, body: text, link: `/w/${weekendId}`, tag: `w-${weekendId}` },
+    sync: { scope: "weekend", id: weekendId },
     email:
       draft.urgent || file
         ? {
@@ -336,6 +340,7 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
     messageId: id,
     recipientIds: [otherId],
     push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}` },
+    sync: { scope: "chat", id: conv.id },
     // Private chats email only when the sender marks the message urgent.
     email:
       draft.urgent
@@ -354,8 +359,18 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
  * changed in. Anything else is refused with the reason.
  */
 async function ownRecent(user: SessionUser, messageId: string) {
-  const m = await one<{ id: string; sender_id: string | null; created_at: string; deleted_at: string | null; kind: Kind | null; file_id: string | null }>(
-    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id
+  const m = await one<{
+    id: string;
+    sender_id: string | null;
+    created_at: string;
+    deleted_at: string | null;
+    kind: Kind | null;
+    file_id: string | null;
+    conversation_id: string;
+    owner_id: string;
+    member_id: string;
+  }>(
+    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id
      FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id
      WHERE m.id = $1 AND ${LIVE_SEASON("m")}`,
     [messageId],
@@ -372,12 +387,14 @@ export async function editDirect(user: SessionUser, messageId: string, body: str
   const m = await ownRecent(user, messageId);
   if (!body.trim() && !m.file_id) throw new AuthError(400, "Write something, or delete the message instead.");
   await run("UPDATE messages SET body = $2, edited_at = now(), changed_at = now() WHERE id = $1", [m.id, body]);
+  after(() => pushSync([m.owner_id, m.member_id], { scope: "chat", id: m.conversation_id }));
 }
 
 /** Gone for both people: the text and the file go, a "deleted" placeholder stays. */
 export async function deleteDirect(user: SessionUser, messageId: string): Promise<void> {
   const m = await ownRecent(user, messageId);
   await run("UPDATE messages SET body = '', file_id = NULL, deleted_at = now(), changed_at = now() WHERE id = $1", [m.id]);
+  after(() => pushSync([m.owner_id, m.member_id], { scope: "chat", id: m.conversation_id }));
 }
 
 export async function myConversations(user: SessionUser): Promise<ConversationOut[]> {
@@ -447,16 +464,15 @@ export async function conversationMessages(user: SessionUser, conversationId: st
  * the phone replaces by id, so a repeat costs nothing.
  */
 export async function conversationDelta(user: SessionUser, conversationId: string, after: string): Promise<{ messages: MessageOut[]; liveIds: string[] }> {
-  const rows = await q<Row>(
-    `${SELECT} WHERE m.conversation_id = $2 AND ${LIVE_SEASON("m")}
-       AND COALESCE(m.changed_at, m.created_at) > $3::timestamptz - interval '1 minute'
-     ORDER BY m.created_at LIMIT 500`,
-    [user.id, conversationId, after],
-  );
-  const ids = await q<{ id: string }>(
-    `SELECT m.id FROM messages m WHERE m.conversation_id = $1 AND ${LIVE_SEASON("m")} ORDER BY m.created_at`,
-    [conversationId],
-  );
+  const [rows, ids] = await Promise.all([
+    q<Row>(
+      `${SELECT} WHERE m.conversation_id = $2 AND ${LIVE_SEASON("m")}
+         AND COALESCE(m.changed_at, m.created_at) > $3::timestamptz - interval '1 minute'
+       ORDER BY m.created_at LIMIT 500`,
+      [user.id, conversationId, after],
+    ),
+    q<{ id: string }>(`SELECT m.id FROM messages m WHERE m.conversation_id = $1 AND ${LIVE_SEASON("m")} ORDER BY m.created_at`, [conversationId]),
+  ]);
   return { messages: rows.map((r) => out(r, user.id)), liveIds: ids.map((r) => r.id) };
 }
 
@@ -497,7 +513,18 @@ export async function markRead(userId: string, messageIds: string[]): Promise<vo
  */
 async function touch(ids: { message_id: string }[]): Promise<void> {
   if (ids.length === 0) return;
-  await run("UPDATE messages SET changed_at = now() WHERE id = ANY($1::uuid[])", [ids.map((r) => r.message_id)]);
+  const chats = await q<{ sender_id: string; conversation_id: string }>(
+    `UPDATE messages SET changed_at = now() WHERE id = ANY($1::uuid[])
+     RETURNING sender_id, conversation_id`,
+    [ids.map((r) => r.message_id)],
+  );
+  const seen = new Set<string>();
+  for (const c of chats) {
+    const key = `${c.sender_id}:${c.conversation_id}`;
+    if (!c.sender_id || !c.conversation_id || seen.has(key)) continue;
+    seen.add(key);
+    await pushSync([c.sender_id], { scope: "chat", id: c.conversation_id });
+  }
 }
 
 export async function markConversationRead(userId: string, conversationId: string): Promise<void> {

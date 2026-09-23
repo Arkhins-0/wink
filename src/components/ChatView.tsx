@@ -48,9 +48,17 @@ export function ChatView({ conversationId, initial }: { conversationId: string; 
     }
   };
 
+  // A quick look every few seconds while the chat is on screen (new messages, ticks), and at once when a push arrives.
   useEffect(() => {
-    const timer = setInterval(reload, 15_000);
-    return () => clearInterval(timer);
+    const look = () => document.visibilityState === "visible" && reload();
+    const timer = setInterval(look, 4_000);
+    window.addEventListener("wink:push", reload);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("wink:push", reload);
+      document.removeEventListener("visibilitychange", look);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 

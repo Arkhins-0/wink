@@ -1,7 +1,8 @@
+import { after } from "next/server";
 import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { canRead, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, postDirect } from "@/lib/messages";
+import { canRead, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, postDirect } from "@/lib/messages";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
 import { userById } from "@/lib/users";
 
@@ -20,13 +21,17 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   const conv = await conversationById(id);
   if (!conv || conv.kind !== "direct" || !canRead(user, conv)) return fail("No such chat.", 404);
   const otherId = conv.owner_id === user.id ? conv.member_id! : conv.owner_id!;
-  const other = await userById(otherId);
   const query = new URL(request.url).searchParams;
-  const after = query.get("after");
-  const delta = after && !Number.isNaN(Date.parse(after)) ? await conversationDelta(user, id, new Date(after).toISOString()) : null;
-  const messages = delta ? delta.messages : await conversationMessages(user, id);
-  if (query.get("read") !== "0") await markConversationRead(user.id, id);
-  else await markDelivered(user.id);
+  const since = query.get("after");
+  const [other, delta, full] = await Promise.all([
+    userById(otherId),
+    since && !Number.isNaN(Date.parse(since)) ? conversationDelta(user, id, new Date(since).toISOString()) : null,
+    since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id),
+  ]);
+  const messages = delta ? delta.messages : full!;
+  // Ticks move after the answer has gone: reading it (or, from a background sync, just receiving it).
+  const read = query.get("read") !== "0";
+  after(() => (read ? markConversationRead(user.id, id) : markDelivered(user.id)).catch((error) => console.error("[chat] marks", error)));
   return json({
     id,
     iOpened: conv.owner_id === user.id,
@@ -57,5 +62,6 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
     urgent: bool(b.urgent),
     replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
   });
-  return json({ id: messageId }, 201);
+  // The message itself, so the phone can show its tick without asking again.
+  return json({ id: messageId, message: await messageById(user, messageId) }, 201);
 });

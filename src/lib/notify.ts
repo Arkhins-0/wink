@@ -3,7 +3,7 @@ import "server-only";
 import { after } from "next/server";
 import { q, run } from "./db";
 import { sendNotice } from "./email";
-import { pushTo, type Push } from "./push";
+import { pushSync, pushTo, type Push, type SyncSignal } from "./push";
 import { NO_AUTO_EMAIL, type Role } from "./roles";
 import { SITE_URL } from "./config";
 
@@ -19,6 +19,8 @@ export type Delivery = {
   messageId: string;
   recipientIds: string[];
   push: Push;
+  /** The silent nudge that makes the recipients' phones fetch it at once (and so mark it delivered). */
+  sync?: SyncSignal;
   email?: {
     subject: string;
     title: string;
@@ -40,6 +42,7 @@ export async function deliver(d: Delivery): Promise<void> {
   );
 
   after(async () => {
+    if (d.sync) await pushSync(ids, d.sync);
     await pushTo(ids, d.push).catch((error) => console.error("[notify] push", error));
     if (!d.email) return;
     const roles = d.email.force ? null : NO_AUTO_EMAIL;

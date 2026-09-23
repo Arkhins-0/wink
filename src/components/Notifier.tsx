@@ -70,7 +70,11 @@ export function Notifier({ onUnread }: { onUnread?: (home: number, chats: number
         const messaging = getMessaging(app);
         const token = await getToken(messaging, { vapidKey: firebase.vapidKey, serviceWorkerRegistration: registration });
         if (token) await api("/api/push/register", { method: "POST", json: { token, platform: "web" } });
-        unsubscribe = onMessage(messaging, () => poll());
+        unsubscribe = onMessage(messaging, () => {
+          poll();
+          // An open chat reloads at once instead of waiting for its next look.
+          window.dispatchEvent(new Event("wink:push"));
+        });
       } catch (error) {
         console.warn("[push] not available", error);
       }

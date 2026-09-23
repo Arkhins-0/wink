@@ -1,5 +1,11 @@
 package com.arkhins.wink.ui.screens
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import java.util.UUID
+import java.time.Instant
+import com.arkhins.wink.push.Notifications
+import com.arkhins.wink.data.ChatSent
 import kotlin.math.roundToInt
 import com.arkhins.wink.ui.components.ComposerBanner
 import com.arkhins.wink.data.ReplyRef
@@ -121,7 +127,7 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
     LaunchedEffect(Unit) {
         if (chats == null) app.chatCache.loadList()?.let { chats = it }
     }
-    LaunchedEffect(vm.refreshTick) {
+    LaunchedEffect(vm.refreshTick, vm.chatTick) {
         try {
             // A chat with nothing said in it yet is not worth a row.
             val fresh = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations.filter { it.lastMessageAt != null }
@@ -262,7 +268,7 @@ private val dayHeader: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, d 
 private const val EDIT_WINDOW_MS = 2 * 60 * 60 * 1000L
 
 private fun changeable(m: Message): Boolean =
-    m.mine && !m.deleted && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < EDIT_WINDOW_MS
+    m.mine && !m.deleted && !m.id.startsWith("local-") && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < EDIT_WINDOW_MS
 
 /** A message as a quote. */
 private fun refOf(m: Message) = ReplyRef(m.id, m.sender?.name ?: "Unknown", m.mine, m.body, m.file?.name, m.file?.mime, m.deleted)
@@ -304,7 +310,29 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
     var deleting by remember { mutableStateOf<Message?>(null) }
     var flash by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
+    // Sent from here, not yet confirmed by the server: shown at once with a clock.
+    var pending by remember { mutableStateOf<List<Message>>(emptyList()) }
     val list = rememberLazyListState()
+
+    /** Send a pending message; the server's answer takes its place, or it is marked not sent. */
+    fun deliver(local: Message, replyToId: String?) {
+        app.appScope.launch {
+            try {
+                val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
+                    put("body", local.body)
+                    put("urgent", local.urgent)
+                    if (replyToId != null) put("replyToId", replyToId)
+                }
+                val updated = r.message?.let { app.chatCache.add(conversationId, it) } ?: app.chatCache.sync(conversationId, markRead = true)
+                withContext(Dispatchers.Main) {
+                    detail = updated
+                    pending = pending.filterNot { it.id == local.id }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { pending = pending.map { if (it.id == local.id) it.copy(status = "failed") else it } }
+            }
+        }
+    }
 
     // The phone's copy first: the chat is there at once, even offline.
     LaunchedEffect(conversationId) {
@@ -329,18 +357,22 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
             if (detail == null) error = e.message
         }
     }
+    // The server nudges when this chat changes (a new message, an edit, ticks); a quick look every few seconds covers the rest.
+    LaunchedEffect(conversationId) {
+        Notifications.syncs.collect { s -> if (s.scope == "chat" && s.id == conversationId) reload++ }
+    }
     LaunchedEffect(conversationId) {
         while (true) {
-            delay(15_000)
+            delay(5_000)
             reload++
         }
     }
 
     val d = detail
-    val rows = remember(d?.messages) {
+    val rows = remember(d?.messages, pending) {
         buildList {
             var lastDay = ""
-            d?.messages?.forEach { m ->
+            (d?.messages.orEmpty() + pending).forEach { m ->
                 val day = dayHeader.format(instant(m.createdAt).atZone(ZoneId.systemDefault()))
                 if (day != lastDay) {
                     lastDay = day
@@ -351,6 +383,9 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
         }
     }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
+    LaunchedEffect(pending.size) {
+        if (pending.isNotEmpty()) list.animateScrollToItem(rows.size)
+    }
 
     /** Scroll to a quoted message and light it up for a second. */
     fun jump(id: String) {
@@ -369,7 +404,7 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
             when {
                 error != null && d == null -> item { ErrorText(error) }
                 d == null -> item { Loading() }
-                d.messages.isEmpty() -> item { Empty("No messages yet. Say hello.") }
+                d.messages.isEmpty() && pending.isEmpty() -> item { Empty("No messages yet. Say hello.") }
                 else -> items(rows, key = { r -> if (r is ChatRow.Msg) r.m.id else "day-${(r as ChatRow.Day).label}" }) { r ->
                     when (r) {
                         is ChatRow.Day -> DaySeparator(r.label)
@@ -393,6 +428,10 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
                                 }) else null,
                                 onDelete = if (canChange) ({ deleting = m }) else null,
                                 onQuote = ::jump,
+                                onRetry = if (m.status == "failed") ({
+                                    pending = pending.map { if (it.id == m.id) it.copy(status = "pending") else it }
+                                    deliver(m.copy(status = "pending"), m.replyTo?.id)
+                                }) else null,
                             )
                         }
                     }
@@ -419,14 +458,32 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
                 if (editingNow != null) {
                     app.api.patch("/api/messages/${editingNow.id}", Ok.serializer()) { put("body", draft.body) }
                     editing = null
+                } else if (draft.fileId == null) {
+                    // Text goes on screen at once; sending carries on even if the chat is closed.
+                    val local = Message(
+                        id = "local-" + UUID.randomUUID(),
+                        conversationId = conversationId,
+                        kind = "direct",
+                        body = draft.body,
+                        urgent = draft.urgent,
+                        createdAt = Instant.now().toString(),
+                        mine = true,
+                        replyTo = replyingTo?.let(::refOf),
+                        status = "pending",
+                    )
+                    pending = pending + local
+                    replyTo = null
+                    deliver(local, replyingTo?.id)
+                    return@Composer
                 } else {
-                    app.api.post("/api/conversations/$conversationId", IdResponse.serializer()) {
+                    val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
                         put("body", draft.body)
-                        if (draft.fileId != null) put("fileId", draft.fileId)
+                        put("fileId", draft.fileId)
                         put("urgent", draft.urgent)
                         if (replyingTo != null) put("replyToId", replyingTo.id)
                     }
                     replyTo = null
+                    r.message?.let { m -> app.chatCache.add(conversationId, m)?.let { detail = it } }
                 }
                 reload++
             }
@@ -485,8 +542,11 @@ private fun Bubble(
     onEdit: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     onQuote: (String) -> Unit,
+    onRetry: (() -> Unit)?,
 ) {
     val mine = m.mine
+    // Not yet on the server: nothing to reply to, edit or delete.
+    val local = m.id.startsWith("local-")
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -508,7 +568,7 @@ private fun Bubble(
             .fillMaxWidth()
             .background(glow, RoundedCornerShape(12.dp))
             .pointerInput(m.id, m.deleted) {
-                if (m.deleted) return@pointerInput
+                if (m.deleted || local) return@pointerInput
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         if (slide.value <= -trigger) onReply()
@@ -554,9 +614,10 @@ private fun Bubble(
                         .background(if (mine) Gold else NightPanel)
                         .border(1.dp, if (mine) Gold else NightLine, shape)
                         .combinedClickable(
-                            enabled = !m.deleted,
-                            onClick = {},
+                            enabled = !m.deleted && (!local || onRetry != null),
+                            onClick = { onRetry?.invoke() },
                             onLongClick = {
+                                if (local) return@combinedClickable
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 menu = true
                             },
@@ -597,7 +658,10 @@ private fun Bubble(
                             style = MaterialTheme.typography.labelSmall,
                             color = if (mine) Night.copy(alpha = 0.6f) else SnowFaint,
                         )
-                        if (m.status != null && !m.deleted) Ticks(m.status)
+                        when {
+                            m.status == "failed" -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
+                            m.status != null && !m.deleted -> Ticks(m.status)
+                        }
                     }
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = NightPanel) {
@@ -676,6 +740,16 @@ private fun Ticks(status: String) {
         else -> 1
     }
     val color = if (status == "read") ReadBlue else Night.copy(alpha = 0.6f)
+    if (status == "pending") {
+        Canvas(Modifier.padding(start = 4.dp).size(11.dp)) {
+            val stroke = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
+            val c = center
+            drawCircle(color, radius = size.width * 0.44f, style = stroke)
+            drawLine(color, c, c.copy(y = size.height * 0.24f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            drawLine(color, c, c.copy(x = size.width * 0.72f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+        }
+        return
+    }
     Canvas(Modifier.padding(start = 4.dp).size(width = ((10 + (n - 1) * 5) * 1.1f).dp, height = 11.dp)) {
         val unit = size.height / 10f
         repeat(n) { i ->

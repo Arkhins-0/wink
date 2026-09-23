@@ -87,3 +87,38 @@ export async function pushTo(userIds: string[], push: Push): Promise<void> {
   }
   if (dead.length > 0) await run("DELETE FROM push_tokens WHERE token = ANY($1::text[])", [dead]).catch(() => null);
 }
+
+export type SyncSignal = {
+  /** What changed: one private chat, the announcements, or one race weekend's channel. */
+  scope: "chat" | "home" | "weekend";
+  id?: string;
+};
+
+/**
+ * A silent nudge to people's phones: something changed, fetch it now.
+ * Data only (no notification), so the app handles it even in the
+ * background: it fetches the chat, which also marks it delivered, and the
+ * sender's phone gets its own nudge to show the new ticks. Only Android
+ * tokens: a browser shows a "site updated in the background" notice for a
+ * silent push, so the website polls instead. Fire and forget; never throws.
+ */
+export async function pushSync(userIds: string[], signal: SyncSignal): Promise<void> {
+  const firebase = app();
+  const ids = [...new Set(userIds)];
+  if (!firebase || ids.length === 0) return;
+  try {
+    const rows = await q<{ token: string }>("SELECT token FROM push_tokens WHERE user_id = ANY($1::uuid[]) AND platform = 'android'", [ids]);
+    const tokens = rows.map((r) => r.token);
+    const messaging = getMessaging(firebase);
+    for (let i = 0; i < tokens.length; i += 500) {
+      await messaging.sendEachForMulticast({
+        tokens: tokens.slice(i, i + 500),
+        data: { type: "sync", scope: signal.scope, id: signal.id ?? "" },
+        // High priority wakes the app now; a signal older than an hour is not worth delivering.
+        android: { priority: "high", ttl: 60 * 60 * 1000 },
+      });
+    }
+  } catch (error) {
+    console.error("[push] sync failed", error);
+  }
+}

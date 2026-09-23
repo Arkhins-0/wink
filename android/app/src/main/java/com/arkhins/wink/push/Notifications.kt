@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 /** A message that arrived while the app was open: the in-app popup shows it. */
 data class PushEvent(val title: String, val body: String, val link: String)
 
+/** The server's silent nudge: this chat, the announcements ("home") or this weekend's channel changed. */
+data class SyncSignal(val scope: String, val id: String)
+
 /** One channel, high importance, so every message pops up over whatever is on screen. */
 object Notifications {
     const val CHANNEL_ID = "wink_alerts"
@@ -22,6 +25,9 @@ object Notifications {
 
     /** Foreground pushes, for the in-app popup. */
     val events = MutableSharedFlow<PushEvent>(extraBufferCapacity = 8)
+
+    /** Nudges, after the phone's copy has been brought up to date, so open screens show it. */
+    val syncs = MutableSharedFlow<SyncSignal>(extraBufferCapacity = 16)
 
     fun createChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)

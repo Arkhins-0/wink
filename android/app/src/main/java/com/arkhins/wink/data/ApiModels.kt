@@ -101,6 +101,10 @@ data class ChangelogEntry(val version: String, val date: String = "", val change
 @Serializable
 data class ChangelogResponse(val releases: List<ChangelogEntry> = emptyList())
 
+/** What sending to a chat answers: the new message, so the phone need not ask again. */
+@Serializable
+data class ChatSent(val id: String, val message: Message? = null)
+
 @Serializable
 data class ReplyRef(
     val id: String,

@@ -76,6 +76,10 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
     var refreshTick: Int by mutableStateOf(0)
         private set
 
+    /** Bumps when a private chat changed (a message, an edit, ticks): the chats list reloads. */
+    var chatTick: Int by mutableStateOf(0)
+        private set
+
     private var lastPoll: String? = null
 
     /** Ask the server who we are. Decides which part of the app shows. */
@@ -305,6 +309,16 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         refreshMe()
         checkForUpdate()
         viewModelScope.launch { Notifications.events.collect { popup = it; refreshTick++ } }
+        viewModelScope.launch {
+            Notifications.syncs.collect { s ->
+                if (s.scope == "chat") {
+                    chatTick++
+                    poll()
+                } else {
+                    refreshTick++
+                }
+            }
+        }
         viewModelScope.launch {
             while (true) {
                 delay(20_000)

@@ -94,6 +94,17 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         }
     }
 
+    /** Put one message the server has just confirmed into the phone's copy; null if there is no copy yet. */
+    suspend fun add(id: String, message: Message): CachedChat? = locks.getOrPut(id) { Mutex() }.withLock {
+        withContext(Dispatchers.IO) {
+            val cached = load(id) ?: return@withContext null
+            val merged = (cached.messages.filter { it.id != message.id } + message).sortedBy { instant(it.createdAt) }
+            val out = cached.copy(messages = merged)
+            write(file(id), json.encodeToString(CachedChat.serializer(), out))
+            out
+        }
+    }
+
     /** The chats list as last seen, for showing at once. */
     suspend fun loadList(): List<Conversation>? = withContext(Dispatchers.IO) {
         runCatching { json.decodeFromString(ListSerializer(Conversation.serializer()), listFile.readText()) }.getOrNull()

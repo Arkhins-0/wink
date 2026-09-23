@@ -1,5 +1,9 @@
 package com.arkhins.wink.push
 
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.runBlocking
+import com.arkhins.wink.data.MessagesResponse
+import com.arkhins.wink.data.ChannelResponse
 import com.arkhins.wink.WinkApplication
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -24,6 +28,10 @@ class WinkMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        if (data["type"] == "sync") {
+            sync(data["scope"].orEmpty(), data["id"].orEmpty())
+            return
+        }
         val title = message.notification?.title ?: data["title"] ?: "Wink"
         val body = message.notification?.body ?: data["body"] ?: ""
         val link = data["link"] ?: "/home"
@@ -33,5 +41,28 @@ class WinkMessagingService : FirebaseMessagingService() {
             app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
         }
         Notifications.events.tryEmit(PushEvent(title, body, link))
+    }
+
+    /**
+     * Something changed on the server: fetch it into the phone's copy now,
+     * in the background too. Fetching a chat also tells the server it was
+     * delivered, which moves the sender's ticks.
+     */
+    private fun sync(scope: String, id: String) {
+        val app = application as WinkApplication
+        // Done here, not handed off: this runs on Firebase's own thread, and with the app closed
+        // the process may go as soon as this returns.
+        runBlocking {
+            withTimeoutOrNull(15_000) {
+                runCatching {
+                    when (scope) {
+                        "chat" -> if (id.isNotBlank()) app.chatCache.sync(id, markRead = false)
+                        "home" -> app.store.fetch("/api/messages", MessagesResponse.serializer())
+                        "weekend" -> if (id.isNotBlank()) app.store.fetch("/api/weekends/$id/channel", ChannelResponse.serializer())
+                    }
+                }
+            }
+        }
+        Notifications.syncs.tryEmit(SyncSignal(scope, id))
     }
 }
