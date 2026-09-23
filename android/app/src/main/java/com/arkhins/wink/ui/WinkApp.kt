@@ -143,6 +143,7 @@ private fun AuthNav(vm: AppViewModel) {
 /** Signed in and set up: the five tabs and everything they open. */
 @Composable
 private fun MainNav(vm: AppViewModel) {
+    val app = LocalApp.current
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: "home"
@@ -221,7 +222,13 @@ private fun MainNav(vm: AppViewModel) {
             // A tab always shows its own page: everything above Home is
             // dropped first, nothing is restored (a chat opened from a popup
             // would otherwise come back on top of Home).
-            BottomNav(current = tab, unreadHome = vm.unreadHome, unreadChats = vm.unreadChats) { dest ->
+            BottomNav(
+                current = tab,
+                unreadHome = vm.unreadHome,
+                unreadChats = vm.unreadChats,
+                photoUrl = app.api.absolute(vm.me?.user?.photoUrl),
+                name = vm.me?.user?.displayName ?: "?",
+            ) { dest ->
                 nav.navigate(dest) {
                     popUpTo("home") { inclusive = dest == "home" }
                     launchSingleTop = true

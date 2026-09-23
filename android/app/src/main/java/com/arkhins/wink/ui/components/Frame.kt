@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -31,9 +32,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.R
 import com.arkhins.wink.data.NextRace
 import com.arkhins.wink.push.PushEvent
 import com.arkhins.wink.ui.countdown
@@ -148,42 +151,70 @@ fun PopupCard(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Unit)
     }
 }
 
-/** The bottom navigation: five destinations, a badge on Home. */
+/**
+ * The bottom bar: an icon per tab, the account tab being the person's own
+ * photo. Unread counts sit on Home and Chats.
+ */
 @Composable
-fun BottomNav(current: String, unreadHome: Int, unreadChats: Int, onSelect: (String) -> Unit) {
-    val items = listOf("home" to "Home", "schedule" to "Schedule", "chats" to "Chats", "people" to "People", "account" to "Account")
+fun BottomNav(current: String, unreadHome: Int, unreadChats: Int, photoUrl: String?, name: String, onSelect: (String) -> Unit) {
+    val tabs = listOf(
+        Triple("home", R.drawable.ic_tab_home, "Home"),
+        Triple("schedule", R.drawable.ic_tab_calendar, "Schedule"),
+        Triple("chats", R.drawable.ic_tab_chat, "Chats"),
+        Triple("people", R.drawable.ic_tab_people, "People"),
+    )
     Row(
         Modifier
             .fillMaxWidth()
             .background(Night)
             .border(1.dp, NightLine)
-            .padding(vertical = 8.dp)
+            .padding(vertical = 12.dp)
             .navigationBarsPadding(),
         horizontalArrangement = Arrangement.SpaceAround,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        items.forEach { (route, label) ->
+        tabs.forEach { (route, icon, label) ->
             val active = current == route
+            val badge = when (route) {
+                "home" -> unreadHome
+                "chats" -> unreadChats
+                else -> 0
+            }
             Box(
                 Modifier
-                    .background(if (active) Snow.copy(alpha = 0.1f) else Night, RoundedCornerShape(999.dp))
-                    .clickable { onSelect(route) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .size(52.dp)
+                    .background(if (active) Snow.copy(alpha = 0.1f) else Night, RoundedCornerShape(16.dp))
+                    .clickable { onSelect(route) },
+                contentAlignment = Alignment.Center,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, style = MaterialTheme.typography.labelMedium, color = if (active) Snow else SnowFaint)
-                    val badge = when (route) {
-                        "home" -> unreadHome
-                        "chats" -> unreadChats
-                        else -> 0
-                    }
-                    if (badge > 0) {
-                        Spacer(Modifier.width(4.dp))
-                        Box(Modifier.background(Gold, RoundedCornerShape(999.dp)).padding(horizontal = 5.dp)) {
-                            Text(if (badge > 99) "99+" else "$badge", style = MaterialTheme.typography.labelSmall, color = Night)
-                        }
+                Icon(painterResource(icon), contentDescription = label, tint = if (active) Gold else SnowFaint, modifier = Modifier.size(28.dp))
+                if (badge > 0) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 4.dp)
+                            .background(Gold, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    ) {
+                        Text(if (badge > 99) "99+" else "$badge", style = MaterialTheme.typography.labelSmall, color = Night)
                     }
                 }
             }
+        }
+        val active = current == "account"
+        Box(
+            Modifier
+                .size(52.dp)
+                .background(if (active) Snow.copy(alpha = 0.1f) else Night, RoundedCornerShape(16.dp))
+                .clickable { onSelect("account") },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .border(2.dp, if (active) Gold else NightLine, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Avatar(photoUrl, name, 32) }
         }
     }
 }
