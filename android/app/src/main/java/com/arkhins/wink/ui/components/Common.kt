@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -116,6 +120,34 @@ fun Field(
         ),
         shape = RoundedCornerShape(12.dp),
     )
+}
+
+/**
+ * A round icon button. [filled] puts it on gold (the one primary action
+ * in a row); otherwise the icon sits on its own in [tint].
+ */
+@Composable
+fun IconAction(icon: ImageVector, description: String, tint: Color, filled: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .background(if (filled) Gold else Color.Transparent, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp)) }
+    }
+}
+
+@Composable
+fun IconAction(icon: Painter, description: String, tint: Color, filled: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .background(if (filled) Gold else Color.Transparent, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(22.dp)) }
+    }
 }
 
 @Composable

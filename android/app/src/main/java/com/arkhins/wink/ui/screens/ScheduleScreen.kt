@@ -15,6 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -30,9 +35,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.R
 import com.arkhins.wink.data.RaceSession
 import com.arkhins.wink.data.Season
 import com.arkhins.wink.data.SeasonResponse
@@ -49,6 +56,7 @@ import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.components.GoldButton
+import com.arkhins.wink.ui.components.IconAction
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.components.SectionTitle
@@ -57,6 +65,7 @@ import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.localTime
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
+import com.arkhins.wink.ui.theme.Night
 import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
@@ -94,11 +103,10 @@ fun ScheduleScreen(isAdmin: Boolean, onOpenWeekend: (String) -> Unit, onArchive:
     val w = weekends
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SeasonHeader(seasons, isAdmin, onArchive = onArchive, onChanged = { reload++ }) }
-        if (isAdmin) {
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    GoldButton("New race weekend") { creating = true }
-                }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("RACE WEEKENDS", Modifier.weight(1f))
+                if (isAdmin) IconAction(Icons.Outlined.Add, "New race weekend", Night, filled = true) { creating = true }
             }
         }
         when {
@@ -139,15 +147,14 @@ private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () 
                     Text("SEASON", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                     Text(current?.name ?: "No season yet", style = MaterialTheme.typography.titleMedium, color = Snow)
                 }
-                GhostButton("Archive", onClick = onArchive)
+                IconAction(painterResource(R.drawable.ic_archive), "Archive", SnowSoft, onClick = onArchive)
+                if (isAdmin) {
+                    IconAction(Icons.Outlined.Settings, if (open) "Close" else "Manage seasons", if (open) Gold else SnowSoft) { open = !open }
+                    IconAction(Icons.Outlined.Add, "New season", Night, filled = true) { creating = true }
+                }
             }
             ErrorText(error)
             if (isAdmin) {
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostButton(if (open) "Close" else "Manage seasons") { open = !open }
-                    GoldButton("New season") { creating = true }
-                }
                 if (open) {
                     Spacer(Modifier.height(6.dp))
                     seasons.filter { it.status == "active" }.forEachIndexed { i, s ->
@@ -158,11 +165,10 @@ private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () 
                                 if (s.current) Chip("Current", Gold)
                             }
                             Text(s.startsOn + (s.endsOn?.let { " → $it" } ?: "") + " · ${s.weekends} weekend" + if (s.weekends == 1) "" else "s", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
-                            Spacer(Modifier.height(6.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                GhostButton("Edit") { editing = s }
-                                GhostButton("Archive") { confirm = s to "archive" }
-                                GhostButton("Delete", danger = true) { confirm = s to "delete" }
+                            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                IconAction(Icons.Outlined.Edit, "Edit season", SnowSoft) { editing = s }
+                                IconAction(painterResource(R.drawable.ic_archive), "Archive season", SnowSoft) { confirm = s to "archive" }
+                                IconAction(Icons.Outlined.Delete, "Delete season", Danger) { confirm = s to "delete" }
                             }
                         }
                     }
@@ -294,15 +300,15 @@ fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () 
                         Text("${localDateTime(s.startsAt)} – ${localTime(s.endsAt)}", style = MaterialTheme.typography.bodySmall, color = SnowSoft)
                         Text("${trackDateTime(s.startsAt, w.timezone)} – ${trackTime(s.endsAt, w.timezone)} track", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                     }
-                    if (isAdmin) Text("Edit", style = MaterialTheme.typography.labelMedium, color = Gold, modifier = Modifier.clickable { editing = s }.padding(8.dp))
+                    if (isAdmin) IconAction(Icons.Outlined.Edit, "Edit session", Gold) { editing = s }
                 }
             }
             if (isAdmin) {
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GoldButton("Add session") { adding = true }
-                    GhostButton("Edit weekend") { editingWeekend = true }
-                    GhostButton("Delete", danger = true) { confirmDelete = true }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    IconAction(Icons.Outlined.Add, "Add session", Night, filled = true) { adding = true }
+                    IconAction(Icons.Outlined.Edit, "Edit weekend", SnowSoft) { editingWeekend = true }
+                    IconAction(Icons.Outlined.Delete, "Delete weekend", Danger) { confirmDelete = true }
                 }
             }
         }
