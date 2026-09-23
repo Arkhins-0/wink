@@ -57,6 +57,20 @@ class Documents(private val context: Context, private val api: WinkApi) {
 
     suspend fun download(file: FileInfo, onProgress: (Float) -> Unit): SavedDocument = withContext(Dispatchers.IO) {
         find(file)?.let { return@withContext it }
+        store(file) { out -> api.download(file.id, out, onProgress) }
+    }
+
+    /**
+     * A file this phone just sent is already here: keep a copy in
+     * Downloads/Wink under the file's id, so the message shows it as saved
+     * instead of offering to download it again.
+     */
+    suspend fun keepSent(file: FileInfo, source: File): SavedDocument = withContext(Dispatchers.IO) {
+        find(file)?.let { return@withContext it }
+        store(file) { out -> source.inputStream().use { it.copyTo(out) } }
+    }
+
+    private suspend fun store(file: FileInfo, write: suspend (java.io.OutputStream) -> Unit): SavedDocument {
         val name = savedName(file)
         val mime = file.mime.ifBlank { "application/octet-stream" }
         val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -70,7 +84,7 @@ class Documents(private val context: Context, private val api: WinkApi) {
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw IOException("Could not create the file in Downloads.")
             try {
-                resolver.openOutputStream(uri)?.use { api.download(file.id, it, onProgress) }
+                resolver.openOutputStream(uri)?.use { write(it) }
                     ?: throw IOException("Could not write to Downloads.")
             } catch (e: Exception) {
                 resolver.delete(uri, null, null)
@@ -85,11 +99,11 @@ class Documents(private val context: Context, private val api: WinkApi) {
             val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Wink")
             dir.mkdirs()
             val target = File(dir, name)
-            target.outputStream().use { api.download(file.id, it, onProgress) }
+            target.outputStream().use { write(it) }
             SavedDocument(FileProvider.getUriForFile(context, "${context.packageName}.updates", target), name, mime)
         }
         known[file.id] = saved
-        saved
+        return saved
     }
 
     /** Hand the saved document to whatever app opens that kind of file. False when nothing on the phone can. */

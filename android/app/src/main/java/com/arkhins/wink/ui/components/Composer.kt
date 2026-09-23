@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.data.Documents
+import com.arkhins.wink.data.FileInfo
 import com.arkhins.wink.data.UploadSlot
 import com.arkhins.wink.data.WinkApi
 import com.arkhins.wink.ui.theme.Gold
@@ -97,7 +99,7 @@ fun Composer(
                     error = null
                     scope.launch {
                         try {
-                            val fileId = picked?.let { upload(context, app.api, it) }
+                            val fileId = picked?.let { upload(context, app.api, app.documents, it) }
                             send(Draft(body.trim(), fileId, urgent))
                             body = ""
                             picked = null
@@ -130,7 +132,7 @@ private fun describe(context: Context, uri: Uri): Picked {
 }
 
 /** Copy the picked document to cache, ask for a slot, PUT it, confirm. */
-private suspend fun upload(context: Context, api: WinkApi, p: Picked): String = withContext(Dispatchers.IO) {
+private suspend fun upload(context: Context, api: WinkApi, documents: Documents, p: Picked): String = withContext(Dispatchers.IO) {
     val temp = File(context.cacheDir, "upload-${System.currentTimeMillis()}")
     context.contentResolver.openInputStream(p.uri)?.use { input -> temp.outputStream().use { input.copyTo(it) } }
         ?: throw IllegalStateException("The file could not be read.")
@@ -147,6 +149,8 @@ private suspend fun upload(context: Context, api: WinkApi, p: Picked): String = 
             api.putBytes(api.url("/api/files/${slot.id}/content"), temp, p.mime)
         }
         api.post("/api/files/${slot.id}/ready", com.arkhins.wink.data.Ok.serializer())
+        // What we sent is already on this phone: keep it beside received files.
+        runCatching { documents.keepSent(FileInfo(slot.id, p.name, p.mime, temp.length()), temp) }
         slot.id
     } finally {
         temp.delete()
