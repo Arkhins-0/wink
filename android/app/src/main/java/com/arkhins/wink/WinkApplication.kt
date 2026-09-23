@@ -28,6 +28,10 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** Downloads a release APK and hands it to the system installer. */
     val updater: AppUpdater by lazy { AppUpdater(this) }
 
+    /** Who is signed in, once /api/me has answered; screens outside the view model read it here. */
+    @Volatile
+    var currentUserId: String? = null
+
     override fun onCreate() {
         super.onCreate()
         session.load()

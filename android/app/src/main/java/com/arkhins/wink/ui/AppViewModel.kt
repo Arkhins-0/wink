@@ -88,6 +88,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             try {
                 val m = app.api.me()
                 me = m
+                app.currentUserId = m.user.id
                 unread = m.unread
                 unreadHome = m.unreadHome
                 unreadChats = m.unreadChats
@@ -120,6 +121,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
     private suspend fun signOutLocally() {
         app.session.clear()
         me = null
+        app.currentUserId = null
         unread = 0
         unreadHome = 0
         unreadChats = 0

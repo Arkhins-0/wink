@@ -206,8 +206,8 @@ private fun MainNav(vm: AppViewModel) {
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
                 composable("account") { AccountScreen(vm) { nav.navigate("scanner") } }
-                composable("scanner") { ScannerScreen() }
-                composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token")) }
+                composable("scanner") { ScannerScreen(onOpenChat = { nav.navigate("chat/$it") }) }
+                composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { nav.navigate("chat/$it") }) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
                 composable("image") { image?.let { ImageScreen(it) } }
             }

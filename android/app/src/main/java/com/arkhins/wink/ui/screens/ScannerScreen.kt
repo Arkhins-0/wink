@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.data.IdResponse
 import com.arkhins.wink.data.Verified
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.ErrorText
@@ -62,12 +63,13 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.put
 import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 /** Point the camera at someone's QR, or type their code; the result is who they are and their status. */
 @Composable
-fun ScannerScreen(initialToken: String? = null) {
+fun ScannerScreen(initialToken: String? = null, onOpenChat: (String) -> Unit = {}) {
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -122,7 +124,26 @@ fun ScannerScreen(initialToken: String? = null) {
             GoldButton("Check", enabled = !busy && code.isNotBlank()) { lookup("code=${URLEncoder.encode(code, "UTF-8")}") }
         }
         ErrorText(error)
-        result?.let { IdCard(it) }
+        result?.let { v ->
+            IdCard(v)
+            if (v.status == "active" && v.id != vm_me_id(app)) {
+                var chatError by remember(v.id) { mutableStateOf<String?>(null) }
+                var opening by remember(v.id) { mutableStateOf(false) }
+                GoldButton(if (opening) "Opening chat…" else "Chat with ${v.name ?: "this person"}", Modifier.fillMaxWidth(), enabled = !opening) {
+                    opening = true
+                    chatError = null
+                    scope.launch {
+                        try {
+                            onOpenChat(app.api.post("/api/conversations", IdResponse.serializer()) { put("memberId", v.id) }.id)
+                        } catch (e: Exception) {
+                            chatError = e.message ?: "Could not open a chat."
+                            opening = false
+                        }
+                    }
+                }
+                ErrorText(chatError)
+            }
+        }
     }
 }
 
@@ -196,3 +217,6 @@ private fun analyse(scanner: BarcodeScanner, image: ImageProxy, onValue: (String
         .addOnSuccessListener { codes -> codes.firstOrNull()?.rawValue?.let(onValue) }
         .addOnCompleteListener { image.close() }
 }
+
+/** The signed-in person's id, from the session the app keeps; blank when unknown. */
+private fun vm_me_id(app: com.arkhins.wink.WinkApplication): String = app.currentUserId ?: ""
