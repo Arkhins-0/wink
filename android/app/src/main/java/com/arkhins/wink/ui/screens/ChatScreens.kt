@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import android.widget.Toast
 import android.content.Intent
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Email
 import com.arkhins.wink.push.Notifications as PushNotifications
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -952,10 +953,6 @@ private fun Bubble(
                             Box(inset) { Quote(it, onDark = !mine) { onQuote(it.id) } }
                             Spacer(Modifier.height(4.dp))
                         }
-                        if (m.urgent) {
-                            Box(inset) { Chip("Urgent", if (mine) Night else Danger, filled = mine) }
-                            Spacer(Modifier.height(4.dp))
-                        }
                         val loc = locationIn(m.body)
                         if (loc != null) {
                             LocationCard(loc.first, loc.second, onDark = !mine)
@@ -978,6 +975,8 @@ private fun Bubble(
                             m.status == "failed" -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
                             m.status != null && !m.deleted -> Ticks(m.status)
                         }
+                        // Marked urgent: it also went out by email.
+                        if (m.urgent && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
                     }
                 }
             }
