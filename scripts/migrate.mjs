@@ -1,17 +1,22 @@
 // Applies db/migrations/*.sql in name order, once each, recording them in
 // schema_migrations. Reads DATABASE_URL (or DATABASE_URL_POOLED) from the
-// environment or the root .env. Usage: npm run migrate
+// environment, then .env.local (a test branch, when there is one), then
+// the root .env — the first to set it wins, as with Next.js. It says which
+// database host it is about to change. Usage: npm run migrate
 import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 
-try {
-  process.loadEnvFile(path.resolve(".env"));
-} catch {
-  // No .env: the host's environment must carry DATABASE_URL.
+for (const file of [".env.local", ".env"]) {
+  try {
+    process.loadEnvFile(path.resolve(file));
+  } catch {
+    // Not there: the next file, or the host's environment, carries it.
+  }
 }
 
 const url = process.env.DATABASE_URL || process.env.DATABASE_URL_POOLED;
+if (url) console.log(`database: ${new URL(url).hostname}`);
 if (!url) {
   console.error("DATABASE_URL is not set.");
   process.exit(1);
