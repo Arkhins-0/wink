@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["iad1"],
-  "ignoreCommand": "git diff --quiet ${VERCEL_GIT_PREVIOUS_SHA:-HEAD^} HEAD -- . ':(exclude)android' ':(exclude).github'"
+  "ignoreCommand": "if git cat-file -e \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}\" 2>/dev/null; then git diff --quiet \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\" HEAD -- . ':(exclude)android' ':(exclude).github'; else exit 1; fi"
 }
