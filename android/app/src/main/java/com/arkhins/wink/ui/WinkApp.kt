@@ -43,6 +43,7 @@ import com.arkhins.wink.ui.screens.AccountScreen
 import com.arkhins.wink.ui.screens.ArchiveScreen
 import com.arkhins.wink.ui.screens.SeasonArchiveScreen
 import com.arkhins.wink.ui.screens.ChatScreen
+import com.arkhins.wink.ui.screens.ChatProfileScreen
 import com.arkhins.wink.ui.screens.ChatsScreen
 import com.arkhins.wink.ui.screens.ComposeScreen
 import com.arkhins.wink.ui.screens.EmailScreen
@@ -247,6 +248,7 @@ private fun MainNav(vm: AppViewModel) {
             onOpenWeekend = openWeekend,
             showCountdown = tab != "pdf" && tab != "image",
             photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
+            onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { nav.navigate("chatprofile/$it") } }) else null,
         )
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
@@ -257,6 +259,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view) { title = it.name; chatWith = it } }
+                composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
                 composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") }) { title = it } }

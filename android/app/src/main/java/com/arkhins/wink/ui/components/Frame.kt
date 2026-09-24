@@ -56,7 +56,14 @@ import kotlinx.coroutines.delay
 
 /** The bar at the top of every screen: a title (or a back arrow and title) and the countdown chip on the right. */
 @Composable
-fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) -> Unit, showCountdown: Boolean = true, photo: (@Composable () -> Unit)? = null) {
+fun TopBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    onOpenWeekend: (String) -> Unit,
+    showCountdown: Boolean = true,
+    photo: (@Composable () -> Unit)? = null,
+    onTitleClick: (() -> Unit)? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -69,18 +76,24 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) 
         } else {
             Spacer(Modifier.width(12.dp))
         }
-        if (photo != null) {
-            photo()
-            Spacer(Modifier.width(10.dp))
+        Row(
+            Modifier
+                .weight(1f)
+                .then(if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (photo != null) {
+                photo()
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                color = Snow,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            color = Snow,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
         OfflineIcon()
         if (showCountdown) CountdownChip(onOpenWeekend)
         Spacer(Modifier.width(8.dp))

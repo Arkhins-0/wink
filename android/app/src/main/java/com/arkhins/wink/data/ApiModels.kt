@@ -204,6 +204,7 @@ data class Verified(
     val verifyCode: String,
     val photoUrl: String? = null,
     val profileComplete: Boolean = false,
+    val qrUrl: String? = null,
 )
 
 @Serializable
