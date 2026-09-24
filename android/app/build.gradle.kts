@@ -13,8 +13,8 @@ plugins {
 // Four segments. Bump both together for every release: the tag pushed to
 // GitHub is "v" + versionName, and the app compares versionName against the
 // latest release to decide whether to show the update popup.
-val winkVersionName = "0.1.4.1"
-val winkVersionCode = 10
+val winkVersionName = "0.1.4.2"
+val winkVersionCode = 11
 
 // --- Build-time configuration --------------------------------------------------
 // Values reach the app through BuildConfig. Each is looked up, in order, as an
