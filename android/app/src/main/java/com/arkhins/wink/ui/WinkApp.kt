@@ -364,14 +364,18 @@ private fun MainNav(vm: AppViewModel) {
             val id = openChat ?: lastChat
             if (id != null) {
                 BackHandler(enabled = openChat != null) { openChat = null }
+                // The name and photo are there from the first frame: from the phone's copy of the chat, or its row in the list.
+                val who = chatWith ?: remember(id) {
+                    app.chatCache.peek(id)?.let { it.other ?: it.group?.asOther() } ?: app.chatCache.peekList()?.find { it.id == id }?.other
+                }
                 Column(Modifier.fillMaxSize().background(Night)) {
                     val bar = selection
                     if (bar != null) SelectionTopBar(bar) else TopBar(
-                        title = chatWith?.name ?: "",
+                        title = who?.name ?: "",
                         onBack = { openChat = null },
                         onOpenWeekend = openWeekend,
-                        photo = chatWith?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
-                        onTitleClick = { nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") },
+                        photo = who?.let { w -> { Avatar(app.api.absolute(w.photoUrl), w.name, 36) } },
+                        onTitleClick = { nav.navigate(if (who?.role == "group") "group/$id" else "chatprofile/$id") },
                         menu = listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()),
                     )
                     Box(Modifier.weight(1f)) {

@@ -201,6 +201,8 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
             val before = chats.orEmpty().associateBy { it.id }
             chats = fresh
             app.chatCache.saveList(fresh)
+            // Every chat's saved copy is read into memory now, so any of them opens with its messages already drawn.
+            fresh.forEach { c -> app.appScope.launch { runCatching { app.chatCache.load(c.id) } } }
             // Every chat that moved (or that the phone has no copy of yet) syncs now, in the background,
             // so opening it shows everything at once. Nothing is marked read by this.
             fresh.filter { c -> before[c.id]?.let { it.lastMessageAt != c.lastMessageAt || it.unread != c.unread } ?: true || !app.chatCache.has(c.id) }
