@@ -8,6 +8,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.arkhins.wink.Config
 import com.arkhins.wink.MainActivity
 import com.arkhins.wink.R
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -85,5 +86,27 @@ object Notifications {
             .setContentIntent(pending)
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(tag ?: link, 1, notification) }
+    }
+
+    /** After the app updated itself: a tap opens it again, where the "What's new" popup is waiting. */
+    fun showUpdated(context: Context) {
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pending = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(context.getColor(R.color.gold))
+            .setContentTitle("${Config.APP_NAME} was updated")
+            .setContentText("Tap to see what's new")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify("updated", 1, notification) }
     }
 }

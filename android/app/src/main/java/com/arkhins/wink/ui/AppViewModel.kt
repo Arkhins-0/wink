@@ -316,6 +316,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             return
         }
         updateStage = UpdateStage.Installing
+        // The install replaces the app; its notes are kept for the "What's new" popup on the first open after.
+        updateInfo?.let { app.whatsNew.savePending(it) }
         viewModelScope.launch {
             runCatching { app.updater.install(file) }
                 .onFailure { updateStage = UpdateStage.Failed(it.message ?: "The installer could not be opened.") }
@@ -324,11 +326,21 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
 
     fun openInstallSettings() = app.updater.openInstallSettings()
 
+    /** The notes of the version just installed, for the "What's new" popup on the first open after an update. */
+    var whatsNew: AppVersionInfo? by mutableStateOf(null)
+        private set
+
+    fun dismissWhatsNew() {
+        whatsNew = null
+        app.whatsNew.markSeen()
+    }
+
     // Last, on purpose: an init block runs in declaration order, so it must
     // come after every property above has been initialised.
     init {
         refreshMe()
         checkForUpdate()
+        viewModelScope.launch { whatsNew = app.whatsNew.afterUpdate(app.updates) }
         viewModelScope.launch { Notifications.events.collect { popup = it; refreshTick++ } }
         // The package installer reports a failed install after install() has returned.
         viewModelScope.launch {

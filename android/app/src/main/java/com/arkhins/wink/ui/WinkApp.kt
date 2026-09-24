@@ -46,6 +46,7 @@ import com.arkhins.wink.ui.components.SelectionTopBar
 import com.arkhins.wink.ui.components.TopBar
 import com.arkhins.wink.ui.components.ChatsHeader
 import com.arkhins.wink.ui.components.UpdateAvailableDialog
+import com.arkhins.wink.ui.components.WhatsNewDialog
 import com.arkhins.wink.ui.screens.AccountScreen
 import com.arkhins.wink.ui.screens.ArchiveScreen
 import com.arkhins.wink.ui.screens.SeasonArchiveScreen
@@ -121,8 +122,13 @@ fun WinkApp() {
             }
         }
 
+        // The first open after an update shows what changed; a newer release, if any, waits until that is closed.
+        val whatsNew = vm.whatsNew
+        if (whatsNew != null) {
+            WhatsNewDialog(info = whatsNew, onDismiss = vm::dismissWhatsNew)
+        }
         val update = vm.updateInfo
-        if (update != null && !vm.updateDismissed) {
+        if (whatsNew == null && update != null && !vm.updateDismissed) {
             UpdateAvailableDialog(
                 info = update,
                 stage = vm.updateStage,

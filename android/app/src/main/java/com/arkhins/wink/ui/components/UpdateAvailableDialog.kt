@@ -26,6 +26,10 @@ import com.arkhins.wink.ui.theme.SnowFaint
  * The whole update, in one dialog: download the release APK here, then let
  * Android's installer take over. Android asks its own permission the first
  * time, which is what [UpdateStage.NeedsPermission] is about.
+ *
+ * With [whatsNew] the same dialog serves the first open after an update:
+ * [info] is then the version now running, only its notes show, and the
+ * one button closes it.
  */
 @Composable
 fun UpdateAvailableDialog(
@@ -36,14 +40,20 @@ fun UpdateAvailableDialog(
     onOpenSettings: () -> Unit,
     onOpenReleasePage: () -> Unit,
     onDismiss: () -> Unit,
+    whatsNew: Boolean = false,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NightPanel,
-        title = { Text("Update available", style = MaterialTheme.typography.headlineSmall) },
+        title = {
+            Text(
+                if (whatsNew) "What's new in ${info.version}" else "Update available",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+        },
         text = {
             Column {
-                when (stage) {
+                if (whatsNew) Notes(info.notes) else when (stage) {
                     is UpdateStage.Downloading -> {
                         Text("Downloading ${Config.APP_NAME} v${info.version}…")
                         Spacer(Modifier.height(12.dp))
@@ -75,21 +85,14 @@ fun UpdateAvailableDialog(
                             Spacer(Modifier.height(12.dp))
                             Text("What changed", style = MaterialTheme.typography.labelLarge)
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                info.notes.trim(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = SnowFaint,
-                                modifier = Modifier
-                                    .heightIn(max = 200.dp)
-                                    .verticalScroll(rememberScrollState()),
-                            )
+                            Notes(info.notes)
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            when (stage) {
+            if (whatsNew) TextButton(onClick = onDismiss) { Text("Got it", color = Gold) } else when (stage) {
                 is UpdateStage.Downloading -> Unit
                 UpdateStage.NeedsPermission -> TextButton(onClick = onOpenSettings) { Text("Open settings", color = Gold) }
                 UpdateStage.Installing -> TextButton(onClick = onInstall) { Text("Install again", color = Gold) }
@@ -103,8 +106,40 @@ fun UpdateAvailableDialog(
                     }
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (stage is UpdateStage.Downloading) "Hide" else "Later") }
+        dismissButton = if (whatsNew) null else {
+            { TextButton(onClick = onDismiss) { Text(if (stage is UpdateStage.Downloading) "Hide" else "Later") } }
         },
+    )
+}
+
+/** The release notes, scrolling past a certain height so a long release does not push the buttons off screen. */
+@Composable
+private fun Notes(notes: String) {
+    Text(
+        notes.trim(),
+        style = MaterialTheme.typography.bodySmall,
+        color = SnowFaint,
+        modifier = Modifier
+            .heightIn(max = 200.dp)
+            .verticalScroll(rememberScrollState()),
+    )
+}
+
+/**
+ * The first open after an update: what changed in the version now
+ * running. The same dialog as [UpdateAvailableDialog], with nothing to
+ * download or install — only a button to close it.
+ */
+@Composable
+fun WhatsNewDialog(info: AppVersionInfo, onDismiss: () -> Unit) {
+    UpdateAvailableDialog(
+        info = info,
+        stage = UpdateStage.Idle,
+        onUpdate = {},
+        onInstall = {},
+        onOpenSettings = {},
+        onOpenReleasePage = {},
+        onDismiss = onDismiss,
+        whatsNew = true,
     )
 }

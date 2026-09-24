@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import com.arkhins.wink.data.Documents
 import com.arkhins.wink.data.SessionStore
 import com.arkhins.wink.data.UpdateChecker
+import com.arkhins.wink.data.WhatsNewStore
 import com.arkhins.wink.data.WinkApi
 import com.arkhins.wink.push.Notifications
 
@@ -55,6 +56,9 @@ class WinkApplication : Application(), ImageLoaderFactory {
      * for the update dialog to show. Cleared by whoever shows it.
      */
     val installFailure = MutableStateFlow<String?>(null)
+
+    /** Which version the user has seen, and the notes of an update about to install. */
+    val whatsNew: WhatsNewStore by lazy { WhatsNewStore(this) }
 
     /** Who is signed in, once /api/me has answered; screens outside the view model read it here. */
     @Volatile

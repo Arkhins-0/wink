@@ -106,6 +106,15 @@
             android:name=".data.UpdateInstallReceiver"
             android:exported="false" />
 
+        <!-- After the app has updated itself, a notification brings it back. -->
+        <receiver
+            android:name=".data.AppUpdatedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Lends the downloaded update APK to the system installer when the
              package installer cannot be used, and downloaded documents to
              the app that opens them on older Android. -->
