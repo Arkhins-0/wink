@@ -31,11 +31,16 @@ import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
 
-/** One message, as it appears in the inbox, a chat or a channel. */
+/**
+ * One message, as it appears in the inbox, a chat or a channel. Given a
+ * [run] of photo messages (see [photoRuns]), one card shows them all as a
+ * grid, with the first caption and the time of the last.
+ */
 @Composable
-fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = true, highlight: Boolean = false) {
+fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Boolean = true, highlight: Boolean = false) {
     val app = LocalApp.current
-    val unread = m.readAt == null && !m.mine
+    val m = run.last()
+    val unread = run.any { it.readAt == null && !it.mine }
     val shape = RoundedCornerShape(16.dp)
     Column(
         Modifier
@@ -66,7 +71,7 @@ fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = tr
                     } else {
                         Spacer(Modifier.weight(1f))
                     }
-                    if (m.urgent) {
+                    if (run.any { it.urgent }) {
                         Spacer(Modifier.width(6.dp))
                         Chip("Urgent", Danger)
                     }
@@ -74,18 +79,18 @@ fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = tr
                     Text(whenLabel(m.createdAt), style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                 }
                 // The photos as one grid, then the other files, then the words, then the place, if any.
-                val files = m.attachments
-                val photos = files.filter { it.isImage }
+                val files = if (run.size > 1) run.flatMap { it.attachments } else m.attachments
+                val photos = runPhotos(run)
                 if (photos.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    PhotoGrid(m, photos, onView)
+                    PhotoGrid(photos, onView)
                 }
                 files.filterNot { it.isImage }.forEach { f ->
                     Spacer(Modifier.height(8.dp))
                     Attachment(f, onView)
                 }
                 val loc = locationIn(m.body)
-                val text = textOf(m.body)
+                val text = if (run.size > 1) runText(run) else textOf(m.body)
                 if (text.isNotBlank()) {
                     Spacer(Modifier.height(if (files.isEmpty()) 4.dp else 8.dp))
                     Text(text, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)

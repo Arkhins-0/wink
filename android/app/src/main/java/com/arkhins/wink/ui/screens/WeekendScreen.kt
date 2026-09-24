@@ -31,6 +31,7 @@ import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.MessageCard
+import com.arkhins.wink.ui.components.photoRuns
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import kotlinx.coroutines.delay
@@ -114,7 +115,8 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
                 when {
                     c == null -> item { Loading() }
                     c.messages.isEmpty() -> item { Empty("No posts yet.") }
-                    else -> items(c.messages.reversed(), key = { it.id }) { m -> MessageCard(m, onView) }
+                    // Photos posted one after another show as one grid; the newest post on top.
+                    else -> items(photoRuns(c.messages).asReversed(), key = { it.first().id }) { run -> MessageCard(run, onView) }
                 }
             }
         }

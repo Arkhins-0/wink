@@ -219,7 +219,7 @@ private fun MainNav(vm: AppViewModel) {
     val go: (String) -> Unit = { r -> if (r.startsWith("chat/")) openChat = r.removePrefix("chat/") else nav.navigate(r) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
-    // A message's photos, opened from its grid; while some are picked there the header is the selection bar.
+    // A grid's photos, opened from it; while some are picked there the header is the selection bar.
     var gallery by remember { mutableStateOf<FileView.Gallery?>(null) }
     var gallerySelection by remember { mutableStateOf<SelectionBar?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -344,8 +344,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("gallery") {
                     gallery?.let { g ->
                         GalleryScreen(
-                            g.message,
-                            g.start,
+                            g,
                             onView = view,
                             onSelection = { gallerySelection = it },
                             onChanged = vm::changed,

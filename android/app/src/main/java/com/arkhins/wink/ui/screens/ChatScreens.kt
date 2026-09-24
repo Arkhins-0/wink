@@ -142,6 +142,9 @@ import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.LocationCard
 import com.arkhins.wink.ui.components.locationIn
 import com.arkhins.wink.ui.components.PhotoGrid
+import com.arkhins.wink.ui.components.photoRuns
+import com.arkhins.wink.ui.components.runPhotos
+import com.arkhins.wink.ui.components.runText
 import com.arkhins.wink.ui.components.filesLabel
 import com.arkhins.wink.ui.components.textOf
 import com.arkhins.wink.data.FileInfo
@@ -429,10 +432,13 @@ private fun snippet(r: ReplyRef, files: List<FileInfo> = emptyList()): String {
 /** One line saying what a message was, counting all its files. */
 private fun snippet(m: Message): String = snippet(refOf(m), m.attachments)
 
-/** What the chat's list shows, in order: day separators and messages. */
+/** What the chat's list shows, in order: day separators and messages (a run of photos being one bubble). */
 private sealed interface ChatRow {
     data class Day(val label: String) : ChatRow
-    data class Msg(val m: Message) : ChatRow
+    data class Msg(val run: List<Message>) : ChatRow {
+        /** The newest of the run: its time and ticks are the bubble's. */
+        val m: Message get() = run.last()
+    }
 }
 
 /** Ticks on a message you sent that the other person has read. */
@@ -523,10 +529,11 @@ fun ChatScreen(
             // One header per day: a phone clock behind the server's could otherwise put a message just sent
             // under a day already shown, and two rows with the same key would crash the list.
             val days = mutableSetOf<String>()
-            (d?.messages.orEmpty() + pending).forEach { m ->
-                val day = dayHeader.format(instant(m.createdAt).atZone(ZoneId.systemDefault()))
+            // Photos sent one after another within a minute show as one grid.
+            photoRuns(d?.messages.orEmpty() + pending).forEach { run ->
+                val day = dayHeader.format(instant(run.first().createdAt).atZone(ZoneId.systemDefault()))
                 if (days.add(day)) add(ChatRow.Day(day))
-                add(ChatRow.Msg(m))
+                add(ChatRow.Msg(run))
             }
         }
     }
@@ -560,10 +567,12 @@ fun ChatScreen(
         }
     }
 
-    fun toggle(m: Message) {
+    /** A bubble picked or let go: a grid of several photo messages goes as one. */
+    fun toggle(run: List<Message>) {
         // An invitation can be selected by whoever sent it, to see who it reached.
-        if (m.deleted || m.id.startsWith("local-") || (m.groupInvite != null && !m.mine) || m.event != null) return
-        selected = if (m.id in selected) selected - m.id else selected + m.id
+        val ids = run.filterNot { m -> m.deleted || m.id.startsWith("local-") || (m.groupInvite != null && !m.mine) || m.event != null }.map { it.id }
+        if (ids.isEmpty()) return
+        selected = if (ids.all { it in selected }) selected - ids.toSet() else selected + ids
     }
     val clipboard = LocalClipboardManager.current
     val myName = vm.me?.user?.displayName ?: "You"
@@ -614,7 +623,7 @@ fun ChatScreen(
 
     /** Scroll to a quoted message and light it up for a second. */
     fun jump(id: String) {
-        val index = shown.indexOfFirst { it is ChatRow.Msg && it.m.id == id }
+        val index = shown.indexOfFirst { r -> r is ChatRow.Msg && r.run.any { it.id == id } }
         if (index < 0) return
         scope.launch {
             list.animateScrollToItem(index)
@@ -626,7 +635,7 @@ fun ChatScreen(
 
     val hits = remember(query, rows) {
         if (query.isBlank()) emptyList()
-        else rows.filter { it is ChatRow.Msg && !it.m.deleted && it.m.body.contains(query.trim(), ignoreCase = true) }.map { (it as ChatRow.Msg).m.id }
+        else rows.filterIsInstance<ChatRow.Msg>().flatMap { it.run }.filter { !it.deleted && it.body.contains(query.trim(), ignoreCase = true) }.map { it.id }
     }
     LaunchedEffect(hits) {
         hitAt = (hits.size - 1).coerceAtLeast(0)
@@ -681,24 +690,27 @@ fun ChatScreen(
                 error != null && d == null -> item { ErrorText(error) }
                 d == null -> item { Loading() }
                 d.messages.isEmpty() && pending.isEmpty() -> item { Empty("No messages yet. Say hello.") }
-                else -> items(shown, key = { r -> if (r is ChatRow.Msg) r.m.id else "day-${(r as ChatRow.Day).label}" }) { r ->
+                else -> items(shown, key = { r -> if (r is ChatRow.Msg) r.run.first().id else "day-${(r as ChatRow.Day).label}" }) { r ->
                     when (r) {
                         is ChatRow.Day -> DaySeparator(r.label)
-                        is ChatRow.Msg -> if (r.m.event != null) EventLine(r.m.event) else {
+                        is ChatRow.Msg -> if (r.m.event != null) EventLine(r.m.event.orEmpty()) else {
                             val m = r.m
+                            // A run's quote is its first message's: a reply only ever starts one.
+                            val answers = r.run.first().replyTo
                             // A quote reads as the original does now, when the phone has it.
-                            val quote = m.replyTo?.let { ref -> byId[ref.id]?.let(::refOf) ?: ref }
+                            val quote = answers?.let { ref -> byId[ref.id]?.let(::refOf) ?: ref }
                             Bubble(
                                 m = m,
+                                run = r.run,
                                 quote = quote,
-                                quoteText = m.replyTo?.let { ref -> byId[ref.id]?.let(::snippet) },
-                                flash = flash == m.id,
-                                selected = m.id in selected,
+                                quoteText = answers?.let { ref -> byId[ref.id]?.let(::snippet) },
+                                flash = r.run.any { it.id == flash },
+                                selected = r.run.any { it.id in selected },
                                 selecting = selected.isNotEmpty(),
-                                highlight = query.trim().takeIf { it.isNotBlank() && m.id in hits },
+                                highlight = query.trim().takeIf { q -> q.isNotBlank() && r.run.any { it.id in hits } },
                                 senderName = if (d.group != null && !m.mine) m.sender?.name else null,
                                 onInvite = ::answerInvite,
-                                onToggle = { toggle(m) },
+                                onToggle = { toggle(r.run) },
                                 onView = onView,
                                 onReply = {
                                     editing = null
@@ -919,6 +931,8 @@ private fun DaySeparator(day: String) {
 @Composable
 private fun Bubble(
     m: Message,
+    /** Photo messages shown as this one bubble's grid, [m] being the last; just [m] otherwise. */
+    run: List<Message> = listOf(m),
     quote: ReplyRef?,
     /** The quote's line when the original is on the phone, counting all its files. */
     quoteText: String? = null,
@@ -1008,14 +1022,16 @@ private fun Bubble(
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         ) {
             // Pictures sit in a thin frame; the caption, quote, files and time keep the usual inset.
-            val files = m.attachments
-            val photos = files.filter { it.isImage }
+            val files = if (run.size > 1) run.flatMap { it.attachments } else m.attachments
+            val photos = runPhotos(run)
             val picture = !m.deleted && photos.isNotEmpty()
             val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
             Box {
                 Column(
                     Modifier
                         .widthIn(max = 300.dp)
+                        // With pictures the bubble is as wide as its widest part, and the grid fills it: no gap beside it.
+                        .then(if (picture) Modifier.width(IntrinsicSize.Max) else Modifier)
                         .clip(shape)
                         .background(if (mine) Gold else NightPanel)
                         .border(1.dp, if (mine) Gold else NightLine, shape)
@@ -1061,21 +1077,21 @@ private fun Bubble(
                         // While messages are being picked, a tap on a photo picks this one too instead of opening it.
                         val view: (FileView) -> Unit = { if (selecting) onToggle() else onView(it) }
                         PhotoGrid(
-                            m,
                             photos,
                             view,
                             onLongPress = if (local) null else ({
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onToggle()
                             }),
+                            fill = true,
                         )
                         files.filterNot { it.isImage }.forEachIndexed { i, f ->
                             if (i > 0 || photos.isNotEmpty()) Spacer(Modifier.height(6.dp))
                             Box(inset) { Attachment(f, view, onDark = !mine) }
                         }
                         // The words, then the place they point to: a Maps link on the last line becomes a card.
-                        val loc = locationIn(m.body)
-                        val text = textOf(m.body)
+                        val loc = if (run.size > 1) null else locationIn(m.body)
+                        val text = if (run.size > 1) runText(run) else textOf(m.body)
                         if (text.isNotBlank() && m.groupInvite == null) {
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
                             Text(highlighted(text, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
@@ -1097,7 +1113,7 @@ private fun Bubble(
                             m.status != null && !m.deleted -> Ticks(m.status)
                         }
                         // Marked urgent: it also went out by email.
-                        if (m.urgent && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
+                        if (run.any { it.urgent } && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
                     }
                 }
             }

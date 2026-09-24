@@ -52,6 +52,7 @@ import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.GoldButton
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.MessageCard
+import com.arkhins.wink.ui.components.photoRuns
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.theme.Gold
@@ -161,7 +162,8 @@ fun HomeScreen(
                 }
             }
             if (highlight != null) {
-                val idx = messages?.indexOfFirst { it.id == highlight } ?: -1
+                // Counted in cards, as the list shows them: a run of photos is one.
+                val idx = messages?.let { ms -> photoRuns(ms.asReversed()).asReversed().indexOfFirst { run -> run.any { it.id == highlight } } } ?: -1
                 if (idx >= 0) list.animateScrollToItem(idx + 4)
             }
         } catch (e: Exception) {
@@ -274,7 +276,8 @@ fun HomeScreen(
             error != null && m == null -> item { ErrorText(error) }
             m == null -> item { Loading() }
             m.isEmpty() -> item { Empty("Nothing yet. Messages sent to you appear here.") }
-            else -> items(m, key = { it.id }) { msg -> MessageCard(msg, onView, highlight = msg.id == highlight) }
+            // Newest first: photos sent one after another are gathered in the order sent, then turned back round.
+            else -> items(photoRuns(m.asReversed()).asReversed(), key = { it.first().id }) { run -> MessageCard(run, onView, highlight = run.any { it.id == highlight }) }
         }
         item { Spacer(Modifier.fillMaxWidth().height(8.dp)) }
     }

@@ -49,9 +49,9 @@ import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.attachments
 import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.ForwardSheet
+import com.arkhins.wink.ui.components.GalleryPhoto
 import com.arkhins.wink.ui.components.SelectionAction
 import com.arkhins.wink.ui.components.SelectionBar
-import com.arkhins.wink.ui.components.isImage
 import com.arkhins.wink.ui.components.photoModel
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.theme.Danger
@@ -70,49 +70,55 @@ import kotlinx.serialization.json.putJsonArray
 import java.time.Instant
 import java.util.UUID
 
-/** Your own files can be taken out of a message for 2 hours after sending it (the server holds the same line). */
+/** Your own photos can be deleted (or taken out of a message) for 2 hours after sending (the server holds the same line). */
 private const val REMOVE_WINDOW_MS = 2 * 60 * 60 * 1000L
 
+private fun recent(m: Message) =
+    m.mine && !m.id.startsWith("local-") && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < REMOVE_WINDOW_MS
+
 /**
- * A message's photos one under another, full width, the way WhatsApp opens
- * a batch: tap one to see it full screen; long-press to pick it, then tap
+ * A grid's photos one under another, full width, the way WhatsApp opens a
+ * batch: tap one to see it full screen; long-press to pick it, then tap
  * others to pick them too, and forward the picked ones to chats or (your
- * own, within 2 hours) take them out of the message. Works the same for a
- * chat message, an announcement or a channel post.
+ * own, within 2 hours) delete them. Each photo is normally a message of its
+ * own, so that is what gets forwarded or deleted; an older message carrying
+ * several photos has them forwarded or taken out one by one instead. Works
+ * the same for a chat, an announcement or a channel post.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
-    m: Message,
-    start: Int,
+    g: FileView.Gallery,
     onView: (FileView) -> Unit,
     onSelection: (SelectionBar?) -> Unit,
-    /** Something was taken out: the screens showing this message should ask again. */
+    /** Something was deleted: the screens showing these messages should ask again. */
     onChanged: () -> Unit,
     onDone: () -> Unit,
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val photos = remember(m) { m.attachments.filter { it.isImage } }
+    val photos = remember(g) { g.photos }
+    // One message's several files: forwarded or taken out as files of it. Otherwise the photos are messages.
+    val oneMessage = remember(g) { g.oneMessage }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var forwarding by remember { mutableStateOf(false) }
-    var removing by remember { mutableStateOf<List<FileInfo>?>(null) }
-    val list = rememberLazyListState(initialFirstVisibleItemIndex = start.coerceIn(0, (photos.size - 1).coerceAtLeast(0)))
+    var removing by remember { mutableStateOf<List<GalleryPhoto>?>(null) }
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = g.start.coerceIn(0, (photos.size - 1).coerceAtLeast(0)))
 
     fun toggle(f: FileInfo) {
         selected = if (f.id in selected) selected - f.id else selected + f.id
     }
-    val recent = m.mine && !m.id.startsWith("local-") && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < REMOVE_WINDOW_MS
     val bar = remember(selected, photos) {
-        val chosen = photos.filter { it.id in selected }
+        val chosen = photos.filter { it.file.id in selected }
         if (chosen.isEmpty()) return@remember null
+        val messages = chosen.map { it.message }.distinctBy { it.id }
         SelectionBar(
             count = chosen.size,
             onClose = { selected = emptySet() },
             actions = buildList {
-                // Only your own message, and greyed out once its 2 hours are up.
-                if (m.mine) add(SelectionAction("Delete", enabled = recent, vector = Icons.Outlined.Delete) { removing = chosen })
+                // Only your own, and greyed out once their 2 hours are up.
+                if (messages.all { it.mine }) add(SelectionAction("Delete", enabled = messages.all(::recent), vector = Icons.Outlined.Delete) { removing = chosen })
                 add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
             },
         )
@@ -127,7 +133,8 @@ fun GalleryScreen(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        itemsIndexed(photos, key = { _, f -> f.id }) { _, f ->
+        itemsIndexed(photos, key = { _, p -> p.file.id }) { _, p ->
+            val f = p.file
             val on = f.id in selected
             Box(
                 Modifier
@@ -162,14 +169,18 @@ fun GalleryScreen(
     }
 
     removing?.let { chosen ->
+        val m = chosen.first().message
         AlertDialog(
             onDismissRequest = { removing = null },
             containerColor = NightPanel,
             title = { Text(if (chosen.size == 1) "Delete photo?" else "Delete ${chosen.size} photos?", color = Snow) },
             text = {
                 Text(
-                    if (chosen.size == photos.size && m.attachments.size == photos.size && m.body.isBlank()) "Nothing else is in this message, so it will be deleted for everyone."
-                    else "${if (chosen.size == 1) "It" else "They"} will be taken out of the message for everyone.",
+                    when {
+                        !oneMessage -> "${if (chosen.size == 1) "It" else "They"} will be deleted for everyone."
+                        chosen.size == photos.size && m.attachments.size == photos.size && m.body.isBlank() -> "Nothing else is in this message, so it will be deleted for everyone."
+                        else -> "${if (chosen.size == 1) "It" else "They"} will be taken out of the message for everyone."
+                    },
                     color = SnowSoft,
                 )
             },
@@ -178,19 +189,27 @@ fun GalleryScreen(
                     removing = null
                     selected = emptySet()
                     app.appScope.launch {
-                        val ok = runCatching {
-                            app.api.delete("/api/messages/${m.id}/files") { putJsonArray("fileIds") { chosen.forEach { add(it.id) } } }
-                        }.isSuccess
-                        if (ok) {
-                            chosen.forEach { app.chatMedia.remove(it) }
-                            m.conversationId?.let { c -> runCatching { app.chatCache.sync(c, markRead = false) } }
+                        val failed = if (oneMessage) {
+                            val ok = runCatching {
+                                app.api.delete("/api/messages/${m.id}/files") { putJsonArray("fileIds") { chosen.forEach { add(it.file.id) } } }
+                            }.isSuccess
+                            if (ok) chosen.forEach { app.chatMedia.remove(it.file) }
+                            if (ok) 0 else chosen.size
+                        } else {
+                            // Each photo is its own message: those messages go.
+                            chosen.count { p ->
+                                val ok = runCatching { app.api.delete("/api/messages/${p.message.id}") }.isSuccess
+                                if (ok) app.chatMedia.remove(p.file)
+                                !ok
+                            }
                         }
+                        chosen.mapNotNull { it.message.conversationId }.distinct().forEach { c -> runCatching { app.chatCache.sync(c, markRead = false) } }
                         withContext(Dispatchers.Main) {
-                            if (ok) {
-                                onChanged()
+                            if (failed < chosen.size) onChanged()
+                            if (failed == 0) {
                                 onDone()
                             } else {
-                                Toast.makeText(context, "Could not delete ${if (chosen.size == 1) "the photo" else "the photos"}.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Could not delete ${if (failed == 1) "a photo" else "$failed photos"}.", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -201,37 +220,70 @@ fun GalleryScreen(
     }
 
     if (forwarding) {
-        val chosen = photos.filter { it.id in selected }
+        val chosen = photos.filter { it.file.id in selected }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }, what = if (chosen.size == 1) "photo" else "${chosen.size} photos") { targets ->
             forwarding = false
             selected = emptySet()
             Toast.makeText(context, if (targets.size == 1) "Forwarding to ${targets[0].other.name}" else "Forwarding to ${targets.size} chats", Toast.LENGTH_SHORT).show()
-            // As in a chat: each target gets a clock copy of just these photos at once, swapped for the server's when it answers.
+            // As in a chat: each target gets a clock copy at once, swapped for the server's when it answers.
             app.appScope.launch {
-                val work = targets.map { c ->
-                    val local = Message(
-                        id = "local-" + UUID.randomUUID(),
-                        conversationId = c.id,
-                        kind = "direct",
-                        file = chosen.first(),
-                        files = chosen,
-                        createdAt = Instant.now().toString(),
-                        mine = true,
-                        forwarded = true,
-                        status = "pending",
-                    )
-                    app.chatCache.add(c.id, local)
-                    c to local
-                }
-                work.forEach { (c, local) ->
-                    val sent = runCatching {
-                        app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) {
-                            put("forwardOf", m.id)
-                            putJsonArray("fileIds") { chosen.forEach { add(it.id) } }
-                        }.message
+                if (oneMessage) {
+                    // One message's several files: just these photos, as one forwarded message.
+                    val m = chosen.first().message
+                    val files = chosen.map { it.file }
+                    val work = targets.map { c ->
+                        val local = Message(
+                            id = "local-" + UUID.randomUUID(),
+                            conversationId = c.id,
+                            kind = "direct",
+                            file = files.first(),
+                            files = files,
+                            createdAt = Instant.now().toString(),
+                            mine = true,
+                            forwarded = true,
+                            status = "pending",
+                        )
+                        app.chatCache.add(c.id, local)
+                        c to local
                     }
-                    app.chatCache.replace(c.id, local.id, sent.getOrNull())
-                    if (sent.isFailure) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
+                    work.forEach { (c, local) ->
+                        val sent = runCatching {
+                            app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) {
+                                put("forwardOf", m.id)
+                                putJsonArray("fileIds") { files.forEach { add(it.id) } }
+                            }.message
+                        }
+                        app.chatCache.replace(c.id, local.id, sent.getOrNull())
+                        if (sent.isFailure) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
+                    }
+                } else {
+                    // Each photo is its own message: those messages are forwarded whole, in the order sent.
+                    val messages = chosen.map { it.message }.distinctBy { it.id }.sortedBy { it.createdAt }
+                    val work = targets.flatMap { c ->
+                        messages.map { m ->
+                            val local = m.copy(
+                                id = "local-" + UUID.randomUUID(),
+                                conversationId = c.id,
+                                kind = "direct",
+                                createdAt = Instant.now().toString(),
+                                mine = true,
+                                forwarded = true,
+                                replyTo = null,
+                                urgent = false,
+                                status = "pending",
+                                editedAt = null,
+                                readAt = null,
+                            )
+                            app.chatCache.add(c.id, local)
+                            Triple(c, m, local)
+                        }
+                    }
+                    val failed = mutableSetOf<String>()
+                    work.forEach { (c, m, local) ->
+                        val sent = runCatching { app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }.message }
+                        app.chatCache.replace(c.id, local.id, sent.getOrNull())
+                        if (sent.isFailure && failed.add(c.id)) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
+                    }
                 }
             }
         }

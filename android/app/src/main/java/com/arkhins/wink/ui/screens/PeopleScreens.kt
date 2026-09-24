@@ -404,7 +404,8 @@ fun EmailScreen(group: String?, onSent: () -> Unit) {
                 }
             }
         }
-        Composer(placeholder = "What everyone needs to know", urgentOption = false, sendLabel = "Send email", voiceNoteSends = false) { d ->
+        // One email, all the files attached to it.
+        Composer(placeholder = "What everyone needs to know", urgentOption = false, sendLabel = "Send email", voiceNoteSends = false, oneMessagePerFile = false) { d ->
             val r = if (group != null) {
                 app.api.post("/api/email/relay", SentResponse.serializer()) {
                     put("group", group)

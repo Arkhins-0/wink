@@ -46,7 +46,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,7 +67,9 @@ import com.arkhins.wink.R
 import com.arkhins.wink.data.FileInfo
 import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.SavedDocument
+import com.arkhins.wink.data.attachments
 import com.arkhins.wink.ui.bytes
+import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.Night
@@ -72,12 +84,62 @@ import java.util.Locale
 sealed interface FileView {
     data class Image(val file: FileInfo) : FileView
     data class Pdf(val doc: SavedDocument) : FileView
-    /** A message's photos one under another, starting at [start]: to view, forward or take out. */
-    data class Gallery(val message: Message, val start: Int = 0) : FileView
+    /**
+     * The photos of a grid one under another, starting at [start]: to view,
+     * forward or delete. Either one message's several files (sent that way
+     * before photos went one per message) or a run of photo messages.
+     */
+    data class Gallery(val photos: List<GalleryPhoto>, val start: Int = 0) : FileView {
+        /** The newest message in it: who the header names, and when. */
+        val message: Message get() = photos.last().message
+        /** All the photos are files of one message, not messages of their own. */
+        val oneMessage: Boolean get() = photos.map { it.message.id }.distinct().size == 1 && photos.first().message.attachments.size > 1
+    }
 }
+
+/** One photo of a grid, with the message it came in. */
+data class GalleryPhoto(val message: Message, val file: FileInfo)
 
 val FileInfo.isImage: Boolean get() = mime.startsWith("image/")
 val FileInfo.isAudio: Boolean get() = mime.startsWith("audio/")
+
+/* ───────────────────────────── Photo runs ────────────────────────── */
+
+/** Photos sent one after another this close together read as one batch. */
+private const val PHOTO_RUN_GAP_MS = 60_000L
+
+/** A message that is just one photo (with or without a caption): the kind that joins a run. */
+fun isPhotoMessage(m: Message): Boolean =
+    !m.deleted && m.event == null && m.groupInvite == null && !m.id.startsWith("local-") &&
+        m.attachments.size == 1 && m.attachments[0].isImage
+
+/**
+ * Messages in the order sent, with each run of photos gathered into one
+ * list: the same sender, each a photo message, each within a minute of the
+ * one before, nothing else between them. A reply only starts a run, so its
+ * quote stays on top. Everything else is a list of one. Display only: the
+ * messages themselves are not touched.
+ */
+fun photoRuns(chronological: List<Message>): List<List<Message>> {
+    val out = mutableListOf<MutableList<Message>>()
+    fun who(m: Message) = if (m.mine) "me" else m.sender?.id
+    chronological.forEach { m ->
+        val run = out.lastOrNull()
+        val prev = run?.last()
+        val joins = prev != null && isPhotoMessage(prev) && isPhotoMessage(m) && m.replyTo == null && who(prev) == who(m) &&
+            instant(m.createdAt).toEpochMilli() - instant(prev.createdAt).toEpochMilli() in 0..PHOTO_RUN_GAP_MS
+        if (joins) run!!.add(m) else out.add(mutableListOf(m))
+    }
+    return out
+}
+
+/** A run's photos, one per message; a lone message's own photos. */
+fun runPhotos(run: List<Message>): List<GalleryPhoto> =
+    if (run.size > 1) run.map { GalleryPhoto(it, it.attachments[0]) }
+    else run.flatMap { m -> m.attachments.filter { it.isImage }.map { GalleryPhoto(m, it) } }
+
+/** The words a run shows under its grid: the first caption anyone in it has. */
+fun runText(run: List<Message>): String = run.map { textOf(it.body) }.firstOrNull { it.isNotBlank() } ?: ""
 
 /**
  * One line naming what a message carries, the way a quote or a copy shows it:
@@ -170,13 +232,13 @@ fun photoModel(file: FileInfo): Any {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null) {
+private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null, fill: Boolean = false) {
     AsyncImage(
         model = photoModel(file),
         contentDescription = file.name,
         contentScale = ContentScale.Crop,
         modifier = Modifier
-            .widthIn(max = 260.dp)
+            .then(if (fill) Modifier.fillMaxWidth() else Modifier.widthIn(max = GRID_WIDTH))
             .heightIn(min = 120.dp, max = 320.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Night)
@@ -184,45 +246,76 @@ private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPr
     )
 }
 
+/** How wide a grid (or a lone photo) would like to be. */
+private val GRID_WIDTH = 260.dp
+
 /**
- * A message's photos, grouped the way WhatsApp shows a batch sent at once:
- * one is shown as it always was; two side by side; three as one wide on top
- * and two below; four or more as a 2×2 grid whose last tile says "+N" for
- * the rest. One photo opens full screen; several open the gallery at the
- * one tapped. [onLongPress] lets a long press select the message instead.
+ * Photos grouped the way WhatsApp shows a batch sent at once: one is shown
+ * as it always was; two side by side; three as one wide on top and two
+ * below; four or more as a 2×2 grid whose last tile says "+N" for the rest.
+ * One photo opens full screen; several open the gallery at the one tapped.
+ * [onLongPress] lets a long press select the message instead. [fill] lets
+ * the grid take the whole width it is given (a bubble that sizes itself to
+ * its widest part), so nothing shows beside it.
  */
 @Composable
-fun PhotoGrid(m: Message, photos: List<FileInfo>, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null) {
+fun PhotoGrid(photos: List<GalleryPhoto>, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null, fill: Boolean = false) {
     if (photos.isEmpty()) return
     if (photos.size == 1) {
-        ImageAttachment(photos[0], onView, onLongPress)
+        PreferredWidth { ImageAttachment(photos[0].file, onView, onLongPress, fill) }
         return
     }
     val gap = 2.dp
-    val open = { i: Int -> onView(FileView.Gallery(m, i)) }
+    val open = { i: Int -> onView(FileView.Gallery(photos, i)) }
     @Composable
     fun RowScope.Tile(i: Int, ratio: Float, more: Int = 0) =
-        PhotoTile(photos[i], Modifier.weight(1f).aspectRatio(ratio), more, { open(i) }, onLongPress)
-    Column(
-        Modifier.widthIn(max = 260.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)),
-        verticalArrangement = Arrangement.spacedBy(gap),
-    ) {
-        when (photos.size) {
-            2 -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 0.75f); Tile(1, 0.75f) }
-            3 -> {
-                Row { Tile(0, 1.6f) }
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(1, 1f); Tile(2, 1f) }
-            }
-            else -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 1f); Tile(1, 1f) }
-                // Past four, the last tile is dimmed and counts itself too, as WhatsApp does: five photos say "+2".
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(2, 1f); Tile(3, 1f, more = if (photos.size > 4) photos.size - 3 else 0) }
+        PhotoTile(photos[i].file, Modifier.weight(1f).aspectRatio(ratio), more, { open(i) }, onLongPress)
+    PreferredWidth {
+        Column(
+            (if (fill) Modifier.fillMaxWidth() else Modifier.widthIn(max = GRID_WIDTH).fillMaxWidth()).clip(RoundedCornerShape(12.dp)),
+            verticalArrangement = Arrangement.spacedBy(gap),
+        ) {
+            when (photos.size) {
+                2 -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 0.75f); Tile(1, 0.75f) }
+                3 -> {
+                    Row { Tile(0, 1.6f) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(1, 1f); Tile(2, 1f) }
+                }
+                else -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 1f); Tile(1, 1f) }
+                    // Past four, the last tile is dimmed and counts itself too, as WhatsApp does: five photos say "+2".
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(2, 1f); Tile(3, 1f, more = if (photos.size > 4) photos.size - 3 else 0) }
+                }
             }
         }
     }
 }
 
-/** One photo of a grid, cropped to its tile; a [more] above 0 dims it under "+more". */
+/**
+ * Lays its one child out as given, but tells a parent that sizes itself by
+ * its children's widths (a bubble at IntrinsicSize.Max) that it would like
+ * [GRID_WIDTH]: a photo's own size says nothing useful before it loads. The
+ * bubble then takes the widest of its parts, and the grid fills it.
+ */
+@Composable
+private fun PreferredWidth(content: @Composable () -> Unit) {
+    Layout(content, measurePolicy = remember {
+        object : MeasurePolicy {
+            override fun MeasureScope.measure(measurables: List<Measurable>, constraints: Constraints): MeasureResult {
+                val p = measurables.map { it.measure(constraints) }
+                val w = p.maxOfOrNull { it.width } ?: 0
+                val h = p.maxOfOrNull { it.height } ?: 0
+                return layout(w, h) { p.forEach { it.place(0, 0) } }
+            }
+            override fun IntrinsicMeasureScope.minIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int) = GRID_WIDTH.roundToPx()
+            override fun IntrinsicMeasureScope.maxIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int) = GRID_WIDTH.roundToPx()
+            override fun IntrinsicMeasureScope.minIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int) = measurables.maxOfOrNull { it.minIntrinsicHeight(width) } ?: 0
+            override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int) = measurables.maxOfOrNull { it.maxIntrinsicHeight(width) } ?: 0
+        }
+    })
+}
+
+/** One photo of a grid, cropped to its tile; a [more] above 0 darkens it under "+more", as WhatsApp does. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: () -> Unit, onLongPress: (() -> Unit)?) {
@@ -231,13 +324,10 @@ private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: ()
             model = photoModel(file),
             contentDescription = file.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            // The shade is drawn by the picture itself, over whatever it has drawn, so it is there once the photo loads too.
+            modifier = Modifier.fillMaxSize().then(if (more > 0) Modifier.drawWithContent { drawContent(); drawRect(Color.Black.copy(alpha = 0.6f)) } else Modifier),
         )
-        if (more > 0) {
-            Box(Modifier.fillMaxSize().background(Night.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
-                Text("+$more", style = MaterialTheme.typography.headlineMedium, color = Snow)
-            }
-        }
+        if (more > 0) Text("+$more", style = MaterialTheme.typography.headlineMedium, color = Snow)
     }
 }
 

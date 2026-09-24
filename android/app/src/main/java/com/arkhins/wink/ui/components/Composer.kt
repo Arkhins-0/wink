@@ -59,6 +59,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,7 +123,9 @@ private const val MAX_ATTACHMENTS = 50
  * (hold to record a voice note); a long press on send offers the urgent
  * send that also goes out by email. The clip opens a sheet with gallery,
  * document, audio and location; what is picked waits in a tray (photos
- * above the field, tags below) until the message goes.
+ * above the field, tags below) until it goes. The tray holds one kind at a
+ * time: photos, documents, audio or a location. Each file then goes as a
+ * message of its own, one after another, the words riding with the first.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -135,6 +138,8 @@ fun Composer(
     editText: String? = null,
     /** True in chats: a finished voice note goes out at once. False elsewhere: it joins the tray as a tag. */
     voiceNoteSends: Boolean = true,
+    /** True: every file is its own message, sent in order. False (the email page): one message carries them all. */
+    oneMessagePerFile: Boolean = true,
     send: suspend (Draft) -> Unit,
 ) {
     val app = LocalApp.current
@@ -159,6 +164,9 @@ fun Composer(
     var lastEdit by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    // Files go one after another, each a while apart: each send uses the caller's lambda as it is by then
+    // (a chat's reply, say, rides only with the first).
+    val currentSend by rememberUpdatedState(send)
 
     // Starting an edit fills the field; leaving it clears what the edit put there.
     LaunchedEffect(editText) {
@@ -176,6 +184,29 @@ fun Composer(
     /** How many more files the message can carry. */
     fun room() = MAX_ATTACHMENTS - images.size - docs.size - audios.size
 
+    /** What the tray holds now, as a sentence names it; null when empty. */
+    fun trayKind(): String? = when {
+        images.isNotEmpty() -> "photos"
+        docs.isNotEmpty() -> "documents"
+        audios.isNotEmpty() -> "audio"
+        location != null -> "a location"
+        else -> null
+    }
+
+    /** One kind at a time: picking [kind] empties the tray of any other, and says so. */
+    fun makeRoomFor(kind: String) {
+        val had = trayKind() ?: return
+        if (had == kind) return
+        // A recorded note lives only in cache; dropping it throws it away.
+        audios.forEach { p -> if (p.uri.scheme == "file") p.uri.path?.let { runCatching { File(it).delete() } } }
+        images = emptyList()
+        docs = emptyList()
+        audios = emptyList()
+        location = null
+        uploaded.clear()
+        status = "${had.replaceFirstChar { it.uppercase() }} and $kind go separately — replaced."
+    }
+
     /** New files onto the end of a list, skipping ones already there, within the per-message limit. */
     fun added(to: List<Picked>, uris: List<Uri>, cap: Int = Int.MAX_VALUE): List<Picked> {
         val fresh = uris.distinct().filter { u -> to.none { it.uri == u } }
@@ -185,18 +216,24 @@ fun Composer(
     }
 
     val pickDocuments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) docs = added(docs, uris)
+        if (uris.isNotEmpty()) { makeRoomFor("documents"); docs = added(docs, uris) }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) audios = added(audios, uris)
+        if (uris.isNotEmpty()) { makeRoomFor("audio"); audios = added(audios, uris) }
     }
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
-        if (uris.isNotEmpty()) images = added(images, uris, MAX_PHOTOS)
+        if (uris.isNotEmpty()) { makeRoomFor("photos"); images = added(images, uris, MAX_PHOTOS) }
     }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
-    /** Uploads the tray in order (photos, documents, audio), then hands over the text with the location as its last line. */
+    /**
+     * Sends what is in the tray. One message per file: each is uploaded and
+     * sent in turn, the text going with the first as its caption; a failure
+     * stops there, leaving the rest in the tray to try again. Otherwise the
+     * whole tray is uploaded and goes as one message. A location has no file:
+     * it goes as the text's last lines.
+     */
     fun doSend(urgent: Boolean) {
         val text = body.text
         // While editing, the tray steps aside: only the text changes.
@@ -205,8 +242,23 @@ fun Composer(
         if (busy || (text.isBlank() && files.isEmpty() && loc == null)) return
         busy = true
         error = null
+        status = null
         scope.launch {
             try {
+                if (oneMessagePerFile && files.isNotEmpty()) {
+                    files.forEachIndexed { i, p ->
+                        status = "Sending ${i + 1} of ${files.size}…"
+                        val id = uploaded[p.uri] ?: upload(context, app.api, app.documents, app.chatMedia, p).also { uploaded[p.uri] = it }
+                        currentSend(Draft(if (i == 0) text.trim() else "", listOf(id), urgent))
+                        // Gone: out of the tray, so a failure further on leaves only the rest.
+                        if (i == 0) body = TextFieldValue("")
+                        images = images - p
+                        docs = docs - p
+                        audios = audios - p
+                        uploaded.remove(p.uri)
+                    }
+                    return@launch
+                }
                 val ids = files.mapIndexed { i, p ->
                     uploaded[p.uri] ?: run {
                         status = "Uploading ${i + 1} of ${files.size}…"
@@ -215,7 +267,7 @@ fun Composer(
                 }
                 status = null
                 val full = listOfNotNull(text.trim().ifEmpty { null }, loc?.let { (lat, lng) -> locationText(lat, lng) }).joinToString("\n")
-                send(Draft(full, ids, urgent))
+                currentSend(Draft(full, ids, urgent))
                 body = TextFieldValue("")
                 if (!editing) {
                     images = emptyList()
@@ -241,7 +293,7 @@ fun Composer(
         scope.launch {
             try {
                 val id = upload(context, app.api, app.documents, app.chatMedia, note)
-                send(Draft("", listOf(id), false))
+                currentSend(Draft("", listOf(id), false))
             } catch (e: Exception) {
                 error = e.message ?: "Could not send."
                 note.uri.path?.let { runCatching { File(it).delete() } }
@@ -372,11 +424,14 @@ fun Composer(
                                             )
                                             if (voiceNoteSends) {
                                                 sendNote(note)
-                                            } else if (room() <= 0) {
-                                                file.delete()
-                                                error = "Up to $MAX_ATTACHMENTS attachments at a time."
                                             } else {
-                                                audios = audios + note
+                                                makeRoomFor("audio")
+                                                if (room() <= 0) {
+                                                    file.delete()
+                                                    error = "Up to $MAX_ATTACHMENTS attachments at a time."
+                                                } else {
+                                                    audios = audios + note
+                                                }
                                             }
                                         } else {
                                             file?.delete()
@@ -455,9 +510,13 @@ fun Composer(
                         scope.launch {
                             val loc = currentLocation(context)
                             locating = false
-                            if (loc == null) error = "Could not get your location. Is location turned on?"
-                            // One location per message: picking again replaces it.
-                            else location = loc.latitude to loc.longitude
+                            if (loc == null) {
+                                error = "Could not get your location. Is location turned on?"
+                            } else {
+                                // One location per message: picking again replaces it, and it goes on its own.
+                                makeRoomFor("a location")
+                                location = loc.latitude to loc.longitude
+                            }
                         }
                     }
                 }
