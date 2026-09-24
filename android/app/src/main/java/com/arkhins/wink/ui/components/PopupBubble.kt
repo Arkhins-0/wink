@@ -49,7 +49,7 @@ private val BALL = 60.dp
 
 /**
  * The in-app popup for a message that arrived while the app was open. The
- * sender's photo floats in as a ball from the top right, settles at the top
+ * sender's photo drops in as a ball straight down from above to the top
  * left, opens out to the right into a pill (who, then what), and after a
  * few seconds closes back into the ball and floats away. An attachment is
  * named three seconds after any words typed with it. A tap opens it.
@@ -57,7 +57,7 @@ private val BALL = 60.dp
 @Composable
 fun PopupBubble(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
     val app = LocalApp.current
-    val drop = remember(event) { Animatable(0f) } // 0 above the screen at the top right, 1 settled
+    val drop = remember(event) { Animatable(0f) } // 0 above the screen, straight over its place; 1 settled
     val open = remember(event) { Animatable(0f) } // 0 the ball, 1 the full pill
     var showAttach by remember(event) { mutableStateOf(event.attach.isNotBlank() && event.text.isBlank()) }
 
@@ -87,7 +87,7 @@ fun PopupBubble(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Uni
         val settled = 1f - drop.value
         Row(
             Modifier
-                .offset(x = (full - BALL) * settled, y = (-140).dp * settled)
+                .offset(y = (-140).dp * settled)
                 .width(BALL + (full - BALL) * open.value)
                 .height(BALL)
                 .clip(RoundedCornerShape(999.dp))
