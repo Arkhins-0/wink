@@ -59,6 +59,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -144,44 +145,40 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
     val canOpen = vm.me?.user?.role != "race_official"
     val c = chats
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)) {
             when {
-                error != null && c == null -> item { ErrorText(error) }
+                error != null && c == null -> item { Box(Modifier.padding(16.dp)) { ErrorText(error) } }
                 c == null -> item { Loading() }
-                c.isEmpty() -> item { Empty(if (canOpen) "No chats yet. Tap the pencil to start one." else "Race officials do not have private chats.") }
-                else -> item {
-                    Panel(padding = PaddingValues(6.dp)) {
-                        Column {
-                            c.forEachIndexed { i, chat ->
-                                if (i > 0) Divider()
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onOpen(chat.id) }
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Avatar(app.api.absolute(chat.other.photoUrl), chat.other.name, 48)
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(chat.other.name, style = MaterialTheme.typography.titleMedium, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(
-                                            chat.lastMessage ?: chat.other.roleLabel,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (chat.unread > 0) Snow else SnowFaint,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        chat.lastMessageAt?.let { Text(whenLabel(it), style = MaterialTheme.typography.labelSmall, color = if (chat.unread > 0) Gold else SnowFaint) }
-                                        if (chat.unread > 0) {
-                                            Spacer(Modifier.height(4.dp))
-                                            Box(Modifier.background(Gold, RoundedCornerShape(999.dp)).padding(horizontal = 7.dp, vertical = 2.dp)) {
-                                                Text("${chat.unread}", style = MaterialTheme.typography.labelSmall, color = Night)
-                                            }
-                                        }
-                                    }
+                c.isEmpty() -> item { Box(Modifier.padding(16.dp)) { Empty(if (canOpen) "No chats yet. Tap the pencil to start one." else "Race officials do not have private chats.") } }
+                else -> itemsIndexed(c, key = { _, chat -> chat.id }) { i, chat ->
+                    if (i > 0) Box(Modifier.padding(start = 76.dp)) { Divider() }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(chat.id) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(app.api.absolute(chat.other.photoUrl), chat.other.name, 48)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(chat.other.name, style = MaterialTheme.typography.titleMedium, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    chat.lastMessage ?: chat.other.roleLabel,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (chat.unread > 0) Snow else SnowFaint,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            chat.lastMessageAt?.let { Text(whenLabel(it), style = MaterialTheme.typography.labelSmall, color = if (chat.unread > 0) Gold else SnowFaint) }
+                            if (chat.unread > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                Box(Modifier.background(Gold, RoundedCornerShape(999.dp)).padding(horizontal = 7.dp, vertical = 2.dp)) {
+                                    Text("${chat.unread}", style = MaterialTheme.typography.labelSmall, color = Night)
                                 }
                             }
                         }
