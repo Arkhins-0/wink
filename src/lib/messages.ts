@@ -39,6 +39,8 @@ export type MessageOut = {
   deleted: boolean;
   /** When it was last edited, deleted, delivered or read; null if never. */
   changedAt: string | null;
+  /** Passed on from another chat. */
+  forwarded: boolean;
   /** Your own private message: sent (one tick), delivered (two), read (three). Null otherwise. */
   status: "sent" | "delivered" | "read" | null;
 };
@@ -78,6 +80,7 @@ type Row = {
   edited_at: string | null;
   deleted_at: string | null;
   changed_at: string | null;
+  forwarded: boolean;
   rm_sender_id: string | null;
   rm_sender_name: string | null;
   rm_body: string | null;
@@ -92,7 +95,7 @@ const SELECT = `
   SELECT m.id, m.conversation_id, c.kind, c.weekend_id, m.sender_id,
          s.name AS sender_name, s.email AS sender_email, s.role AS sender_role, s.photo_key AS sender_photo,
          m.body, m.file_id, f.name AS file_name, f.mime AS file_mime, f.size::text AS file_size,
-         m.urgent, m.created_at, r.read_at, m.reply_to_id, m.edited_at, m.deleted_at, m.changed_at,
+         m.urgent, m.created_at, r.read_at, m.reply_to_id, m.edited_at, m.deleted_at, m.changed_at, m.forwarded,
          rm.sender_id AS rm_sender_id, COALESCE(NULLIF(rs.name, ''), rs.email) AS rm_sender_name, rm.body AS rm_body,
          rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at
@@ -145,6 +148,7 @@ function out(row: Row, viewerId: string): MessageOut {
     editedAt: iso(row.edited_at),
     deleted: Boolean(row.deleted_at),
     changedAt: iso(row.changed_at),
+    forwarded: row.forwarded,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -156,7 +160,14 @@ function out(row: Row, viewerId: string): MessageOut {
   };
 }
 
-export type Draft = { body: string; fileId?: string | null; urgent?: boolean; replyToId?: string | null };
+export type Draft = {
+  body: string;
+  fileId?: string | null;
+  urgent?: boolean;
+  replyToId?: string | null;
+  /** Forward this message instead: its text and file are copied, marked as forwarded. */
+  forwardOf?: string | null;
+};
 
 async function checkFile(sender: SessionUser, fileId: string | null | undefined) {
   if (!fileId) return null;
@@ -202,9 +213,9 @@ function senderLabel(sender: SessionUser): string {
 async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, fileId: string | null) {
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
-    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`,
-    [conversationId, sender.id, draft.body, fileId, Boolean(draft.urgent), season.id, draft.replyToId ?? null],
+    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`,
+    [conversationId, sender.id, draft.body, fileId, Boolean(draft.urgent), season.id, draft.replyToId ?? null, Boolean(draft.forwardOf)],
   );
   if (conversationId) {
     await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [conversationId, row!.created_at]);
@@ -361,6 +372,17 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   const conv = await conversationById(conversationId);
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
+  // A forward copies a message this person sent or received, as it reads now.
+  const source = draft.forwardOf
+    ? await one<{ body: string; file_id: string | null }>(
+        `SELECT m.body, m.file_id FROM messages m
+         WHERE m.id = $1 AND m.deleted_at IS NULL
+           AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
+        [draft.forwardOf, sender.id],
+      )
+    : null;
+  if (draft.forwardOf && !source) throw new AuthError(404, "That message is not here to forward.");
+  if (source) draft = { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null };
   if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
   if (draft.replyToId) {
@@ -370,7 +392,7 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
     );
     if (!target) throw new AuthError(400, "That message is no longer here to reply to.");
   }
-  const file = await checkFile(sender, draft.fileId);
+  const file = source ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
   const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
   const text = preview(draft.body, file?.name);
   await deliver({

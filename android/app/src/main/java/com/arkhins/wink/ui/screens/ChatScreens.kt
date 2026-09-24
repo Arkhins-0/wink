@@ -25,8 +25,14 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenu
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.runtime.DisposableEffect
+import com.arkhins.wink.ui.components.ForwardSheet
+import com.arkhins.wink.ui.components.SelectionAction
+import com.arkhins.wink.ui.components.SelectionBar
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Delete
@@ -299,7 +305,7 @@ private val ReadBlue = Color(0xFF0B5CAD)
  * swipe it right to left to reply; tap a quote to go to the original.
  */
 @Composable
-fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onOther: (OtherUser) -> Unit) {
+fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onSelection: (SelectionBar?) -> Unit = {}, onOther: (OtherUser) -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var detail by remember { mutableStateOf<CachedChat?>(null) }
@@ -307,7 +313,10 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
     var reload by remember { mutableStateOf(0) }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var editing by remember { mutableStateOf<Message?>(null) }
-    var deleting by remember { mutableStateOf<Message?>(null) }
+    var deleting by remember { mutableStateOf<List<Message>?>(null) }
+    // Long-pressed messages; while any are, the header is the selection bar.
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var forwarding by remember { mutableStateOf(false) }
     var flash by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
     // Sent from here, not yet confirmed by the server: shown at once with a clock.
@@ -383,6 +392,47 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
         }
     }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
+
+    fun toggle(m: Message) {
+        if (m.deleted || m.id.startsWith("local-")) return
+        selected = if (m.id in selected) selected - m.id else selected + m.id
+    }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val myName = vm.me?.user?.displayName ?: "You"
+    DisposableEffect(Unit) { onDispose { onSelection(null) } }
+    LaunchedEffect(selected, d?.messages) {
+        val chosen = d?.messages.orEmpty().filter { it.id in selected }
+        if (chosen.isEmpty()) {
+            if (selected.isNotEmpty()) selected = emptySet()
+            onSelection(null)
+            return@LaunchedEffect
+        }
+        val one = chosen.singleOrNull()
+        val allMine = chosen.all { it.mine }
+        val allRecent = chosen.all { changeable(it) }
+        fun copy() {
+            // One message: its words alone. Several: each with its time and who said it, the way WhatsApp does.
+            val text = if (one != null) copyText(one)
+            else chosen.sortedBy { it.createdAt }.joinToString("\n") { "[${copyStamp(it.createdAt)}] ${if (it.mine) myName else it.sender?.name ?: "Unknown"}: ${copyText(it)}" }
+            clipboard.setText(AnnotatedString(text))
+            Toast.makeText(context, if (one != null) "Copied" else "${chosen.size} messages copied", Toast.LENGTH_SHORT).show()
+            selected = emptySet()
+        }
+        onSelection(
+            SelectionBar(
+                count = chosen.size,
+                onClose = { selected = emptySet() },
+                actions = buildList {
+                    if (one != null) add(SelectionAction("Reply", drawable = R.drawable.ic_reply) { editing = null; replyTo = one; selected = emptySet() })
+                    if (one != null && one.mine) add(SelectionAction("Edit", enabled = allRecent, vector = Icons.Outlined.Edit) { replyTo = null; editing = one; selected = emptySet() })
+                    add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
+                    if (allMine) add(SelectionAction("Delete", enabled = allRecent, vector = Icons.Outlined.Delete) { deleting = chosen })
+                    add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
+                },
+            ),
+        )
+    }
     LaunchedEffect(pending.size) {
         if (pending.isNotEmpty()) list.animateScrollToItem(rows.size)
     }
@@ -412,21 +462,18 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
                             val m = r.m
                             // A quote reads as the original does now, when the phone has it.
                             val quote = m.replyTo?.let { ref -> byId[ref.id]?.let(::refOf) ?: ref }
-                            val canChange = changeable(m)
                             Bubble(
                                 m = m,
                                 quote = quote,
                                 flash = flash == m.id,
+                                selected = m.id in selected,
+                                selecting = selected.isNotEmpty(),
+                                onToggle = { toggle(m) },
                                 onView = onView,
                                 onReply = {
                                     editing = null
                                     replyTo = m
                                 },
-                                onEdit = if (canChange) ({
-                                    replyTo = null
-                                    editing = m
-                                }) else null,
-                                onDelete = if (canChange) ({ deleting = m }) else null,
                                 onQuote = ::jump,
                                 onRetry = if (m.status == "failed") ({
                                     pending = pending.map { if (it.id == m.id) it.copy(status = "pending") else it }
@@ -490,24 +537,28 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
         }
     }
 
-    deleting?.let { m ->
+    deleting?.let { chosen ->
         AlertDialog(
             onDismissRequest = { deleting = null },
             containerColor = NightPanel,
-            title = { Text("Delete message?", color = Snow) },
-            text = { Text("It will be deleted for both of you.", color = SnowSoft) },
+            title = { Text(if (chosen.size == 1) "Delete message?" else "Delete ${chosen.size} messages?", color = Snow) },
+            text = { Text(if (chosen.size == 1) "It will be deleted for both of you." else "They will be deleted for both of you.", color = SnowSoft) },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = null
+                    selected = emptySet()
                     scope.launch {
                         try {
-                            app.api.delete("/api/messages/${m.id}")
-                            if (editing?.id == m.id) editing = null
-                            if (replyTo?.id == m.id) replyTo = null
+                            chosen.forEach { m ->
+                                app.api.delete("/api/messages/${m.id}")
+                                if (editing?.id == m.id) editing = null
+                                if (replyTo?.id == m.id) replyTo = null
+                            }
                             actionError = null
                             reload++
                         } catch (e: Exception) {
                             actionError = e.message ?: "Could not delete."
+                            reload++
                         }
                     }
                 }) { Text("Delete", color = Danger) }
@@ -515,7 +566,37 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel", color = SnowFaint) } },
         )
     }
+    if (forwarding) {
+        val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
+        ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
+            scope.launch {
+                try {
+                    targets.forEach { c ->
+                        chosen.forEach { m ->
+                            val r = app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }
+                            r.message?.let { app.chatCache.add(c.id, it) }
+                        }
+                    }
+                    Toast.makeText(context, if (targets.size == 1) "Forwarded to ${targets[0].other.name}" else "Forwarded to ${targets.size} chats", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    actionError = e.message ?: "Could not forward."
+                }
+                forwarding = false
+                selected = emptySet()
+                reload++
+            }
+        }
+    }
 }
+
+/** What copying a message puts on the clipboard: its words, or what it carried. */
+private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(refOf(m)) }
+
+private val copyStampFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yy, h:mm a", Locale.ENGLISH)
+
+/** `24/09/26, 8:16 am`, the way a WhatsApp copy reads. */
+private fun copyStamp(iso: String): String =
+    copyStampFormat.format(instant(iso).atZone(ZoneId.systemDefault())).replace(" AM", " am").replace(" PM", " pm")
 
 @Composable
 private fun DaySeparator(day: String) {
@@ -537,10 +618,11 @@ private fun Bubble(
     m: Message,
     quote: ReplyRef?,
     flash: Boolean,
+    selected: Boolean,
+    selecting: Boolean,
+    onToggle: () -> Unit,
     onView: (FileView) -> Unit,
     onReply: () -> Unit,
-    onEdit: (() -> Unit)?,
-    onDelete: (() -> Unit)?,
     onQuote: (String) -> Unit,
     onRetry: (() -> Unit)?,
 ) {
@@ -554,7 +636,6 @@ private fun Bubble(
     val furthest = with(density) { 96.dp.toPx() }
     val slide = remember { Animatable(0f) }
     var armed by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     val glow by animateColorAsState(if (flash) Gold.copy(alpha = 0.22f) else Color.Transparent, tween(350), label = "glow")
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -566,9 +647,9 @@ private fun Bubble(
     Box(
         Modifier
             .fillMaxWidth()
-            .background(glow, RoundedCornerShape(12.dp))
-            .pointerInput(m.id, m.deleted) {
-                if (m.deleted || local) return@pointerInput
+            .background(if (selected) Gold.copy(alpha = 0.18f) else glow, RoundedCornerShape(12.dp))
+            .pointerInput(m.id, m.deleted, selecting) {
+                if (m.deleted || local || selecting) return@pointerInput
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         if (slide.value <= -trigger) onReply()
@@ -617,12 +698,12 @@ private fun Bubble(
                         .background(if (mine) Gold else NightPanel)
                         .border(1.dp, if (mine) Gold else NightLine, shape)
                         .combinedClickable(
-                            enabled = !m.deleted && (!local || onRetry != null),
-                            onClick = { onRetry?.invoke() },
+                            enabled = !m.deleted && (!local || onRetry != null || selecting),
+                            onClick = { if (selecting) onToggle() else onRetry?.invoke() },
                             onLongClick = {
                                 if (local) return@combinedClickable
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                menu = true
+                                onToggle()
                             },
                         )
                         .then(if (picture) Modifier.padding(start = 3.dp, end = 3.dp, top = 3.dp, bottom = 6.dp) else Modifier.padding(horizontal = 12.dp, vertical = 8.dp)),
@@ -635,6 +716,14 @@ private fun Bubble(
                             color = if (mine) Night.copy(alpha = 0.7f) else SnowFaint,
                         )
                     } else {
+                        if (m.forwarded) {
+                            Row(inset, verticalAlignment = Alignment.CenterVertically) {
+                                Icon(painterResource(R.drawable.ic_forward), contentDescription = null, tint = if (mine) Night.copy(alpha = 0.6f) else SnowFaint, modifier = Modifier.size(13.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Forwarded", style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = if (mine) Night.copy(alpha = 0.6f) else SnowFaint)
+                            }
+                            Spacer(Modifier.height(2.dp))
+                        }
                         quote?.let {
                             Box(inset) { Quote(it, onDark = !mine) { onQuote(it.id) } }
                             Spacer(Modifier.height(4.dp))
@@ -665,36 +754,6 @@ private fun Bubble(
                             m.status == "failed" -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
                             m.status != null && !m.deleted -> Ticks(m.status)
                         }
-                    }
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = NightPanel) {
-                    DropdownMenuItem(
-                        text = { Text("Reply", color = Snow) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_reply), contentDescription = null, tint = Gold, modifier = Modifier.size(20.dp)) },
-                        onClick = {
-                            menu = false
-                            onReply()
-                        },
-                    )
-                    onEdit?.let { edit ->
-                        DropdownMenuItem(
-                            text = { Text("Edit", color = Snow) },
-                            leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = Gold, modifier = Modifier.size(20.dp)) },
-                            onClick = {
-                                menu = false
-                                edit()
-                            },
-                        )
-                    }
-                    onDelete?.let { delete ->
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = Danger) },
-                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = Danger, modifier = Modifier.size(20.dp)) },
-                            onClick = {
-                                menu = false
-                                delete()
-                            },
-                        )
                     }
                 }
             }

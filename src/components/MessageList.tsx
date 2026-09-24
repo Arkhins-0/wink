@@ -210,6 +210,7 @@ export function Bubble({
           ) : (
             <>
               {quote && <Quote r={quote} onDark={!m.mine} onClick={() => onQuote?.(quote.id)} />}
+              {m.forwarded && <span className={`mb-1 block text-[11px] italic ${m.mine ? "text-night/60" : "text-snow-faint"}`}>↪ Forwarded</span>}
               {m.urgent && <span className={`chip mb-1 px-2 py-0 text-[10px] ${m.mine ? "border-night/30 bg-night/10 text-night" : "border-danger/40 bg-danger/10 text-danger"}`}>Urgent</span>}
               {loc ? <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} /> : m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
               {m.file && <Attachment file={m.file} onDark={!m.mine} />}

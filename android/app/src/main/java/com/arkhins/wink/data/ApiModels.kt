@@ -82,6 +82,8 @@ data class Message(
     val changedAt: String? = null,
     /** Your own private message: "sent", "delivered" or "read" (one, two, three ticks). */
     val status: String? = null,
+    /** Passed on from another chat. */
+    val forwarded: Boolean = false,
 )
 
 /** The Privacy Policy or the Terms, as /api/legal/<doc> gives them. */

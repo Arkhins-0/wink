@@ -61,6 +61,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
     fileId: str(b.fileId, 64) || null,
     urgent: bool(b.urgent),
     replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
+    forwardOf: isUuid(str(b.forwardOf, 64)) ? str(b.forwardOf, 64) : null,
   });
   // The message itself, so the phone can show its tick without asking again.
   return json({ id: messageId, message: await messageById(user, messageId) }, 201);

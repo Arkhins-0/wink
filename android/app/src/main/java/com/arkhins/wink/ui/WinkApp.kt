@@ -37,6 +37,8 @@ import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.BottomNav
 import com.arkhins.wink.ui.components.PopupBubble
+import com.arkhins.wink.ui.components.SelectionBar
+import com.arkhins.wink.ui.components.SelectionTopBar
 import com.arkhins.wink.ui.components.TopBar
 import com.arkhins.wink.ui.components.UpdateAvailableDialog
 import com.arkhins.wink.ui.screens.AccountScreen
@@ -174,6 +176,8 @@ private fun MainNav(vm: AppViewModel) {
     val tab = route.substringBefore("/").substringBefore("?")
     var title by remember { mutableStateOf("") }
     var chatWith by remember { mutableStateOf<OtherUser?>(null) }
+    // Messages long-pressed in a chat: the header turns into the selection bar.
+    var selection by remember { mutableStateOf<SelectionBar?>(null) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -242,7 +246,8 @@ private fun MainNav(vm: AppViewModel) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(
+        val bar = selection?.takeIf { tab == "chat" }
+        if (bar != null) SelectionTopBar(bar) else TopBar(
             title = screenTitle,
             onBack = if (isTab) null else ({ nav.popBackStack() }),
             onOpenWeekend = openWeekend,
@@ -258,7 +263,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view) { title = it.name; chatWith = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }) { title = it.name; chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
