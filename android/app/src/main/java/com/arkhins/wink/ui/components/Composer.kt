@@ -79,10 +79,8 @@ import com.arkhins.wink.LocalApp
 import com.arkhins.wink.R
 import com.arkhins.wink.data.ChatMedia
 import com.arkhins.wink.data.Documents
-import com.arkhins.wink.data.FileInfo
-import com.arkhins.wink.data.Ok
-import com.arkhins.wink.data.UploadSlot
 import com.arkhins.wink.data.WinkApi
+import com.arkhins.wink.data.uploadFile
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.Night
@@ -97,7 +95,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.put
 import java.io.File
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -111,7 +108,8 @@ data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolea
 /** What sits above the field: the message being answered or edited, with a way out. */
 data class ComposerBanner(val title: String, val text: String, val onCancel: () -> Unit)
 
-internal data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
+/** A file picked for the tray. */
+data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
 
 /** What the server takes in one message. */
 private const val MAX_PHOTOS = 30
@@ -140,6 +138,13 @@ fun Composer(
     voiceNoteSends: Boolean = true,
     /** True: every file is its own message, sent in order. False (the email page): one message carries them all. */
     oneMessagePerFile: Boolean = true,
+    /**
+     * Set in chats: photos, documents and audio are handed over here the
+     * moment they are sent (the words as the first one's caption), and the
+     * tray empties at once; the caller shows and uploads them in the
+     * background. Null elsewhere: the composer uploads, then calls [send].
+     */
+    sendFiles: ((files: List<Picked>, caption: String, urgent: Boolean) -> Unit)? = null,
     send: suspend (Draft) -> Unit,
 ) {
     val app = LocalApp.current
@@ -167,6 +172,7 @@ fun Composer(
     // Files go one after another, each a while apart: each send uses the caller's lambda as it is by then
     // (a chat's reply, say, rides only with the first).
     val currentSend by rememberUpdatedState(send)
+    val currentSendFiles by rememberUpdatedState(sendFiles)
 
     // Starting an edit fills the field; leaving it clears what the edit put there.
     LaunchedEffect(editText) {
@@ -240,6 +246,19 @@ fun Composer(
         val files = if (editing) emptyList() else images + docs + audios
         val loc = if (editing) null else location
         if (busy || (text.isBlank() && files.isEmpty() && loc == null)) return
+        // A chat takes the files as they are and sends them in the background: nothing to wait for here.
+        val handOver = currentSendFiles
+        if (handOver != null && files.isNotEmpty()) {
+            handOver(files, text.trim(), urgent)
+            body = TextFieldValue("")
+            images = emptyList()
+            docs = emptyList()
+            audios = emptyList()
+            uploaded.clear()
+            error = null
+            status = null
+            return
+        }
         busy = true
         error = null
         status = null
@@ -288,6 +307,10 @@ fun Composer(
     /** A chat's voice note goes out on its own at once, whatever sits in the field. */
     fun sendNote(note: Picked) {
         if (busy) return
+        currentSendFiles?.let { handOver ->
+            handOver(listOf(note), "", false)
+            return
+        }
         busy = true
         error = null
         scope.launch {
@@ -626,7 +649,7 @@ private fun describe(context: Context, uri: Uri): Picked {
     return Picked(uri, name, mime, size)
 }
 
-/** Copy the picked file to cache, ask for a slot, PUT it, confirm; keep a copy beside received files. */
+/** Copy the picked file to cache and hand it to the server; keep a copy beside received files. */
 private suspend fun upload(context: Context, api: WinkApi, documents: Documents, media: ChatMedia, p: Picked): String = withContext(Dispatchers.IO) {
     val temp = File(context.cacheDir, "upload-${System.currentTimeMillis()}")
     if (p.uri.scheme == "file") {
@@ -636,24 +659,10 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
             ?: throw IllegalStateException("The file could not be read.")
     }
     try {
-        val slot: UploadSlot = api.post("/api/files", UploadSlot.serializer()) {
-            put("name", p.name)
-            put("mime", p.mime)
-            put("size", temp.length())
-        }
-        try {
-            api.putBytes(slot.uploadUrl, temp, p.mime)
-        } catch (e: Exception) {
-            if (!slot.direct || temp.length() > slot.maxProxyBytes) throw e
-            api.putBytes(api.url("/api/files/${slot.id}/content"), temp, p.mime)
-        }
-        api.post("/api/files/${slot.id}/ready", Ok.serializer())
-        val info = FileInfo(slot.id, p.name, p.mime, temp.length())
-        runCatching { media.put(info, temp) }
-        if (!info.mime.startsWith("image/") && !info.mime.startsWith("audio/")) runCatching { documents.keepSent(info, temp) }
+        val info = uploadFile(api, documents, media, temp, p.name, p.mime)
         // A recorded note goes once it's up; on a failure it stays, so the tray can try again.
         if (p.uri.scheme == "file") runCatching { File(p.uri.path!!).delete() }
-        slot.id
+        info.id
     } finally {
         temp.delete()
     }

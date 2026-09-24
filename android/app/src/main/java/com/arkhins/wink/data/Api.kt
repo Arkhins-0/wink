@@ -18,6 +18,8 @@ import okhttp3.ConnectionPool
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -143,10 +145,33 @@ class WinkApi(private val session: SessionStore) {
             execute(builder(path).post(form.build()).build()).use { json.decodeFromString(serializer, it.body!!.string()) }
         }
 
-    /** PUT raw bytes to an upload slot: the storage bucket's signed URL, or our own server. */
-    suspend fun putBytes(url: String, file: File, mime: String) = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(url).put(file.asRequestBody(mime.toMediaType())).build()
-        execute(request).close()
+    /** PUT raw bytes to an upload slot: the storage bucket's signed URL, or our own server. [onProgress] gets 0f..1f as they go. */
+    suspend fun putBytes(url: String, file: File, mime: String, onProgress: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
+        val type = mime.toMediaType()
+        val body = object : RequestBody() {
+            override fun contentType() = type
+            override fun contentLength() = file.length()
+            override fun writeTo(sink: BufferedSink) {
+                val total = file.length()
+                var written = 0L
+                var reported = -1
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        sink.write(buffer, 0, read)
+                        written += read
+                        val percent = if (total > 0) (written * 100 / total).toInt() else 0
+                        if (percent != reported) {
+                            reported = percent
+                            onProgress(percent / 100f)
+                        }
+                    }
+                }
+            }
+        }
+        execute(Request.Builder().url(url).put(body).build()).close()
     }
 
     /**

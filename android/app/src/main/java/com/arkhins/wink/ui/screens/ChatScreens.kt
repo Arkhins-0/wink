@@ -37,6 +37,8 @@ import androidx.compose.ui.text.withStyle
 import com.arkhins.wink.data.ChatExport
 import com.arkhins.wink.data.ConversationDetail
 import com.arkhins.wink.data.Queued
+import com.arkhins.wink.data.OutgoingFile
+import com.arkhins.wink.data.Conversation
 import androidx.compose.runtime.collectAsState
 import com.arkhins.wink.data.GroupInvite
 import com.arkhins.wink.data.InviteAnswer
@@ -203,6 +205,8 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
 
     LaunchedEffect(Unit) {
         if (chats == null) app.chatCache.loadList()?.let { chats = it }
+        // Every chat's own copy into memory, so each row's last line can come from the phone at once.
+        chats?.forEach { c -> if (app.chatCache.peek(c.id) == null) app.appScope.launch { runCatching { app.chatCache.load(c.id) } } }
     }
     LaunchedEffect(vm.refreshTick, vm.chatTick) {
         try {
@@ -224,7 +228,17 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
     }
 
     val canOpen = vm.me?.user?.role != "race_official"
-    val c = chats
+    // Each row's last line from the phone's own copy when that is newer than the server's list: what was just
+    // sent (still with its clock) or just synced shows at once, without waiting for the list to come back.
+    val copies by app.chatCache.version.collectAsState()
+    val queued by app.outbox.items.collectAsState()
+    val c = remember(chats, copies, queued) {
+        val waiting = queued.groupBy { it.conversationId }
+        chats?.map { chat ->
+            val pending = waiting[chat.id].orEmpty().map { if (it.failed) it.message.copy(status = "failed") else it.message }
+            withPhoneLast(chat, app.chatCache.peek(chat.id)?.messages.orEmpty() + pending)
+        }?.sortedByDescending { it.lastMessageAt?.let(::instant) }
+    }
     val shown = remember(c, filter) {
         c?.filter {
             when (filter) {
@@ -320,6 +334,33 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
             ) { Icon(Icons.Outlined.Create, contentDescription = "New chat", tint = Night) }
         }
     }
+}
+
+/**
+ * A chat's row with its last line (and time and ticks) from [messages], the
+ * phone's own copy with anything still queued, when that is at least as new
+ * as what the server's list said; the server's row as it is otherwise.
+ */
+private fun withPhoneLast(chat: Conversation, messages: List<Message>): Conversation {
+    val last = messages.maxByOrNull { instant(it.createdAt) } ?: return chat
+    val at = instant(last.createdAt)
+    val server = chat.lastMessageAt?.let(::instant)
+    if (server != null && server.isAfter(at)) return chat
+    val line = last.event ?: snippet(last)
+    if (line.isBlank()) return chat
+    // A group's line says who, as the server's does; an event line speaks for itself.
+    val who = when {
+        chat.kind != "group" || last.event != null -> ""
+        last.mine -> "You: "
+        else -> last.sender?.name?.let { "$it: " }.orEmpty()
+    }
+    val status = when {
+        !last.mine || last.deleted || last.event != null -> null
+        last.status == "pending" -> "pending"
+        chat.kind == "group" || last.status == "failed" -> null
+        else -> last.status
+    }
+    return chat.copy(lastMessage = who + line, lastMessageAt = if (server == null || at.isAfter(server)) last.createdAt else chat.lastMessageAt, lastStatus = status)
 }
 
 /** Pick someone below you to chat with. */
@@ -492,6 +533,8 @@ fun ChatScreen(
     val pending = remember(queued) {
         queued.filter { it.conversationId == conversationId }.map { if (it.failed) it.message.copy(status = "failed") else it.message }
     }
+    // How far each file still going up has got, for the circles over them.
+    val uploads by app.outbox.progress.collectAsState()
     // One left the queue: the server's copy is in the phone's chat by now.
     LaunchedEffect(pending.size) { app.chatCache.peek(conversationId)?.let { detail = it } }
     val list = rememberLazyListState()
@@ -717,7 +760,9 @@ fun ChatScreen(
                                     replyTo = m
                                 },
                                 onQuote = ::jump,
-                                onRetry = if (m.status == "failed") ({ app.outbox.retry(m.id) }) else null,
+                                // A run's failed one (a photo of a batch the server turned down) is retried from anywhere on it.
+                                onRetry = r.run.lastOrNull { it.status == "failed" }?.let { f -> { app.outbox.retry(f.id) } },
+                                uploads = uploads,
                             )
                         }
                     }
@@ -748,6 +793,38 @@ fun ChatScreen(
                     else -> null
                 },
                 editText = editingNow?.body,
+                sendFiles = { files, caption, urgent ->
+                    actionError = null
+                    // Each file its own message, all on screen at once with a clock and a circle; the outbox copies
+                    // them onto the phone, uploads them and posts them in the background, even with the chat closed.
+                    val batch = UUID.randomUUID().toString()
+                    val now = Instant.now().toString()
+                    val items = files.mapIndexed { i, p ->
+                        val file = FileInfo("local-" + UUID.randomUUID(), p.name, p.mime, p.size)
+                        Queued(
+                            conversationId,
+                            Message(
+                                id = "local-" + UUID.randomUUID(),
+                                conversationId = conversationId,
+                                kind = "direct",
+                                // The words and the reply ride with the first.
+                                body = if (i == 0) caption else "",
+                                files = listOf(file),
+                                urgent = urgent,
+                                createdAt = now,
+                                mine = true,
+                                replyTo = if (i == 0) replyingTo?.let(::refOf) else null,
+                                status = "pending",
+                            ),
+                            replyToId = if (i == 0) replyingTo?.id else null,
+                            file = OutgoingFile(app.chatMedia.pathFor(file).path, p.name, p.mime, p.size),
+                            batch = batch,
+                            ready = false,
+                        )
+                    }
+                    app.outbox.sendFiles(items, files.map { it.uri })
+                    replyTo = null
+                },
             ) { draft ->
                 actionError = null
                 if (editingNow != null) {
@@ -948,6 +1025,8 @@ private fun Bubble(
     onReply: () -> Unit,
     onQuote: (String) -> Unit,
     onRetry: (() -> Unit)?,
+    /** Upload progress of files still going up, by message id (see [com.arkhins.wink.data.Outbox.progress]). */
+    uploads: Map<String, Float> = emptyMap(),
 ) {
     val mine = m.mine
     // Not yet on the server: nothing to reply to, edit or delete.
@@ -1022,8 +1101,12 @@ private fun Bubble(
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         ) {
             // Pictures sit in a thin frame; the caption, quote, files and time keep the usual inset.
-            val files = if (run.size > 1) run.flatMap { it.attachments } else m.attachments
+            val owned = if (run.size > 1) run.flatMap { r -> r.attachments.map { r to it } } else m.attachments.map { m to it }
+            val files = owned.map { it.second }
             val photos = runPhotos(run)
+            // A file still going up: how far (below 0 until known); null for one on the server, or one turned down.
+            fun uploading(msg: Message): Float? =
+                if (msg.status == "pending" && msg.attachments.firstOrNull()?.id?.startsWith("local-") == true) uploads[msg.id] ?: -1f else null
             val picture = !m.deleted && photos.isNotEmpty()
             val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
             Box {
@@ -1075,7 +1158,19 @@ private fun Bubble(
                             InviteCard(inv, open = open, mine = mine, onDark = !mine, onAnswer = if (!mine && open && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
                         }
                         // While messages are being picked, a tap on a photo picks this one too instead of opening it.
-                        val view: (FileView) -> Unit = { if (selecting) onToggle() else onView(it) }
+                        // One still going up is not on the server yet: a tap opens nothing (or retries it, when it failed).
+                        val view: (FileView) -> Unit = { v ->
+                            val onPhone = when (v) {
+                                is FileView.Image -> v.file.id.startsWith("local-")
+                                is FileView.Gallery -> v.photos.any { it.message.id.startsWith("local-") }
+                                else -> false
+                            }
+                            when {
+                                selecting -> onToggle()
+                                onPhone -> onRetry?.invoke()
+                                else -> onView(v)
+                            }
+                        }
                         PhotoGrid(
                             photos,
                             view,
@@ -1084,10 +1179,11 @@ private fun Bubble(
                                 onToggle()
                             }),
                             fill = true,
+                            uploading = { uploading(it.message) },
                         )
-                        files.filterNot { it.isImage }.forEachIndexed { i, f ->
+                        owned.filterNot { it.second.isImage }.forEachIndexed { i, (msg, f) ->
                             if (i > 0 || photos.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                            Box(inset) { Attachment(f, view, onDark = !mine) }
+                            Box(inset) { Attachment(f, view, onDark = !mine, uploading = uploading(msg)) }
                         }
                         // The words, then the place they point to: a Maps link on the last line becomes a card.
                         val loc = if (run.size > 1) null else locationIn(m.body)
@@ -1109,7 +1205,7 @@ private fun Bubble(
                             color = if (mine) Night.copy(alpha = 0.6f) else SnowFaint,
                         )
                         when {
-                            m.status == "failed" -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
+                            run.any { it.status == "failed" } -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
                             m.status != null && !m.deleted -> Ticks(m.status)
                         }
                         // Marked urgent: it also went out by email.

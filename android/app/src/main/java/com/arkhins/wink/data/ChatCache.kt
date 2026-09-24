@@ -39,6 +39,10 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     // The same copies held in memory, so a chat or the list opened a second time is there in the very first frame.
     private val mem = ConcurrentHashMap<String, CachedChat>()
     @Volatile private var memList: List<Conversation>? = null
+    private val _version = MutableStateFlow(0)
+
+    /** Bumps whenever a chat's copy (or the list) changes, so the chats list can show the newest line at once. */
+    val version: StateFlow<Int> = _version
 
     private fun file(id: String) = File(dir, "$id.json")
     private val listFile get() = File(dir, "list.json")
@@ -52,6 +56,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     private fun keep(id: String, chat: CachedChat) {
         write(file(id), json.encodeToString(CachedChat.serializer(), chat))
         mem[id] = chat
+        _version.value++
     }
 
     private fun write(target: File, text: String) {
@@ -69,7 +74,9 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     /** What the phone has for a chat, without asking the server. */
     suspend fun load(id: String): CachedChat? = withContext(Dispatchers.IO) {
         // putIfAbsent: a sync may have kept a newer copy while the disk was being read; that one wins.
-        mem[id] ?: runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()?.let { mem.putIfAbsent(id, it) ?: it }
+        mem[id] ?: runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()?.let { read ->
+            (mem.putIfAbsent(id, read) ?: read).also { _version.value++ }
+        }
     }
 
     /**
@@ -149,6 +156,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
 
     suspend fun saveList(list: List<Conversation>) = withContext(Dispatchers.IO) {
         memList = list
+        _version.value++
         runCatching { write(listFile, json.encodeToString(ListSerializer(Conversation.serializer()), list)) }
     }
 
@@ -159,6 +167,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         memList = null
         dir.deleteRecursively()
         dir.mkdirs()
+        _version.value++
     }
 
     private val ownerFile = File(context.filesDir, "chats-owner")
@@ -201,6 +210,14 @@ class ChatMedia(context: Context, private val api: WinkApi) {
 
     /** The copy on the phone, if there is one. */
     fun local(file: FileInfo): File? = target(file).takeIf { it.exists() && it.length() > 0 }
+
+    /** Where a file's copy lives (or will): a file still being sent keeps its bytes here under its `local-` id. */
+    fun pathFor(file: FileInfo): File = target(file)
+
+    /** A copy was put in place by hand (a file on its way out): screens swap to it. */
+    fun landed() {
+        _version.value++
+    }
 
     /** The file on the phone, fetching it first if needed. */
     suspend fun fetch(file: FileInfo, onProgress: (Float) -> Unit = {}): File = locks.getOrPut(file.id) { Mutex() }.withLock {

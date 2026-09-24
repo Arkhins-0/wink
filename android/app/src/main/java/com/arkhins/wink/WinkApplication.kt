@@ -44,8 +44,8 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** The phone's own copy of every private chat. */
     val chatCache: ChatCache by lazy { ChatCache(this, api, chatMedia, appScope) }
 
-    /** Messages written offline (or not yet answered), sent the moment the network is back. */
-    val outbox: Outbox by lazy { Outbox(this, api, chatCache, appScope) }
+    /** Messages written offline (or not yet answered), and files still going up, sent the moment the network is back. */
+    val outbox: Outbox by lazy { Outbox(this, api, chatCache, chatMedia, documents, appScope) }
 
     /** Everything the app shows, brought onto the phone in the background. */
     val prefetch: Prefetch by lazy { Prefetch(this) }

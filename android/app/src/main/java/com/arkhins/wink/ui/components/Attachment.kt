@@ -108,10 +108,16 @@ val FileInfo.isAudio: Boolean get() = mime.startsWith("audio/")
 /** Photos sent one after another this close together read as one batch. */
 private const val PHOTO_RUN_GAP_MS = 60_000L
 
-/** A message that is just one photo (with or without a caption): the kind that joins a run. */
+/**
+ * A message that is just one photo (with or without a caption): the kind
+ * that joins a run. One still going up joins too (its file is the phone's
+ * own `local-` copy), so a batch shows as its grid from the start; a
+ * forward's stand-in does not.
+ */
 fun isPhotoMessage(m: Message): Boolean =
-    !m.deleted && m.event == null && m.groupInvite == null && !m.id.startsWith("local-") &&
-        m.attachments.size == 1 && m.attachments[0].isImage
+    !m.deleted && m.event == null && m.groupInvite == null &&
+        m.attachments.size == 1 && m.attachments[0].isImage &&
+        (!m.id.startsWith("local-") || m.attachments[0].id.startsWith("local-"))
 
 /**
  * Messages in the order sent, with each run of photos gathered into one
@@ -164,11 +170,29 @@ fun filesLabel(files: List<FileInfo>): String {
  * progress) and then opens in whatever app reads that kind of file.
  */
 @Composable
-fun Attachment(file: FileInfo, onView: (FileView) -> Unit, onDark: Boolean = true) {
+fun Attachment(
+    file: FileInfo,
+    onView: (FileView) -> Unit,
+    onDark: Boolean = true,
+    /** Still going up: how far (0f..1f), or below 0 until that is known. Null once it is on the server. */
+    uploading: Float? = null,
+) {
     when {
-        file.isImage -> ImageAttachment(file, onView)
-        file.isAudio -> AudioAttachment(file, onDark)
-        else -> DocumentAttachment(file, onView, onDark)
+        file.isImage -> ImageAttachment(file, onView, uploading = uploading)
+        file.isAudio -> AudioAttachment(file, onDark, uploading)
+        else -> DocumentAttachment(file, onView, onDark, uploading)
+    }
+}
+
+/** A circle over something still going up: how far it has got, or spinning until that is known. */
+@Composable
+private fun UploadCircle(progress: Float) {
+    Box(Modifier.size(44.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape), contentAlignment = Alignment.Center) {
+        if (progress >= 0f) {
+            CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(32.dp), color = Snow, strokeWidth = 3.dp, trackColor = Snow.copy(alpha = 0.25f))
+        } else {
+            CircularProgressIndicator(Modifier.size(32.dp), color = Snow, strokeWidth = 3.dp)
+        }
     }
 }
 
@@ -232,18 +256,21 @@ fun photoModel(file: FileInfo): Any {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null, fill: Boolean = false) {
-    AsyncImage(
-        model = photoModel(file),
-        contentDescription = file.name,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier
-            .then(if (fill) Modifier.fillMaxWidth() else Modifier.widthIn(max = GRID_WIDTH))
-            .heightIn(min = 120.dp, max = 320.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Night)
-            .combinedClickable(onLongClick = onLongPress) { onView(FileView.Image(file)) },
-    )
+private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null, fill: Boolean = false, uploading: Float? = null) {
+    Box(contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = photoModel(file),
+            contentDescription = file.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .then(if (fill) Modifier.fillMaxWidth() else Modifier.widthIn(max = GRID_WIDTH))
+                .heightIn(min = 120.dp, max = 320.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Night)
+                .combinedClickable(onLongClick = onLongPress) { onView(FileView.Image(file)) },
+        )
+        uploading?.let { UploadCircle(it) }
+    }
 }
 
 /** How wide a grid (or a lone photo) would like to be. */
@@ -259,17 +286,24 @@ private val GRID_WIDTH = 260.dp
  * its widest part), so nothing shows beside it.
  */
 @Composable
-fun PhotoGrid(photos: List<GalleryPhoto>, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null, fill: Boolean = false) {
+fun PhotoGrid(
+    photos: List<GalleryPhoto>,
+    onView: (FileView) -> Unit,
+    onLongPress: (() -> Unit)? = null,
+    fill: Boolean = false,
+    /** A photo still going up: how far (0f..1f, below 0 until known), shown as a circle over it; null for one on the server. */
+    uploading: (GalleryPhoto) -> Float? = { null },
+) {
     if (photos.isEmpty()) return
     if (photos.size == 1) {
-        PreferredWidth { ImageAttachment(photos[0].file, onView, onLongPress, fill) }
+        PreferredWidth { ImageAttachment(photos[0].file, onView, onLongPress, fill, uploading(photos[0])) }
         return
     }
     val gap = 2.dp
     val open = { i: Int -> onView(FileView.Gallery(photos, i)) }
     @Composable
     fun RowScope.Tile(i: Int, ratio: Float, more: Int = 0) =
-        PhotoTile(photos[i].file, Modifier.weight(1f).aspectRatio(ratio), more, { open(i) }, onLongPress)
+        PhotoTile(photos[i].file, Modifier.weight(1f).aspectRatio(ratio), more, { open(i) }, onLongPress, uploading(photos[i]))
     PreferredWidth {
         Column(
             (if (fill) Modifier.fillMaxWidth() else Modifier.widthIn(max = GRID_WIDTH).fillMaxWidth()).clip(RoundedCornerShape(12.dp)),
@@ -318,7 +352,7 @@ private fun PreferredWidth(content: @Composable () -> Unit) {
 /** One photo of a grid, cropped to its tile; a [more] above 0 darkens it under "+more", as WhatsApp does. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: () -> Unit, onLongPress: (() -> Unit)?) {
+private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: () -> Unit, onLongPress: (() -> Unit)?, uploading: Float? = null) {
     Box(modifier.background(Night).combinedClickable(onLongClick = onLongPress, onClick = onClick), contentAlignment = Alignment.Center) {
         AsyncImage(
             model = photoModel(file),
@@ -328,6 +362,7 @@ private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: ()
             modifier = Modifier.fillMaxSize().then(if (more > 0) Modifier.drawWithContent { drawContent(); drawRect(Color.Black.copy(alpha = 0.6f)) } else Modifier),
         )
         if (more > 0) Text("+$more", style = MaterialTheme.typography.headlineMedium, color = Snow)
+        uploading?.let { UploadCircle(it) }
     }
 }
 
@@ -335,7 +370,7 @@ private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: ()
 
 /** A voice note or audio file: fetched into Downloads/Wink on first play, then played right here. */
 @Composable
-private fun AudioAttachment(file: FileInfo, onDark: Boolean) {
+private fun AudioAttachment(file: FileInfo, onDark: Boolean, uploading: Float? = null) {
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -395,9 +430,11 @@ private fun AudioAttachment(file: FileInfo, onDark: Boolean) {
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp).background(Gold, CircleShape).clickable(enabled = !loading) { toggle() }, contentAlignment = Alignment.Center) {
+        Box(Modifier.size(40.dp).background(Gold, CircleShape).clickable(enabled = !loading && uploading == null) { toggle() }, contentAlignment = Alignment.Center) {
             when {
-                loading -> CircularProgressIndicator(Modifier.size(20.dp), color = Night, strokeWidth = 2.dp)
+                // Still going up: the circle shows how far.
+                uploading != null && uploading >= 0f -> CircularProgressIndicator(progress = { uploading }, modifier = Modifier.size(24.dp), color = Night, strokeWidth = 2.5.dp, trackColor = Night.copy(alpha = 0.2f))
+                uploading != null || loading -> CircularProgressIndicator(Modifier.size(20.dp), color = Night, strokeWidth = 2.dp)
                 playing -> Icon(painterResource(R.drawable.ic_pause), contentDescription = "Pause", tint = Night)
                 else -> Icon(Icons.Outlined.PlayArrow, contentDescription = "Play", tint = Night)
             }
@@ -412,7 +449,8 @@ private fun AudioAttachment(file: FileInfo, onDark: Boolean) {
             )
             Spacer(Modifier.padding(2.dp))
             Text(
-                error ?: if (duration > 0) "${fmt(position)} / ${fmt(duration)}" else file.name.substringBeforeLast('.').ifBlank { "Audio" } + " · " + bytes(file.size),
+                error ?: if (uploading != null) "Sending…" + (if (uploading >= 0f) " ${(uploading * 100).toInt()}%" else "")
+                else if (duration > 0) "${fmt(position)} / ${fmt(duration)}" else file.name.substringBeforeLast('.').ifBlank { "Audio" } + " · " + bytes(file.size),
                 style = MaterialTheme.typography.labelSmall,
                 color = if (error != null) Danger else if (onDark) SnowFaint else Night.copy(alpha = 0.6f),
                 maxLines = 1,
@@ -425,7 +463,7 @@ private fun AudioAttachment(file: FileInfo, onDark: Boolean) {
 /* ───────────────────────────── Documents ─────────────────────────── */
 
 @Composable
-private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDark: Boolean) {
+private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDark: Boolean, uploading: Float? = null) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var saved by remember(file.id) { mutableStateOf(app.documents.find(file)) }
@@ -445,7 +483,8 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
             .fillMaxWidth()
             .background(if (onDark) Night else Night.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
             .border(1.dp, if (onDark) NightLine else Night.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-            .clickable(enabled = !busy) {
+            // One still on its way is not on the server to download: a tap goes to the bubble (to retry, if it failed).
+            .clickable(enabled = !busy && !file.id.startsWith("local-")) {
                 val doc = saved
                 if (doc != null) {
                     open(doc)
@@ -469,7 +508,10 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(40.dp).background(Gold.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            if (busy) {
+            if (uploading != null) {
+                if (uploading >= 0f) CircularProgressIndicator(progress = { uploading }, modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp, trackColor = Gold.copy(alpha = 0.2f))
+                else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
+            } else if (busy) {
                 if (progress > 0f) CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
                 else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
             } else {
@@ -482,6 +524,8 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
             Text(
                 when {
                     error != null -> error!!
+                    uploading != null -> "${bytes(file.size)} · sending…" + if (uploading >= 0f) " ${(uploading * 100).toInt()}%" else ""
+                    file.id.startsWith("local-") -> bytes(file.size)
                     busy -> "Downloading… ${(progress * 100).toInt()}%"
                     saved != null -> "${bytes(file.size)} · saved, tap to open"
                     else -> "${bytes(file.size)} · tap to download"
