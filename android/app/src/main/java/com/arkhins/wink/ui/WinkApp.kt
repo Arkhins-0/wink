@@ -16,8 +16,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -202,11 +202,20 @@ private fun MainNav(vm: AppViewModel) {
     var chatsPage by remember { mutableIntStateOf(0) }
     var chatExport by remember { mutableIntStateOf(0) }
     var chatCanExport by remember { mutableStateOf(true) }
-    // Every screen change, another chat included, starts without the last chat's search bar or its name in the header.
-    LaunchedEffect(entry) {
+    // The open chat. It is not a screen of its own: it floats in over whatever is on screen and floats
+    // back out, so the page beneath (the chats tab, its footer, the list) is never touched.
+    var openChat by remember { mutableStateOf<String?>(null) }
+    // The chat still drawn while it slides out.
+    var lastChat by remember { mutableStateOf<String?>(null) }
+    // A chat opens without the last one's search bar, selection or name in its header.
+    LaunchedEffect(openChat) {
+        openChat?.let { lastChat = it }
         chatSearch = false
         chatWith = null
+        selection = null
     }
+    /** Go where a link or a saved route says: a chat floats in, anything else is a screen. */
+    val go: (String) -> Unit = { r -> if (r.startsWith("chat/")) openChat = r.removePrefix("chat/") else nav.navigate(r) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -216,7 +225,7 @@ private fun MainNav(vm: AppViewModel) {
     LaunchedEffect(pending) {
         val link = pending ?: return@LaunchedEffect
         Links.pending.value = null
-        Links.route(link)?.let { r -> if (!r.startsWith("setpassword/")) nav.navigate(r) }
+        Links.route(link)?.let { r -> if (!r.startsWith("setpassword/")) go(r) }
     }
 
     // The system may kill the app while the phone is locked and start it
@@ -228,16 +237,17 @@ private fun MainNav(vm: AppViewModel) {
         val saved = app.session.lastRoute
         val fresh = System.currentTimeMillis() - app.session.lastRouteAt < 6 * 60 * 60 * 1000L
         if (!openedByLink && Links.pending.value == null && saved != null && saved != "home" && fresh) {
-            runCatching { nav.navigate(saved) { launchSingleTop = true } }
+            if (saved.startsWith("chat/")) openChat = saved.removePrefix("chat/") else runCatching { nav.navigate(saved) { launchSingleTop = true } }
         }
     }
+    LaunchedEffect(openChat) { openChat?.let { app.session.saveRoute("chat/$it") } }
     DisposableEffect(nav) {
         val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, arguments ->
             val pattern = destination.route ?: return@OnDestinationChangedListener
             // Screens that make sense to come back to; not viewers or forms.
             val concrete = when {
                 pattern in setOf("home", "schedule", "chats", "people", "account") -> pattern
-                pattern.startsWith("chat/") || pattern.startsWith("weekend/") || pattern.startsWith("person/") ->
+                pattern.startsWith("weekend/") || pattern.startsWith("person/") ->
                     pattern.replace("{id}", arguments?.getString("id") ?: return@OnDestinationChangedListener)
                 else -> return@OnDestinationChangedListener
             }
@@ -273,51 +283,43 @@ private fun MainNav(vm: AppViewModel) {
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
         "weekend" -> "Race weekend"
-        "chat" -> chatWith?.name ?: ""
         else -> title
     }
+    // Screens the chat opens on top of itself; while one is up the chat waits underneath, out of sight.
+    val chatCovered = tab in setOf("image", "pdf", "chatprofile", "group")
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        val bar = selection?.takeIf { tab == "chat" }
-        if (bar != null) SelectionTopBar(bar) else TopBar(
+        TopBar(
             title = screenTitle,
             onBack = if (isTab) null else ({ nav.popBackStack() }),
             onOpenWeekend = openWeekend,
             showCountdown = tab != "pdf" && tab != "image",
-            photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
-            onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { id -> nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") } }) else null,
-            menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()) else emptyList(),
             center = if (tab == "chats") ({ ChatsHeader(chatsPage) { chatsPage = it } }) else null,
         )
         Box(Modifier.weight(1f)) {
-            // Screens change in a blink: the default fade is far too slow for opening and closing a chat.
+            // Screens change in a blink: the default fade is far too slow.
             NavHost(
                 nav,
                 startDestination = "home",
                 enterTransition = { fadeIn(tween(120)) },
-                // A chat slides in over the screen beneath it, so that screen stays put underneath.
-                exitTransition = { if (targetState.destination.route == "chat/{id}") ExitTransition.KeepUntilTransitionsFinished else fadeOut(tween(90)) },
-                popEnterTransition = { if (initialState.destination.route == "chat/{id}") EnterTransition.None else fadeIn(tween(120)) },
+                exitTransition = { fadeOut(tween(90)) },
+                popEnterTransition = { fadeIn(tween(120)) },
                 popExitTransition = { fadeOut(tween(90)) },
             ) {
-                composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
-                composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
+                composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { openChat = it }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
+                composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { openChat = it }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
-                composable("chats") { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) }
-                composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("newgroup") { NewGroupScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") { popUpTo("chats") } }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { title = it } }
-                // A chat flies in from the right, and back out to the right when closed.
-                composable(
-                    "chat/{id}",
-                    enterTransition = { slideInHorizontally(tween(220)) { it } },
-                    popExitTransition = { slideOutHorizontally(tween(200)) { it } },
-                ) { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { chatWith = it } }
+                composable("chats") { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = { openChat = it }, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) }
+                // Made or chosen from a form: back to the chats tab, with the chat floating over it.
+                composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.popBackStack("chats", false); openChat = id } }
+                composable("newgroup") { NewGroupScreen { id -> nav.popBackStack("chats", false); openChat = id } }
+                composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.popBackStack("chats", false); openChat = it }, onLeft = { openChat = null; nav.navigate("chats") { popUpTo("home") } }) { title = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
-                composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") }) { title = it } }
+                composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { openChat = it }) { title = it } }
                 composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
@@ -327,15 +329,10 @@ private fun MainNav(vm: AppViewModel) {
                 composable("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
                 composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
                 composable("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
-                composable("scanner") { ScannerScreen(onOpenChat = { nav.navigate("chat/$it") }) }
-                composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { nav.navigate("chat/$it") }) }
+                composable("scanner") { ScannerScreen(onOpenChat = { openChat = it }) }
+                composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { openChat = it }) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
                 composable("image") { image?.let { ImageScreen(it) } }
-            }
-            vm.popup?.let { event ->
-                Box(Modifier.align(Alignment.TopCenter)) {
-                    PopupBubble(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let { nav.navigate(it) } }, onDismiss = vm::dismissPopup)
-                }
             }
         }
         if (isTab) {
@@ -355,6 +352,40 @@ private fun MainNav(vm: AppViewModel) {
                 }
             }
         }
+    }
+
+    // The chat, floating over everything: in from the right, out to the right. Back closes it.
+    if (!chatCovered) {
+        AnimatedVisibility(
+            visible = openChat != null,
+            enter = slideInHorizontally(tween(220)) { it },
+            exit = slideOutHorizontally(tween(200)) { it },
+        ) {
+            val id = openChat ?: lastChat
+            if (id != null) {
+                BackHandler(enabled = openChat != null) { openChat = null }
+                Column(Modifier.fillMaxSize().background(Night)) {
+                    val bar = selection
+                    if (bar != null) SelectionTopBar(bar) else TopBar(
+                        title = chatWith?.name ?: "",
+                        onBack = { openChat = null },
+                        onOpenWeekend = openWeekend,
+                        photo = chatWith?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
+                        onTitleClick = { nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") },
+                        menu = listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()),
+                    )
+                    Box(Modifier.weight(1f)) {
+                        ChatScreen(vm, id, view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { openChat = it }) { chatWith = it }
+                    }
+                }
+            }
+        }
+    }
+    vm.popup?.let { event ->
+        Box(Modifier.align(Alignment.TopCenter)) {
+            PopupBubble(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let(go) }, onDismiss = vm::dismissPopup)
+        }
+    }
     }
 }
 
