@@ -435,6 +435,8 @@ fun ChatScreen(
     onSearchClose: () -> Unit = {},
     /** Bumped by the header menu: export this chat. */
     exportTick: Int = 0,
+    /** Whether this chat may be exported: always a private chat, a group only by its admins. */
+    onCanExport: (Boolean) -> Unit = {},
     onOpenChat: (String) -> Unit = {},
     onOther: (OtherUser) -> Unit,
 ) {
@@ -527,6 +529,7 @@ fun ChatScreen(
         }
     }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
+    LaunchedEffect(d?.group?.myRole, d != null) { if (d != null) onCanExport(d.group == null || d.group.myRole == "admin") }
     // The newest message is what a chat opens on; anything new after that scrolls into view. Done once the rows
     // exist, not when the data lands — a scroll before the list is laid out goes nowhere.
     var shownRows by remember { mutableStateOf(-1) }
@@ -556,7 +559,7 @@ fun ChatScreen(
     }
 
     fun toggle(m: Message) {
-        if (m.deleted || m.id.startsWith("local-") || m.groupInvite != null) return
+        if (m.deleted || m.id.startsWith("local-") || m.groupInvite != null || m.event != null) return
         selected = if (m.id in selected) selected - m.id else selected + m.id
     }
     val clipboard = LocalClipboardManager.current
@@ -620,7 +623,11 @@ fun ChatScreen(
     ComposeLaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
     ComposeLaunchedEffect(exportTick) {
         if (exportTick == 0) return@ComposeLaunchedEffect
-        val other = d?.other ?: return@ComposeLaunchedEffect
+        val other = d?.other ?: d?.group?.asOther() ?: return@ComposeLaunchedEffect
+        if (d?.group != null && d.group.myRole != "admin") {
+            actionError = "Only the group's admins can export it."
+            return@ComposeLaunchedEffect
+        }
         exporting = "Fetching the chat…"
         try {
             // Everything the server has for this chat, not only the phone's copy.
@@ -663,7 +670,7 @@ fun ChatScreen(
                 else -> items(rows, key = { r -> if (r is ChatRow.Msg) r.m.id else "day-${(r as ChatRow.Day).label}" }) { r ->
                     when (r) {
                         is ChatRow.Day -> DaySeparator(r.label)
-                        is ChatRow.Msg -> {
+                        is ChatRow.Msg -> if (r.m.event != null) EventLine(r.m.event) else {
                             val m = r.m
                             // A quote reads as the original does now, when the phone has it.
                             val quote = m.replyTo?.let { ref -> byId[ref.id]?.let(::refOf) ?: ref }
@@ -874,6 +881,16 @@ private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnn
     }
 }
 
+/** A line in a group chat about the group itself: who joined, left, was removed. */
+@Composable
+private fun EventLine(text: String) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.background(NightPanel.copy(alpha = 0.7f), RoundedCornerShape(999.dp)).padding(horizontal = 12.dp, vertical = 4.dp)) {
+            Text(text, style = MaterialTheme.typography.labelSmall, color = SnowSoft, textAlign = TextAlign.Center)
+        }
+    }
+}
+
 @Composable
 private fun DaySeparator(day: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
@@ -1024,7 +1041,8 @@ private fun Bubble(
                             Spacer(Modifier.height(4.dp))
                         }
                         m.groupInvite?.let { inv ->
-                            InviteCard(inv, mine = mine, onDark = !mine, onAnswer = if (!mine && inv.status == "pending" && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
+                            val open = inv.status == "pending" && (inv.expiresAt == null || instant(inv.expiresAt).toEpochMilli() > System.currentTimeMillis())
+                            InviteCard(inv, open = open, mine = mine, onDark = !mine, onAnswer = if (!mine && open && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
                         }
                         val loc = locationIn(m.body)
                         if (loc != null) {
@@ -1059,7 +1077,7 @@ private fun Bubble(
 
 /** A group invitation inside its bubble: the group's name, and Join / Decline for the person invited. */
 @Composable
-private fun InviteCard(inv: GroupInvite, mine: Boolean, onDark: Boolean, onAnswer: ((Boolean) -> Unit)?) {
+private fun InviteCard(inv: GroupInvite, open: Boolean, mine: Boolean, onDark: Boolean, onAnswer: ((Boolean) -> Unit)?) {
     Column(
         Modifier
             .widthIn(min = 200.dp)
@@ -1067,13 +1085,14 @@ private fun InviteCard(inv: GroupInvite, mine: Boolean, onDark: Boolean, onAnswe
             .background(if (onDark) Night else Night.copy(alpha = 0.1f))
             .padding(10.dp),
     ) {
-        Text("GROUP INVITATION", style = MaterialTheme.typography.labelSmall, color = if (onDark) Gold else Night.copy(alpha = 0.6f))
+        Text(if (inv.upward) "JOIN REQUEST" else "GROUP INVITATION", style = MaterialTheme.typography.labelSmall, color = if (onDark) Gold else Night.copy(alpha = 0.6f))
         Text(inv.groupName, style = MaterialTheme.typography.titleMedium, color = if (onDark) Snow else Night)
         Spacer(Modifier.height(6.dp))
         val note = if (onDark) SnowSoft else Night.copy(alpha = 0.7f)
         when {
             inv.status == "accepted" -> Text("Joined", style = MaterialTheme.typography.labelMedium, color = note)
             inv.status == "declined" -> Text("Declined", style = MaterialTheme.typography.labelMedium, color = note)
+            !open -> Text("Expired · good for 2 days", style = MaterialTheme.typography.labelMedium, color = note)
             onAnswer == null -> Text(if (mine) "Waiting for an answer" else "Open", style = MaterialTheme.typography.labelMedium, color = note)
             else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GoldButton("Join") { onAnswer(true) }

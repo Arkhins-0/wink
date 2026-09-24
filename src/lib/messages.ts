@@ -22,7 +22,15 @@ import { currentSeason, LIVE_SEASON } from "./seasons";
 export type Kind = "broadcast" | "channel" | "direct" | "group";
 
 /** An invitation to a group, carried by a message in a private chat. */
-export type GroupInviteRef = { id: string; groupId: string; groupName: string; status: "pending" | "accepted" | "declined" };
+export type GroupInviteRef = {
+  id: string;
+  groupId: string;
+  groupName: string;
+  status: "pending" | "accepted" | "declined" | "expired";
+  /** Sent to someone higher up: a join request. */
+  upward: boolean;
+  expiresAt: string;
+};
 
 export type MessageOut = {
   id: string;
@@ -46,6 +54,8 @@ export type MessageOut = {
   forwarded: boolean;
   /** This message is a group invitation. */
   groupInvite: GroupInviteRef | null;
+  /** A line in a group chat about the group itself (joined, left, …), not something someone said. */
+  event: string | null;
   /** Your own private message: sent (one tick), delivered (two), read (three). Null otherwise. */
   status: "sent" | "delivered" | "read" | null;
 };
@@ -87,7 +97,10 @@ type Row = {
   changed_at: string | null;
   forwarded: boolean;
   group_invite_id: string | null;
-  gi_status: "pending" | "accepted" | "declined" | null;
+  gi_status: "pending" | "accepted" | "declined" | "expired" | null;
+  gi_upward: boolean | null;
+  gi_expires: string | null;
+  event: string | null;
   gi_group: string | null;
   gi_name: string | null;
   rm_sender_id: string | null;
@@ -108,7 +121,8 @@ const SELECT = `
          rm.sender_id AS rm_sender_id, COALESCE(NULLIF(rs.name, ''), rs.email) AS rm_sender_name, rm.body AS rm_body,
          rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
-         m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name
+         m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name,
+         gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event
   FROM messages m
   LEFT JOIN conversations c ON c.id = m.conversation_id
   LEFT JOIN users s ON s.id = m.sender_id
@@ -162,8 +176,18 @@ function out(row: Row, viewerId: string): MessageOut {
     changedAt: iso(row.changed_at),
     forwarded: row.forwarded,
     groupInvite: row.group_invite_id
-      ? { id: row.group_invite_id, groupId: row.gi_group ?? "", groupName: row.gi_name ?? "Group", status: row.gi_status ?? "pending" }
+      ? {
+          id: row.group_invite_id,
+          groupId: row.gi_group ?? "",
+          groupName: row.gi_name ?? "Group",
+          // Past its two days, a pending invitation reads as expired.
+          status:
+            row.gi_status === "pending" && row.gi_expires && new Date(row.gi_expires).getTime() < Date.now() ? "expired" : (row.gi_status ?? "pending"),
+          upward: Boolean(row.gi_upward),
+          expiresAt: iso(row.gi_expires) ?? new Date().toISOString(),
+        }
       : null,
+    event: row.event,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -413,7 +437,7 @@ async function resolveForward(sender: SessionUser, draft: Draft): Promise<{ draf
   if (!draft.forwardOf) return { draft, forwarded: false };
   const source = await one<{ body: string; file_id: string | null }>(
     `SELECT m.body, m.file_id FROM messages m
-     WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL
+     WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL AND m.event IS NULL
        AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
     [draft.forwardOf, sender.id],
   );
@@ -470,11 +494,31 @@ export async function postGroup(sender: SessionUser, conversationId: string, dra
   return id;
 }
 
-/** The invitation, as a message in the private chat between the inviter and the invited (nothing when no such chat is allowed). */
-export async function sendGroupInvite(actor: SessionUser, invitee: SessionUser, inviteId: string, groupName: string): Promise<void> {
+/** A line in a group chat about the group itself: who joined, left, was removed, and so on. Everyone's chat updates. */
+export async function groupEvent(groupId: string, actorId: string, text: string): Promise<void> {
+  const season = await currentSeason();
+  const row = await one<{ created_at: string }>(
+    "INSERT INTO messages (conversation_id, sender_id, body, season_id, event) VALUES ($1, $2, $3, $4, $3) RETURNING created_at",
+    [groupId, actorId, text, season.id],
+  );
+  await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [groupId, row!.created_at]);
+  after(async () => {
+    const members = await q<{ user_id: string }>("SELECT user_id FROM group_members WHERE conversation_id = $1", [groupId]);
+    await pushSync(members.map((m) => m.user_id), { scope: "chat", id: groupId });
+  });
+}
+
+/**
+ * The invitation, as a message in the private chat between the inviter
+ * and the invited (nothing when no such chat is allowed). To someone
+ * higher up it is worded as a request.
+ */
+export async function sendGroupInvite(actor: SessionUser, invitee: SessionUser, inviteId: string, groupName: string, upward = false): Promise<void> {
   if (!canChat(actor, invitee)) return;
   const convId = await openDirect(actor, invitee.id);
-  const body = `Invitation to join the group "${groupName}"`;
+  const body = upward
+    ? `${actor.name || actor.email} (${ROLE_LABEL[actor.role]}) asks you to join the group "${groupName}"`
+    : `Invitation to join the group "${groupName}"`;
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
     `INSERT INTO messages (conversation_id, sender_id, body, season_id, group_invite_id)
@@ -535,14 +579,15 @@ async function ownRecent(user: SessionUser, messageId: string) {
     conversation_id: string;
     owner_id: string;
     member_id: string;
+    event: string | null;
   }>(
-    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id
+    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id, m.event
      FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id
      WHERE m.id = $1 AND ${LIVE_SEASON("m")}`,
     [messageId],
   );
   if (!m || (m.kind !== "direct" && m.kind !== "group")) throw new AuthError(404, "No such message.");
-  if (m.sender_id !== user.id) throw new AuthError(403, "Only the sender can change a message.");
+  if (m.sender_id !== user.id || m.event) throw new AuthError(403, "Only the sender can change a message.");
   if (m.deleted_at) throw new AuthError(400, "This message was deleted.");
   if (Date.now() - new Date(m.created_at).getTime() > EDIT_WINDOW_MS)
     throw new AuthError(403, "Messages can only be changed within 2 hours of sending.");

@@ -10,6 +10,6 @@ export const POST = handle(async (request) => {
   const user = await requireUser();
   const b = await body(request);
   const ids = Array.isArray(b.memberIds) ? b.memberIds.filter((x): x is string => typeof x === "string" && isUuid(x)) : [];
-  const id = await createGroup(user, str(b.name, 80), ids);
-  return json({ id }, 201);
+  const { id, skipped } = await createGroup(user, str(b.name, 80), ids);
+  return json({ id, skipped }, 201);
 });

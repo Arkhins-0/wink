@@ -13,6 +13,6 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const b = await body(request);
   const ids = Array.isArray(b.userIds) ? b.userIds.filter((x): x is string => typeof x === "string" && isUuid(x)) : [];
   if (ids.length === 0) return fail("Pick someone to add.");
-  const invited = await inviteMembers(user, id, ids);
-  return json({ invited, group: await groupInfo(user, id) });
+  const result = await inviteMembers(user, id, ids);
+  return json({ ...result, group: await groupInfo(user, id) });
 });

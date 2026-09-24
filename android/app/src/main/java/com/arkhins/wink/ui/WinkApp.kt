@@ -196,6 +196,7 @@ private fun MainNav(vm: AppViewModel) {
     // The chats tab: 0 is the chat list, 1 the channels; the header switch and the swipe both move it.
     var chatsPage by remember { mutableIntStateOf(0) }
     var chatExport by remember { mutableIntStateOf(0) }
+    var chatCanExport by remember { mutableStateOf(true) }
     LaunchedEffect(tab) { if (tab != "chat") chatSearch = false }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
@@ -274,7 +275,7 @@ private fun MainNav(vm: AppViewModel) {
             showCountdown = tab != "pdf" && tab != "image",
             photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
             onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { id -> nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") } }) else null,
-            menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }, "Export chat" to { chatExport++ }) else emptyList(),
+            menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()) else emptyList(),
             center = if (tab == "chats") ({ ChatsHeader(chatsPage) { chatsPage = it } }) else null,
         )
         Box(Modifier.weight(1f)) {
@@ -295,7 +296,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("newgroup") { NewGroupScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") { popUpTo("chats") } }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { title = it } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }

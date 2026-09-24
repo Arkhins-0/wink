@@ -3,7 +3,7 @@ import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
 import { canAccess, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, postDirect, postGroup } from "@/lib/messages";
-import { groupInfo } from "@/lib/groups";
+import { groupInfo, memberRole } from "@/lib/groups";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
 import { userById } from "@/lib/users";
 
@@ -25,10 +25,13 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   const otherId = conv.kind === "direct" ? (conv.owner_id === user.id ? conv.member_id! : conv.owner_id!) : null;
   const query = new URL(request.url).searchParams;
   const since = query.get("after");
+  const limit = Math.min(5000, Number(query.get("limit")) || 100);
+  // A whole group chat at once is an export, and only the group's admins export.
+  if (conv.kind === "group" && limit > 100 && (await memberRole(id, user.id)) !== "admin") return fail("Only the group's admins can export it.", 403);
   const [other, delta, full, group] = await Promise.all([
     otherId ? userById(otherId) : null,
     since && !Number.isNaN(Date.parse(since)) ? conversationDelta(user, id, new Date(since).toISOString()) : null,
-    since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id, Math.min(5000, Number(query.get("limit")) || 100)),
+    since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id, limit),
     conv.kind === "group" ? groupInfo(user, id) : null,
   ]);
   const messages = delta ? delta.messages : full!;

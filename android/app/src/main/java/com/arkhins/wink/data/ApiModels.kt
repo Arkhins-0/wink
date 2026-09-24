@@ -23,6 +23,8 @@ data class PublicUser(
     val photoUrl: String? = null,
     val verifyCode: String,
     val profileComplete: Boolean = false,
+    /** From /api/users?group=1: "direct" (invite) or "request" (someone higher up, asked). */
+    val groupMode: String? = null,
 ) {
     val displayName: String get() = name ?: email
 }
@@ -86,11 +88,26 @@ data class Message(
     val forwarded: Boolean = false,
     /** This message is a group invitation. */
     val groupInvite: GroupInvite? = null,
+    /** A line in a group chat about the group itself (joined, left, …), not something someone said. */
+    val event: String? = null,
 )
 
 /** An invitation to a group, carried by a message in a private chat. */
 @Serializable
-data class GroupInvite(val id: String, val groupId: String, val groupName: String = "Group", val status: String = "pending")
+data class GroupInvite(
+    val id: String,
+    val groupId: String,
+    val groupName: String = "Group",
+    /** "pending", "accepted", "declined" or "expired". Good once, and for two days. */
+    val status: String = "pending",
+    /** Sent to someone higher up: a join request. */
+    val upward: Boolean = false,
+    val expiresAt: String? = null,
+)
+
+/** What creating a group or inviting to one answers: who could not be brought in. */
+@Serializable
+data class InviteResult(val id: String? = null, val invited: Int = 0, val requested: Int = 0, val skipped: List<String> = emptyList())
 
 @Serializable
 data class GroupMember(val id: String, val name: String, val roleLabel: String = "", val photoUrl: String? = null, val groupRole: String = "member")

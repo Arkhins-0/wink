@@ -106,6 +106,58 @@ export function canChat(a: ChatParty, b: ChatParty): boolean {
   return pair(a, b) && pair(b, a);
 }
 
+/** How far down the tree a role sits: 0 is the top. */
+const LEVEL: Record<string, number> = {
+  admin: 0,
+  coordinator: 1,
+  race_official: 2,
+  team_manager: 2,
+  security_head: 2,
+  volunteer: 2,
+  driver: 3,
+  crew: 3,
+  security: 3,
+};
+
+/**
+ * How `actor` may bring `target` into a group: "direct" (an invitation),
+ * "request" (someone higher up, asked rather than invited), or null (not
+ * at all). Straight in go people at your own level and those your role
+ * looks after: an admin brings coordinators; a coordinator brings team
+ * managers, security heads and their own volunteers; a team manager their
+ * own drivers and crew; a security head their own security. Drivers, crew
+ * and security bring their own teammates. Race officials have no chats, so
+ * no groups either.
+ */
+export function groupAddMode(actor: ChatParty, target: ChatParty): "direct" | "request" | null {
+  if (actor.id === target.id || actor.role === "race_official" || target.role === "race_official") return null;
+  if (!canChat(actor, target)) return null;
+  if (LEVEL[target.role] < LEVEL[actor.role]) return "request";
+  const teammate = target.parent_id === actor.parent_id;
+  switch (actor.role) {
+    case "admin":
+      return target.role === "admin" || target.role === "coordinator" ? "direct" : null;
+    case "coordinator":
+      if (target.role === "coordinator" || target.role === "team_manager" || target.role === "security_head") return "direct";
+      return target.role === "volunteer" && target.parent_id === actor.id ? "direct" : null;
+    case "team_manager":
+      if (target.role === "team_manager") return "direct";
+      return (target.role === "driver" || target.role === "crew") && target.parent_id === actor.id ? "direct" : null;
+    case "security_head":
+      if (target.role === "security_head") return "direct";
+      return target.role === "security" && target.parent_id === actor.id ? "direct" : null;
+    case "volunteer":
+      return target.role === "volunteer" ? "direct" : null;
+    case "driver":
+    case "crew":
+      return (target.role === "driver" || target.role === "crew") && teammate ? "direct" : null;
+    case "security":
+      return target.role === "security" && teammate ? "direct" : null;
+    default:
+      return null;
+  }
+}
+
 /** Everyone this person may open a chat with. */
 export async function chatCandidates(user: SessionUser): Promise<UserRow[]> {
   if (user.role === "race_official") return [];

@@ -48,7 +48,8 @@ import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.GroupInfo
 import com.arkhins.wink.data.GroupMember
 import com.arkhins.wink.data.GroupResponse
-import com.arkhins.wink.data.IdResponse
+import com.arkhins.wink.data.InviteResult
+import android.widget.Toast
 import com.arkhins.wink.data.Ok
 import com.arkhins.wink.data.PublicUser
 import com.arkhins.wink.data.UsersResponse
@@ -93,9 +94,10 @@ fun NewGroupScreen(onCreated: (String) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         try {
-            people = app.store.get("/api/users?chat=1", UsersResponse.serializer()) { people = it.users }.users
+            people = app.store.get("/api/users?group=1", UsersResponse.serializer()) { people = it.users }.users
         } catch (e: Exception) {
             error = e.message
         }
@@ -125,11 +127,12 @@ fun NewGroupScreen(onCreated: (String) -> Unit) {
             error = null
             scope.launch {
                 try {
-                    val id = app.api.post("/api/groups", IdResponse.serializer()) {
+                    val r = app.api.post("/api/groups", InviteResult.serializer()) {
                         put("name", name.trim())
                         putJsonArray("memberIds") { picked.forEach { add(it) } }
-                    }.id
-                    onCreated(id)
+                    }
+                    if (r.skipped.isNotEmpty()) Toast.makeText(context, "Not added: ${r.skipped.joinToString()}", Toast.LENGTH_LONG).show()
+                    onCreated(r.id ?: return@launch)
                 } catch (e: Exception) {
                     error = e.message ?: "Could not create the group."
                     busy = false
@@ -158,6 +161,8 @@ private fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: 
                 Column(Modifier.weight(1f)) {
                     Text(u.displayName, style = MaterialTheme.typography.titleSmall, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(u.roleLabel + (u.teamName?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = SnowFaint)
+                    // Someone higher up is asked, not invited.
+                    if (u.groupMode == "request") Text("Gets a join request", style = MaterialTheme.typography.labelSmall, color = Gold)
                 }
                 Checkbox(
                     checked = on,
@@ -375,7 +380,10 @@ fun GroupScreen(vm: AppViewModel, groupId: String, onOpenChat: (String) -> Unit,
         val already = (g.members + g.invited).map { it.id }.toSet()
         AddPeopleSheet(exclude = already, onDismiss = { adding = false }) { ids ->
             adding = false
-            run { app.api.post("/api/groups/$groupId/members", GroupResponse.serializer()) { putJsonArray("userIds") { ids.forEach { add(it) } } } }
+            run {
+                val r = app.api.post("/api/groups/$groupId/members", InviteResult.serializer()) { putJsonArray("userIds") { ids.forEach { add(it) } } }
+                if (r.skipped.isNotEmpty()) error = "Not added (outside what you can add): ${r.skipped.joinToString()}"
+            }
         }
     }
 }
@@ -423,7 +431,7 @@ private fun AddPeopleSheet(exclude: Set<String>, onDismiss: () -> Unit, onAdd: (
     var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
     var filter by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        runCatching { app.store.get("/api/users?chat=1", UsersResponse.serializer()) { people = it.users.filter { u -> u.id !in exclude } }.users }
+        runCatching { app.store.get("/api/users?group=1", UsersResponse.serializer()) { people = it.users.filter { u -> u.id !in exclude } }.users }
             .onSuccess { people = it.filter { u -> u.id !in exclude } }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {

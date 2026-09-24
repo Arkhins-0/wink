@@ -3,19 +3,25 @@ import "server-only";
 import { after } from "next/server";
 import { AuthError, type SessionUser } from "./auth";
 import { one, q, run } from "./db";
-import { canChat } from "./hierarchy";
-import { sendGroupInvite } from "./messages";
+import { groupAddMode } from "./hierarchy";
+import { groupEvent, sendGroupInvite } from "./messages";
 import { storeImage } from "./profile";
 import { pushSync } from "./push";
 import { ROLE_LABEL, type Role } from "./roles";
 import { userById, usersByIds } from "./users";
 
 /*
- * Groups. Anyone may make one and invite the people they can chat with;
- * an invitation is a message in the private chat between the two, with
- * Join and Decline on it. The group's admins add and remove members,
- * make other admins, rename it and decide who may send.
+ * Groups. Anyone may make one and bring in people at their own level and
+ * those their role looks after (hierarchy.groupAddMode); someone higher up
+ * gets a join request instead. Either way it is a message in the private
+ * chat between the two, with Join and Decline on it, good once and for two
+ * days. The group's admins add and remove members, make other admins,
+ * rename it and decide who may send. Everything said in a group stays, so
+ * someone who joins later reads it all; joins, leaves and the like show as
+ * lines in the chat.
  */
+
+const who = (u: { name: string | null; email: string }) => u.name || u.email;
 
 export type GroupRole = "admin" | "member";
 
@@ -76,7 +82,7 @@ export async function groupInfo(user: SessionUser, id: string): Promise<GroupInf
     q<PersonRow>(
       `SELECT u.id, u.name, u.email, u.role, u.photo_key, 'member' AS group_role
        FROM group_invites gi JOIN users u ON u.id = gi.user_id
-       WHERE gi.conversation_id = $1 AND gi.status = 'pending' ORDER BY gi.created_at`,
+       WHERE gi.conversation_id = $1 AND gi.status = 'pending' AND gi.expires_at > now() ORDER BY gi.created_at`,
       [id],
     ),
   ]);
@@ -94,7 +100,7 @@ export async function groupInfo(user: SessionUser, id: string): Promise<GroupInf
 }
 
 /** A new group with its maker as admin; everyone named is invited. */
-export async function createGroup(user: SessionUser, name: string, memberIds: string[]): Promise<string> {
+export async function createGroup(user: SessionUser, name: string, memberIds: string[]): Promise<{ id: string; skipped: string[] }> {
   if (user.role === "race_official") throw new AuthError(403, "Race officials do not have chats.");
   const clean = name.trim().slice(0, 80);
   if (clean.length < 2) throw new AuthError(400, "Give the group a name.");
@@ -103,40 +109,66 @@ export async function createGroup(user: SessionUser, name: string, memberIds: st
     [clean, user.id],
   );
   await run("INSERT INTO group_members (conversation_id, user_id, role) VALUES ($1, $2, 'admin')", [row!.id, user.id]);
-  await inviteMembers(user, row!.id, memberIds);
-  return row!.id;
+  await groupEvent(row!.id, user.id, `${who(user)} created the group "${clean}"`);
+  const result = await inviteMembers(user, row!.id, memberIds);
+  return { id: row!.id, skipped: result.skipped };
 }
 
-/** Invite people (an admin's doing). Only those the inviter may chat with, so the invitation can reach them. */
-export async function inviteMembers(actor: SessionUser, groupId: string, userIds: string[]): Promise<number> {
+export type InviteResult = { invited: number; requested: number; skipped: string[] };
+
+/**
+ * Invite people (a group admin's doing): those at the admin's level or in
+ * their care get an invitation, those higher up a join request, and
+ * anyone else is skipped by name.
+ */
+export async function inviteMembers(actor: SessionUser, groupId: string, userIds: string[]): Promise<InviteResult> {
   const g = await requireAdmin(actor, groupId);
   const people = await usersByIds(Array.from(new Set(userIds)));
-  let sent = 0;
+  const result: InviteResult = { invited: 0, requested: 0, skipped: [] };
   for (const p of people) {
-    if (p.status !== "active" || p.id === actor.id || !canChat(actor, p)) continue;
-    if (await memberRole(groupId, p.id)) continue;
+    if (p.id === actor.id || (await memberRole(groupId, p.id))) continue;
+    const mode = p.status === "active" ? groupAddMode(actor, p) : null;
+    if (!mode) {
+      result.skipped.push(who(p));
+      continue;
+    }
+    // A lapsed invitation makes way for a new one.
+    await run(
+      "UPDATE group_invites SET status = 'expired' WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending' AND expires_at < now()",
+      [groupId, p.id],
+    );
     const invite = await one<{ id: string }>(
-      `INSERT INTO group_invites (conversation_id, user_id, invited_by) VALUES ($1, $2, $3)
+      `INSERT INTO group_invites (conversation_id, user_id, invited_by, upward) VALUES ($1, $2, $3, $4)
        ON CONFLICT DO NOTHING RETURNING id`,
-      [groupId, p.id, actor.id],
+      [groupId, p.id, actor.id, mode === "request"],
     );
     if (!invite) continue;
-    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group");
-    sent++;
+    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group", mode === "request");
+    if (mode === "request") result.requested++;
+    else result.invited++;
   }
-  return sent;
+  return result;
 }
 
 /** Join or decline. The invitation message in the chat is bumped so both phones show the answer. */
 export async function answerInvite(user: SessionUser, inviteId: string, accept: boolean): Promise<string> {
-  const invite = await one<{ id: string; conversation_id: string; invited_by: string | null }>(
-    "SELECT id, conversation_id, invited_by FROM group_invites WHERE id = $1 AND user_id = $2 AND status = 'pending'",
+  const invite = await one<{ id: string; conversation_id: string; invited_by: string | null; status: string; expired: boolean }>(
+    "SELECT id, conversation_id, invited_by, status, expires_at < now() AS expired FROM group_invites WHERE id = $1 AND user_id = $2",
     [inviteId, user.id],
   );
-  if (!invite) throw new AuthError(404, "This invitation is no longer open.");
+  if (!invite) throw new AuthError(404, "No such invitation.");
+  // Good once: an answered invitation is spent.
+  if (invite.status !== "pending") throw new AuthError(410, "This invitation has already been used.");
+  // Good for two days.
+  if (invite.expired) {
+    await run("UPDATE group_invites SET status = 'expired' WHERE id = $1", [invite.id]);
+    await run("UPDATE messages SET changed_at = now() WHERE group_invite_id = $1", [invite.id]);
+    throw new AuthError(410, "This invitation has expired. Ask for a new one.");
+  }
   await run("UPDATE group_invites SET status = $2, answered_at = now() WHERE id = $1", [invite.id, accept ? "accepted" : "declined"]);
   if (accept) {
     await run("INSERT INTO group_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [invite.conversation_id, user.id]);
+    await groupEvent(invite.conversation_id, user.id, `${who(user)} joined`);
   }
   const carriers = await q<{ conversation_id: string }>(
     "UPDATE messages SET changed_at = now() WHERE group_invite_id = $1 RETURNING conversation_id",
@@ -155,13 +187,19 @@ export async function memberIds(groupId: string): Promise<string[]> {
 }
 
 export async function updateGroup(actor: SessionUser, groupId: string, changes: { name?: string; sendPolicy?: "everyone" | "admins" }): Promise<void> {
-  await requireAdmin(actor, groupId);
+  const g = await requireAdmin(actor, groupId);
   if (changes.name !== undefined) {
     const clean = changes.name.trim().slice(0, 80);
     if (clean.length < 2) throw new AuthError(400, "Give the group a name.");
-    await run("UPDATE conversations SET name = $2 WHERE id = $1", [groupId, clean]);
+    if (clean !== g.name) {
+      await run("UPDATE conversations SET name = $2 WHERE id = $1", [groupId, clean]);
+      await groupEvent(groupId, actor.id, `${who(actor)} renamed the group to "${clean}"`);
+    }
   }
-  if (changes.sendPolicy !== undefined) await run("UPDATE conversations SET send_policy = $2 WHERE id = $1", [groupId, changes.sendPolicy]);
+  if (changes.sendPolicy !== undefined && changes.sendPolicy !== g.send_policy) {
+    await run("UPDATE conversations SET send_policy = $2 WHERE id = $1", [groupId, changes.sendPolicy]);
+    await groupEvent(groupId, actor.id, changes.sendPolicy === "admins" ? `${who(actor)} let only admins send messages` : `${who(actor)} let everyone send messages`);
+  }
   after(async () => pushSync(await memberIds(groupId), { scope: "chat", id: groupId }));
 }
 
@@ -170,6 +208,7 @@ export async function setGroupPhoto(actor: SessionUser, groupId: string, photo: 
   const key = await storeImage(`groups/${groupId}`, photo);
   if (!key) throw new AuthError(400, "The photo must be a JPEG, PNG or WebP under 5 MB.");
   await run("UPDATE conversations SET photo_key = $2 WHERE id = $1", [groupId, key]);
+  await groupEvent(groupId, actor.id, `${who(actor)} changed the group picture`);
   after(async () => pushSync(await memberIds(groupId), { scope: "chat", id: groupId }));
   return key;
 }
@@ -177,15 +216,22 @@ export async function setGroupPhoto(actor: SessionUser, groupId: string, photo: 
 export async function setMemberRole(actor: SessionUser, groupId: string, userId: string, role: GroupRole): Promise<void> {
   await requireAdmin(actor, groupId);
   if (userId === actor.id && role !== "admin") throw new AuthError(400, "Make someone else an admin first, then step down by leaving.");
-  const n = await run("UPDATE group_members SET role = $3 WHERE conversation_id = $1 AND user_id = $2", [groupId, userId, role]);
-  if (n === 0) throw new AuthError(404, "Not a member.");
+  const before = await memberRole(groupId, userId);
+  if (!before) throw new AuthError(404, "Not a member.");
+  if (before === role) return;
+  await run("UPDATE group_members SET role = $3 WHERE conversation_id = $1 AND user_id = $2", [groupId, userId, role]);
+  const target = await userById(userId);
+  if (target) await groupEvent(groupId, actor.id, role === "admin" ? `${who(actor)} made ${who(target)} an admin` : `${who(actor)} removed ${who(target)} as admin`);
   after(async () => pushSync(await memberIds(groupId), { scope: "chat", id: groupId }));
 }
 
 export async function removeMember(actor: SessionUser, groupId: string, userId: string): Promise<void> {
   await requireAdmin(actor, groupId);
   if (userId === actor.id) throw new AuthError(400, "Leave the group instead.");
+  const wasMember = await memberRole(groupId, userId);
   await run("DELETE FROM group_members WHERE conversation_id = $1 AND user_id = $2", [groupId, userId]);
+  const target = await userById(userId);
+  if (wasMember && target) await groupEvent(groupId, actor.id, `${who(actor)} removed ${who(target)}`);
   await run("UPDATE group_invites SET status = 'declined', answered_at = now() WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending'", [groupId, userId]);
   after(async () => pushSync([...(await memberIds(groupId)), userId], { scope: "chat", id: groupId }));
 }
@@ -203,8 +249,11 @@ export async function leaveGroup(user: SessionUser, groupId: string): Promise<vo
     await run("DELETE FROM conversations WHERE id = $1", [groupId]);
     return;
   }
+  await groupEvent(groupId, user.id, `${who(user)} left`);
   if (!rest.some((m) => m.role === "admin")) {
     await run("UPDATE group_members SET role = 'admin' WHERE conversation_id = $1 AND user_id = $2", [groupId, rest[0].user_id]);
+    const heir = await userById(rest[0].user_id);
+    if (heir) await groupEvent(groupId, heir.id, `${who(heir)} is now an admin`);
   }
   after(async () => pushSync(rest.map((m) => m.user_id), { scope: "chat", id: groupId }));
 }
