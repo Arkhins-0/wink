@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -178,6 +179,10 @@ private fun MainNav(vm: AppViewModel) {
     var chatWith by remember { mutableStateOf<OtherUser?>(null) }
     // Messages long-pressed in a chat: the header turns into the selection bar.
     var selection by remember { mutableStateOf<SelectionBar?>(null) }
+    // The chat header's ⋮ menu: a search bar in the chat, or an export of it.
+    var chatSearch by remember { mutableStateOf(false) }
+    var chatExport by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tab) { if (tab != "chat") chatSearch = false }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -254,6 +259,7 @@ private fun MainNav(vm: AppViewModel) {
             showCountdown = tab != "pdf" && tab != "image",
             photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
             onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { nav.navigate("chatprofile/$it") } }) else null,
+            menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }, "Export chat" to { chatExport++ }) else emptyList(),
         )
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
@@ -263,7 +269,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }) { title = it.name; chatWith = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport) { title = it.name; chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }

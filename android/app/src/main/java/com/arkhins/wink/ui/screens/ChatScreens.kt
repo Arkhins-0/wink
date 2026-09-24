@@ -26,6 +26,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.TextButton
 import android.widget.Toast
+import android.content.Intent
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.runtime.LaunchedEffect as ComposeLaunchedEffect
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import com.arkhins.wink.data.ChatExport
+import com.arkhins.wink.data.ConversationDetail
+import com.arkhins.wink.data.SavedDocument
+import com.arkhins.wink.ui.components.IconAction
+import com.arkhins.wink.ui.logStamp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -305,7 +318,17 @@ private val ReadBlue = Color(0xFF0B5CAD)
  * swipe it right to left to reply; tap a quote to go to the original.
  */
 @Composable
-fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onSelection: (SelectionBar?) -> Unit = {}, onOther: (OtherUser) -> Unit) {
+fun ChatScreen(
+    vm: AppViewModel,
+    conversationId: String,
+    onView: (FileView) -> Unit,
+    onSelection: (SelectionBar?) -> Unit = {},
+    searchOpen: Boolean = false,
+    onSearchClose: () -> Unit = {},
+    /** Bumped by the header menu: export this chat. */
+    exportTick: Int = 0,
+    onOther: (OtherUser) -> Unit,
+) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var detail by remember { mutableStateOf<CachedChat?>(null) }
@@ -317,6 +340,12 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
     // Long-pressed messages; while any are, the header is the selection bar.
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var forwarding by remember { mutableStateOf(false) }
+    // Search: the words looked for, and which of the matching messages is shown.
+    var query by remember { mutableStateOf("") }
+    var hitAt by remember { mutableStateOf(0) }
+    // Export: what it is doing, then the zip it made.
+    var exporting by remember { mutableStateOf<String?>(null) }
+    var exported by remember { mutableStateOf<SavedDocument?>(null) }
     var flash by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
     // Sent from here, not yet confirmed by the server: shown at once with a clock.
@@ -449,7 +478,52 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
         }
     }
 
+    val hits = remember(query, rows) {
+        if (query.isBlank()) emptyList()
+        else rows.filter { it is ChatRow.Msg && !it.m.deleted && it.m.body.contains(query.trim(), ignoreCase = true) }.map { (it as ChatRow.Msg).m.id }
+    }
+    ComposeLaunchedEffect(hits) {
+        hitAt = (hits.size - 1).coerceAtLeast(0)
+        hits.lastOrNull()?.let(::jump)
+    }
+    ComposeLaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
+    ComposeLaunchedEffect(exportTick) {
+        if (exportTick == 0) return@ComposeLaunchedEffect
+        val other = d?.other ?: return@ComposeLaunchedEffect
+        exporting = "Fetching the chat…"
+        try {
+            // Everything the server has for this chat, not only the phone's copy.
+            val all = runCatching {
+                app.api.get("/api/conversations/$conversationId?read=0&limit=5000", ConversationDetail.serializer()).messages
+            }.getOrElse { d?.messages.orEmpty() }
+            exported = ChatExport(context, app.chatMedia, app.documents).export(other, myName, all) { exporting = it }
+        } catch (e: Exception) {
+            actionError = e.message ?: "Could not export."
+        }
+        exporting = null
+    }
+
     Column(Modifier.fillMaxSize().imePadding()) {
+        if (searchOpen) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Field(query, { query = it }, "Search messages") }
+                Text(
+                    if (query.isBlank()) "" else if (hits.isEmpty()) "0" else "${hitAt + 1}/${hits.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = SnowSoft,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+                IconAction(Icons.Outlined.KeyboardArrowUp, "Older match", if (hitAt > 0) Gold else SnowFaint, enabled = hitAt > 0) {
+                    hitAt--
+                    jump(hits[hitAt])
+                }
+                IconAction(Icons.Outlined.KeyboardArrowDown, "Newer match", if (hitAt < hits.size - 1) Gold else SnowFaint, enabled = hitAt < hits.size - 1) {
+                    hitAt++
+                    jump(hits[hitAt])
+                }
+                IconAction(Icons.Outlined.Close, "Close search", SnowSoft, onClick = onSearchClose)
+            }
+        }
         LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when {
                 error != null && d == null -> item { ErrorText(error) }
@@ -468,6 +542,7 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
                                 flash = flash == m.id,
                                 selected = m.id in selected,
                                 selecting = selected.isNotEmpty(),
+                                highlight = query.trim().takeIf { it.isNotBlank() && m.id in hits },
                                 onToggle = { toggle(m) },
                                 onView = onView,
                                 onReply = {
@@ -566,6 +641,35 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel", color = SnowFaint) } },
         )
     }
+    exporting?.let { status ->
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = NightPanel,
+            title = { Text("Exporting chat", color = Snow) },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) { Loading(Modifier.width(48.dp)); Text(status, color = SnowSoft) } },
+            confirmButton = {},
+        )
+    }
+    exported?.let { doc ->
+        AlertDialog(
+            onDismissRequest = { exported = null },
+            containerColor = NightPanel,
+            title = { Text("Chat exported", color = Snow) },
+            text = { Text("Saved to Downloads/Wink as ${doc.name}. Inside: chat.html, chat.txt and the images, audio and documents.", color = SnowSoft) },
+            confirmButton = {
+                TextButton(onClick = {
+                    exported = null
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_STREAM, doc.uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    runCatching { context.startActivity(Intent.createChooser(send, "Share chat export")) }
+                }) { Text("Share", color = Gold) }
+            },
+            dismissButton = { TextButton(onClick = { exported = null }) { Text("Done", color = SnowFaint) } },
+        )
+    }
     if (forwarding) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
@@ -592,11 +696,28 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
 /** What copying a message puts on the clipboard: its words, or what it carried. */
 private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(refOf(m)) }
 
-private val copyStampFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yy, h:mm a", Locale.ENGLISH)
+private fun copyStamp(iso: String): String = logStamp(iso)
 
-/** `24/09/26, 8:16 am`, the way a WhatsApp copy reads. */
-private fun copyStamp(iso: String): String =
-    copyStampFormat.format(instant(iso).atZone(ZoneId.systemDefault())).replace(" AM", " am").replace(" PM", " pm")
+/** The message text with every match of the search lit up. */
+private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnnotatedString {
+    if (needle.isNullOrBlank()) {
+        append(body)
+        return@buildAnnotatedString
+    }
+    var from = 0
+    while (true) {
+        val at = body.indexOf(needle, from, ignoreCase = true)
+        if (at < 0) {
+            append(body.substring(from))
+            break
+        }
+        append(body.substring(from, at))
+        withStyle(SpanStyle(background = if (mine) Night.copy(alpha = 0.25f) else Gold.copy(alpha = 0.45f), color = if (mine) Night else Snow)) {
+            append(body.substring(at, at + needle.length))
+        }
+        from = at + needle.length
+    }
+}
 
 @Composable
 private fun DaySeparator(day: String) {
@@ -620,6 +741,7 @@ private fun Bubble(
     flash: Boolean,
     selected: Boolean,
     selecting: Boolean,
+    highlight: String? = null,
     onToggle: () -> Unit,
     onView: (FileView) -> Unit,
     onReply: () -> Unit,
@@ -736,7 +858,7 @@ private fun Bubble(
                         if (loc != null) {
                             LocationCard(loc.first, loc.second, onDark = !mine)
                         } else if (m.body.isNotBlank()) {
-                            Text(m.body, style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
+                            Text(highlighted(m.body, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
                         }
                         if (m.file != null) {
                             if (m.body.isNotBlank()) Spacer(Modifier.height(6.dp))

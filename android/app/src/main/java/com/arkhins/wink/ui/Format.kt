@@ -20,6 +20,12 @@ fun instant(iso: String): Instant =
         ?: runCatching { java.time.ZonedDateTime.parse(iso.substringBefore(" (").trim(), jsDate).toInstant() }.getOrNull()
         ?: Instant.EPOCH
 
+private val logStampFormat = DateTimeFormatter.ofPattern("dd/MM/yy, h:mm a", Locale.ENGLISH)
+
+/** `24/09/26, 8:16 am`: the stamp on a copied or exported chat line, the way WhatsApp writes it. */
+fun logStamp(iso: String): String =
+    logStampFormat.format(instant(iso).atZone(ZoneId.systemDefault())).replace(" AM", " am").replace(" PM", " pm")
+
 /** In the phone's own zone. */
 fun localDateTime(iso: String): String = dateTime.format(instant(iso).atZone(ZoneId.systemDefault()))
 fun localTime(iso: String): String = timeOnly.format(instant(iso).atZone(ZoneId.systemDefault()))

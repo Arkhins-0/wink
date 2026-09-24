@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +66,8 @@ fun TopBar(
     showCountdown: Boolean = true,
     photo: (@Composable () -> Unit)? = null,
     onTitleClick: (() -> Unit)? = null,
+    /** Items for a ⋮ menu at the right end, when the screen has one. */
+    menu: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     Row(
         Modifier
@@ -96,7 +101,21 @@ fun TopBar(
         }
         OfflineIcon()
         if (showCountdown) CountdownChip(onOpenWeekend)
-        Spacer(Modifier.width(8.dp))
+        if (menu.isNotEmpty()) HeaderMenu(menu) else Spacer(Modifier.width(8.dp))
+    }
+}
+
+/** The ⋮ at the right end of the header and the menu it opens. */
+@Composable
+fun HeaderMenu(items: List<Pair<String, () -> Unit>>) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "More", tint = Snow) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = NightPanel) {
+            items.forEach { (label, action) ->
+                DropdownMenuItem(text = { Text(label, color = Snow) }, onClick = { open = false; action() })
+            }
+        }
     }
 }
 

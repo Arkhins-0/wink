@@ -70,9 +70,15 @@ class Documents(private val context: Context, private val api: WinkApi) {
         store(file) { out -> source.inputStream().use { it.copyTo(out) } }
     }
 
-    private suspend fun store(file: FileInfo, write: suspend (java.io.OutputStream) -> Unit): SavedDocument {
-        val name = savedName(file)
-        val mime = file.mime.ifBlank { "application/octet-stream" }
+    private suspend fun store(file: FileInfo, write: suspend (java.io.OutputStream) -> Unit): SavedDocument =
+        place(savedName(file), file.mime.ifBlank { "application/octet-stream" }, write).also { known[file.id] = it }
+
+    /** Any file this app made — an exported chat, say — into Downloads/Wink under this name. */
+    suspend fun saveToDownloads(name: String, mime: String, source: File): SavedDocument = withContext(Dispatchers.IO) {
+        place(name, mime) { out -> source.inputStream().use { it.copyTo(out) } }
+    }
+
+    private suspend fun place(name: String, mime: String, write: suspend (java.io.OutputStream) -> Unit): SavedDocument {
         val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
@@ -102,7 +108,6 @@ class Documents(private val context: Context, private val api: WinkApi) {
             target.outputStream().use { write(it) }
             SavedDocument(FileProvider.getUriForFile(context, "${context.packageName}.updates", target), name, mime)
         }
-        known[file.id] = saved
         return saved
     }
 

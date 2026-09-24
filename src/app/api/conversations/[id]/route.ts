@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  * A private chat's messages; reading marks them read. The app keeps its
  * own copy and asks `?after=<iso>` for only what is new (plus the live ids,
  * to drop what was archived); `?read=0` fetches without marking read, for
- * syncing in the background.
+ * syncing in the background. `?limit=` (up to 5000) fetches more than the
+ * usual 100, for an export.
  */
 export const GET = handle<Params<"id">>(async (request, { params }) => {
   const user = await requireUser();
@@ -26,7 +27,7 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   const [other, delta, full] = await Promise.all([
     userById(otherId),
     since && !Number.isNaN(Date.parse(since)) ? conversationDelta(user, id, new Date(since).toISOString()) : null,
-    since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id),
+    since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id, Math.min(5000, Number(query.get("limit")) || 100)),
   ]);
   const messages = delta ? delta.messages : full!;
   // Ticks move after the answer has gone: reading it (or, from a background sync, just receiving it).
