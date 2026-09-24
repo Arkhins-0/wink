@@ -67,7 +67,7 @@ import kotlinx.serialization.json.put
 
 /** The account: photo, code and QR, status, the scanner, password, updates, sign out. */
 @Composable
-fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, onChangelog: () -> Unit, onLegal: (String) -> Unit) {
+fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, onChangelog: () -> Unit, onLegal: (String) -> Unit, onSettings: () -> Unit = {}) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val me = vm.me ?: return
@@ -125,6 +125,15 @@ fun AccountScreen(vm: AppViewModel, onScan: () -> Unit, onArchive: () -> Unit, o
         ChatStoragePanel()
         if (showPassword) ChangePasswordPanel { showPassword = false }
 
+        Panel {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onSettings), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Settings", style = MaterialTheme.typography.titleMedium, color = Snow)
+                    Text("How Wink works on this phone", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
+                }
+                Text("›", style = MaterialTheme.typography.titleLarge, color = SnowFaint)
+            }
+        }
         UpdatePanel(vm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhostButton("What's new", onClick = onChangelog)
