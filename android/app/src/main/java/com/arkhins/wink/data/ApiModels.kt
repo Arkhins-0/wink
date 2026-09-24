@@ -114,6 +114,29 @@ data class GroupInfo(
 @Serializable
 data class GroupResponse(val group: GroupInfo)
 
+/** The channels page: seasons, the current one first, each with its race weekends' channels. */
+@Serializable
+data class ChannelsResponse(val seasons: List<ChannelSeason> = emptyList())
+
+@Serializable
+data class ChannelSeason(val id: String, val name: String, val current: Boolean = false, val status: String = "active", val weekends: List<ChannelWeekend> = emptyList())
+
+@Serializable
+data class ChannelWeekend(
+    val id: String,
+    val name: String,
+    val startsOn: String = "",
+    val endsOn: String = "",
+    val channelOpen: Boolean = true,
+    val unread: Int = 0,
+    val lastMessageAt: String? = null,
+    val lastMessage: String? = null,
+    val managers: List<GroupMember> = emptyList(),
+)
+
+@Serializable
+data class ManagersResponse(val managers: List<GroupMember> = emptyList())
+
 @Serializable
 data class InviteAnswer(val groupId: String, val accepted: Boolean = false)
 

@@ -68,6 +68,8 @@ fun TopBar(
     onTitleClick: (() -> Unit)? = null,
     /** Items for a ⋮ menu at the right end, when the screen has one. */
     menu: List<Pair<String, () -> Unit>> = emptyList(),
+    /** Takes the title's place when set: the Chats | Channels switch. */
+    center: (@Composable () -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -91,7 +93,7 @@ fun TopBar(
                 photo()
                 Spacer(Modifier.width(10.dp))
             }
-            Text(
+            if (center != null) center() else Text(
                 title,
                 style = MaterialTheme.typography.titleLarge,
                 color = Snow,
@@ -102,6 +104,22 @@ fun TopBar(
         OfflineIcon()
         if (showCountdown) CountdownChip(onOpenWeekend)
         if (menu.isNotEmpty()) HeaderMenu(menu) else Spacer(Modifier.width(8.dp))
+    }
+}
+
+/** The chats tab's header: Chats | Channels, the open one bright. Tapping the other slides the page over. */
+@Composable
+fun ChatsHeader(page: Int, onPage: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        listOf("Chats", "Channels").forEachIndexed { i, label ->
+            if (i > 0) Text("|", style = MaterialTheme.typography.titleLarge, color = NightLine, modifier = Modifier.padding(horizontal = 10.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.titleLarge,
+                color = if (page == i) Snow else SnowFaint,
+                modifier = Modifier.clickable { onPage(i) }.padding(vertical = 4.dp),
+            )
+        }
     }
 }
 

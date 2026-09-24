@@ -128,6 +128,9 @@ class WinkApi(private val session: SessionStore) {
     suspend fun <T> patch(path: String, serializer: KSerializer<T>, build: JsonObjectBuilderScope = {}): T =
         send("PATCH", path, buildJsonObject(build), serializer)
 
+    suspend fun <T> put(path: String, serializer: KSerializer<T>, build: JsonObjectBuilderScope = {}): T =
+        send("PUT", path, buildJsonObject(build), serializer)
+
     suspend fun delete(path: String, build: JsonObjectBuilderScope = {}): Ok =
         send("DELETE", path, buildJsonObject(build), Ok.serializer())
 

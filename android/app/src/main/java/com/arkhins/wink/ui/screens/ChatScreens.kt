@@ -76,6 +76,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -158,9 +160,20 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/** The chats tab: the chat list, and a swipe to the left for the broadcast channels. */
+@Composable
+fun ChatsScreen(vm: AppViewModel, page: Int, onPage: (Int) -> Unit, onOpen: (String) -> Unit, onNewChat: () -> Unit, onOpenWeekend: (String) -> Unit) {
+    val pager = rememberPagerState(initialPage = page) { 2 }
+    LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
+    LaunchedEffect(pager.currentPage) { if (pager.currentPage != page) onPage(pager.currentPage) }
+    HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { i ->
+        if (i == 0) ChatListPage(vm, onOpen, onNewChat) else ChannelsScreen(vm, onOpenWeekend)
+    }
+}
+
 /** Private chats this person is part of. The pencil starts a new one with someone below. */
 @Composable
-fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Unit) {
+private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Unit) {
     val app = LocalApp.current
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }

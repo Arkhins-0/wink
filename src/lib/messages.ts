@@ -293,8 +293,14 @@ export async function channelFor(weekendId: string): Promise<{ id: string; open:
   return { id: conv!.id, open: weekend.channel_open, name: weekend.name };
 }
 
+/** Admins and coordinators post in every channel; a weekend's channel managers post in that one. */
+export async function canPostChannel(user: SessionUser, weekendId: string): Promise<boolean> {
+  if (CHANNEL_POSTERS.includes(user.role)) return true;
+  return Boolean(await one("SELECT 1 FROM channel_managers WHERE weekend_id = $1 AND user_id = $2", [weekendId, user.id]));
+}
+
 export async function postToChannel(sender: SessionUser, weekendId: string, draft: Draft): Promise<string> {
-  if (!CHANNEL_POSTERS.includes(sender.role)) throw new AuthError(403, "Only admins and coordinators post here.");
+  if (!(await canPostChannel(sender, weekendId))) throw new AuthError(403, "Only admins, coordinators and this channel's managers post here.");
   const channel = await channelFor(weekendId);
   if (!channel) throw new AuthError(404, "No such race weekend.");
   if (!channel.open) throw new AuthError(403, "This channel is closed.");

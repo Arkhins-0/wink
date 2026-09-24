@@ -1,8 +1,7 @@
 import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { channelFor, conversationMessages, markConversationRead, postToChannel } from "@/lib/messages";
-import { CHANNEL_POSTERS } from "@/lib/roles";
+import { canPostChannel, channelFor, conversationMessages, markConversationRead, postToChannel } from "@/lib/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +14,10 @@ export const GET = handle<Params<"id">>(async (_request, { params }) => {
   if (!channel) return fail("No such race weekend.", 404);
   const messages = await conversationMessages(user, channel.id);
   await markConversationRead(user.id, channel.id);
-  return json({ channelId: channel.id, open: channel.open, canPost: channel.open && CHANNEL_POSTERS.includes(user.role), messages });
+  return json({ channelId: channel.id, open: channel.open, canPost: channel.open && (await canPostChannel(user, id)), messages });
 });
 
-/** Admins and coordinators post; it reaches everyone. */
+/** Admins, coordinators and the channel's managers post; it reaches everyone. */
 export const POST = handle<Params<"id">>(async (request, { params }) => {
   const user = await requireUser();
   const { id } = await params;

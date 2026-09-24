@@ -44,6 +44,7 @@ import com.arkhins.wink.ui.components.PopupBubble
 import com.arkhins.wink.ui.components.SelectionBar
 import com.arkhins.wink.ui.components.SelectionTopBar
 import com.arkhins.wink.ui.components.TopBar
+import com.arkhins.wink.ui.components.ChatsHeader
 import com.arkhins.wink.ui.components.UpdateAvailableDialog
 import com.arkhins.wink.ui.screens.AccountScreen
 import com.arkhins.wink.ui.screens.ArchiveScreen
@@ -186,6 +187,8 @@ private fun MainNav(vm: AppViewModel) {
     var selection by remember { mutableStateOf<SelectionBar?>(null) }
     // The chat header's ⋮ menu: a search bar in the chat, or an export of it.
     var chatSearch by remember { mutableStateOf(false) }
+    // The chats tab: 0 is the chat list, 1 the channels; the header switch and the swipe both move it.
+    var chatsPage by remember { mutableIntStateOf(0) }
     var chatExport by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { if (tab != "chat") chatSearch = false }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
@@ -266,6 +269,7 @@ private fun MainNav(vm: AppViewModel) {
             photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
             onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { id -> nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") } }) else null,
             menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }, "Export chat" to { chatExport++ }) else emptyList(),
+            center = if (tab == "chats") ({ ChatsHeader(chatsPage) { chatsPage = it } }) else null,
         )
         Box(Modifier.weight(1f)) {
             // Screens change in a blink: the default fade is far too slow for opening and closing a chat.
@@ -281,7 +285,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
-                composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
+                composable("chats") { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) }
                 composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("newgroup") { NewGroupScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") { popUpTo("chats") } }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { title = it } }
