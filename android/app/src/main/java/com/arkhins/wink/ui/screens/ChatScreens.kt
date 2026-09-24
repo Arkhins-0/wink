@@ -690,17 +690,14 @@ fun ChatScreen(
                 TextButton(onClick = {
                     deleting = null
                     selected = emptySet()
-                    scope.launch {
-                        try {
-                            chosen.forEach { m ->
-                                app.api.delete("/api/messages/${m.id}")
-                                if (editing?.id == m.id) editing = null
-                                if (replyTo?.id == m.id) replyTo = null
-                            }
-                            actionError = null
-                            reload++
-                        } catch (e: Exception) {
-                            actionError = e.message ?: "Could not delete."
+                    val ids = chosen.map { it.id }.toSet()
+                    if (editing?.id in ids) editing = null
+                    if (replyTo?.id in ids) replyTo = null
+                    detail = detail?.let { it.copy(messages = it.messages.map { m -> if (m.id in ids) m.copy(body = "", file = null, deleted = true) else m }) }
+                    app.appScope.launch {
+                        val failed = chosen.count { m -> runCatching { app.api.delete("/api/messages/${m.id}") }.isFailure }
+                        withContext(Dispatchers.Main) {
+                            if (failed > 0) actionError = if (failed == 1) "One message could not be deleted." else "$failed messages could not be deleted."
                             reload++
                         }
                     }
@@ -741,21 +738,37 @@ fun ChatScreen(
     if (forwarding) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
-            scope.launch {
-                try {
-                    targets.forEach { c ->
-                        chosen.forEach { m ->
-                            val r = app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }
-                            r.message?.let { app.chatCache.add(c.id, it) }
-                        }
+            forwarding = false
+            selected = emptySet()
+            Toast.makeText(context, if (targets.size == 1) "Forwarding to ${targets[0].other.name}" else "Forwarding to ${targets.size} chats", Toast.LENGTH_SHORT).show()
+            // Each target chat gets a clock copy at once; the real sends run in the background and swap them out.
+            app.appScope.launch {
+                val work = targets.flatMap { c ->
+                    chosen.map { m ->
+                        val local = m.copy(
+                            id = "local-" + UUID.randomUUID(),
+                            conversationId = c.id,
+                            createdAt = Instant.now().toString(),
+                            mine = true,
+                            forwarded = true,
+                            replyTo = null,
+                            urgent = false,
+                            status = "pending",
+                            editedAt = null,
+                            readAt = null,
+                        )
+                        app.chatCache.add(c.id, local)
+                        Triple(c, m, local)
                     }
-                    Toast.makeText(context, if (targets.size == 1) "Forwarded to ${targets[0].other.name}" else "Forwarded to ${targets.size} chats", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    actionError = e.message ?: "Could not forward."
                 }
-                forwarding = false
-                selected = emptySet()
-                reload++
+                if (targets.any { it.id == conversationId }) app.chatCache.load(conversationId)?.let { fresh -> withContext(Dispatchers.Main) { detail = fresh } }
+                work.forEach { (c, m, local) ->
+                    val sent = runCatching { app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }.message }
+                    val updated = app.chatCache.replace(c.id, local.id, sent.getOrNull())
+                    if (sent.isFailure) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
+                    if (c.id == conversationId && updated != null) withContext(Dispatchers.Main) { detail = updated }
+                }
+                withContext(Dispatchers.Main) { reload++ }
             }
         }
     }

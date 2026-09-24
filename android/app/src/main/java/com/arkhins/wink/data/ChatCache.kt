@@ -76,7 +76,8 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                 d.messages
             } else {
                 val live = d.liveIds.toSet()
-                (cached.messages.filter { it.id in live } + d.messages)
+                // Copies the phone made up (a forward still on its way) stay until the server's answer replaces them.
+                (cached.messages.filter { it.id in live || it.id.startsWith("local-") } + d.messages)
                     .associateBy { it.id }
                     .values
                     .sortedBy { instant(it.createdAt) }
@@ -100,6 +101,17 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             val cached = load(id) ?: return@withContext null
             val merged = (cached.messages.filter { it.id != message.id } + message).sortedBy { instant(it.createdAt) }
             val out = cached.copy(messages = merged)
+            write(file(id), json.encodeToString(CachedChat.serializer(), out))
+            out
+        }
+    }
+
+    /** Swap a message the phone made up (a copy on its way) for the one the server confirmed — or drop it, when null. */
+    suspend fun replace(id: String, localId: String, message: Message?): CachedChat? = locks.getOrPut(id) { Mutex() }.withLock {
+        withContext(Dispatchers.IO) {
+            val cached = load(id) ?: return@withContext null
+            val rest = cached.messages.filter { it.id != localId && it.id != message?.id }
+            val out = cached.copy(messages = (if (message == null) rest else rest + message).sortedBy { instant(it.createdAt) })
             write(file(id), json.encodeToString(CachedChat.serializer(), out))
             out
         }
