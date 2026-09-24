@@ -4,10 +4,9 @@ import { after } from "next/server";
 import { AuthError, type SessionUser } from "./auth";
 import { one, q, run } from "./db";
 import { groupAddMode } from "./hierarchy";
-import { groupEvent, sendGroupInvite } from "./messages";
+import { groupEvent, personCard, popupData, sendGroupInvite, type PersonCard, type PersonRow } from "./messages";
 import { storeImage } from "./profile";
 import { pushSync, pushTo } from "./push";
-import { ROLE_LABEL, type Role } from "./roles";
 import { userById, usersByIds } from "./users";
 
 /*
@@ -25,7 +24,7 @@ const who = (u: { name: string | null; email: string }) => u.name || u.email;
 
 export type GroupRole = "admin" | "member";
 
-export type GroupMember = { id: string; name: string; roleLabel: string; photoUrl: string | null; groupRole: GroupRole };
+export type GroupMember = PersonCard & { groupRole: GroupRole };
 
 export type GroupInfo = {
   id: string;
@@ -41,15 +40,9 @@ export type GroupInfo = {
 };
 
 type GroupRow = { id: string; name: string | null; photo_key: string | null; send_policy: "everyone" | "admins"; created_by: string | null };
-type PersonRow = { id: string; name: string | null; email: string; role: Role; photo_key: string | null; group_role: GroupRole };
+type MemberRow = PersonRow & { group_role: GroupRole };
 
-const person = (r: PersonRow): GroupMember => ({
-  id: r.id,
-  name: r.name || r.email,
-  roleLabel: ROLE_LABEL[r.role],
-  photoUrl: r.photo_key ? `/api/users/${r.id}/photo` : null,
-  groupRole: r.group_role,
-});
+const person = (r: MemberRow): GroupMember => ({ ...personCard(r), groupRole: r.group_role });
 
 async function groupRow(id: string): Promise<GroupRow | undefined> {
   return one<GroupRow>("SELECT id, name, photo_key, send_policy, created_by FROM conversations WHERE id = $1 AND kind = 'group'", [id]);
@@ -73,13 +66,13 @@ export async function groupInfo(user: SessionUser, id: string): Promise<GroupInf
   const myRole = await memberRole(id, user.id);
   if (!myRole) return null;
   const [members, invited] = await Promise.all([
-    q<PersonRow>(
+    q<MemberRow>(
       `SELECT u.id, u.name, u.email, u.role, u.photo_key, gm.role AS group_role
        FROM group_members gm JOIN users u ON u.id = gm.user_id
        WHERE gm.conversation_id = $1 ORDER BY gm.role, gm.joined_at`,
       [id],
     ),
-    q<PersonRow>(
+    q<MemberRow>(
       `SELECT u.id, u.name, u.email, u.role, u.photo_key, 'member' AS group_role
        FROM group_invites gi JOIN users u ON u.id = gi.user_id
        WHERE gi.conversation_id = $1 AND gi.status = 'pending' AND gi.expires_at > now() ORDER BY gi.created_at`,
@@ -140,30 +133,31 @@ export async function inviteMembers(actor: SessionUser, groupId: string, userIds
       await run("UPDATE group_invites SET status = 'accepted', answered_at = now() WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending'", [groupId, p.id]);
       addedNames.push(who(p));
       const name = g.name ?? "Group";
+      const text = "added you to the group";
       after(() =>
         pushTo([p.id], {
           title: name,
-          body: `${who(actor)} added you to the group`,
+          body: `${who(actor)} ${text}`,
           link: `/chats/${groupId}`,
           tag: `c-${groupId}`,
-          popup: { kind: "group", senderName: who(actor), senderRole: ROLE_LABEL[actor.role], senderPhoto: actor.photo_key ? `/api/users/${actor.id}/photo` : "", text: "added you to the group", attach: "", place: name },
+          popup: popupData("group", actor, { body: text }, null, name),
         }).catch(() => null),
       );
       result.added++;
       continue;
     }
-    // A lapsed invitation makes way for a new one.
+    // Someone higher up: a request. A lapsed one makes way for a new one; one still open stands.
     await run(
       "UPDATE group_invites SET status = 'expired' WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending' AND expires_at < now()",
       [groupId, p.id],
     );
     const invite = await one<{ id: string }>(
-      `INSERT INTO group_invites (conversation_id, user_id, invited_by, upward) VALUES ($1, $2, $3, $4)
+      `INSERT INTO group_invites (conversation_id, user_id, invited_by, upward) VALUES ($1, $2, $3, true)
        ON CONFLICT DO NOTHING RETURNING id`,
-      [groupId, p.id, actor.id, mode === "request"],
+      [groupId, p.id, actor.id],
     );
     if (!invite) continue;
-    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group", true);
+    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group");
     result.requested++;
   }
   if (addedNames.length > 0) await groupEvent(groupId, actor.id, `${who(actor)} added ${addedNames.join(", ")}`);
@@ -202,7 +196,9 @@ export async function answerInvite(user: SessionUser, inviteId: string, accept: 
     await run("UPDATE messages SET changed_at = now() WHERE group_invite_id = $1", [invite.id]);
     throw new AuthError(410, "This invitation has expired. Ask for a new one.");
   }
-  await run("UPDATE group_invites SET status = $2, answered_at = now() WHERE id = $1", [invite.id, accept ? "accepted" : "declined"]);
+  // Two taps at once: the first answers, the second finds it spent.
+  const n = await run("UPDATE group_invites SET status = $2, answered_at = now() WHERE id = $1 AND status = 'pending'", [invite.id, accept ? "accepted" : "declined"]);
+  if (n === 0) throw new AuthError(410, "This invitation has already been used.");
   if (accept) {
     await run("INSERT INTO group_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [invite.conversation_id, user.id]);
     await groupEvent(invite.conversation_id, user.id, `${who(user)} joined`);
@@ -212,8 +208,8 @@ export async function answerInvite(user: SessionUser, inviteId: string, accept: 
     [invite.id],
   );
   after(async () => {
-    const who = [user.id, invite.invited_by].filter((x): x is string => Boolean(x));
-    for (const c of carriers) await pushSync(who, { scope: "chat", id: c.conversation_id });
+    const parties = [user.id, invite.invited_by].filter((x): x is string => Boolean(x));
+    for (const c of carriers) await pushSync(parties, { scope: "chat", id: c.conversation_id });
     if (accept) await pushSync(await memberIds(invite.conversation_id), { scope: "chat", id: invite.conversation_id });
   });
   return invite.conversation_id;
@@ -275,9 +271,9 @@ export async function removeMember(actor: SessionUser, groupId: string, userId: 
 
 /** Leave. If the last admin goes, the longest-standing member takes over; if nobody is left, the group goes. */
 export async function leaveGroup(user: SessionUser, groupId: string): Promise<void> {
-  const g = await groupRow(groupId);
-  if (!g) throw new AuthError(404, "No such group.");
-  await run("DELETE FROM group_members WHERE conversation_id = $1 AND user_id = $2", [groupId, user.id]);
+  // Only a member leaves: anyone else would be writing "left" into a chat that is not theirs.
+  const n = await run("DELETE FROM group_members WHERE conversation_id = $1 AND user_id = $2", [groupId, user.id]);
+  if (n === 0) throw new AuthError(404, "No such group.");
   const rest = await q<{ user_id: string; role: GroupRole }>(
     "SELECT user_id, role FROM group_members WHERE conversation_id = $1 ORDER BY joined_at",
     [groupId],
@@ -299,5 +295,3 @@ export async function groupPhoto(id: string): Promise<string | null> {
   const g = await groupRow(id);
   return g?.photo_key ?? null;
 }
-
-export { userById };

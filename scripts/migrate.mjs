@@ -16,11 +16,11 @@ for (const file of [".env.local", ".env"]) {
 }
 
 const url = process.env.DATABASE_URL || process.env.DATABASE_URL_POOLED;
-if (url) console.log(`database: ${new URL(url).hostname}`);
 if (!url) {
   console.error("DATABASE_URL is not set.");
   process.exit(1);
 }
+console.log(`database: ${new URL(url).hostname}`);
 
 const dir = path.resolve("db/migrations");
 const files = fs

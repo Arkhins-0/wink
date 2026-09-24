@@ -3,7 +3,7 @@ import "server-only";
 import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
-import { fileById } from "./files";
+import { fileById, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
 import { activeUserIds, deliver, preview } from "./notify";
@@ -13,13 +13,21 @@ import { APP_NAME } from "./config";
 import { currentSeason, LIVE_SEASON } from "./seasons";
 
 /*
- * Messages, three ways: a one-off broadcast to chosen people below, a post
+ * Messages, four ways: a one-off broadcast to chosen people below, a post
  * in a race weekend's channel (everyone reads, admins and coordinators
- * post), or a private chat a superior opened with one person. All three
- * land in the recipients' inbox the same way.
+ * post), a private chat between two people, or a group. All four land in
+ * the recipients' inbox the same way.
  */
 
 export type Kind = "broadcast" | "channel" | "direct" | "group";
+
+/** A person's picture, or null when they have none. */
+export const photoUrl = (u: { id: string; photo_key: string | null }): string | null => (u.photo_key ? `/api/users/${u.id}/photo` : null);
+
+/** A person the way a chat shows them: name, role and picture. */
+export type PersonRow = { id: string; name: string | null; email: string; role: Role; photo_key: string | null };
+export type PersonCard = { id: string; name: string; roleLabel: string; photoUrl: string | null };
+export const personCard = (r: PersonRow): PersonCard => ({ id: r.id, name: r.name || r.email, roleLabel: ROLE_LABEL[r.role], photoUrl: photoUrl(r) });
 
 /** An invitation to a group, carried by a message in a private chat. */
 export type GroupInviteRef = {
@@ -217,7 +225,7 @@ async function checkFile(sender: SessionUser, fileId: string | null | undefined)
 }
 
 /** What the app's popup shows: the sender, where it was said, the words, and what is attached. */
-function popupData(
+export function popupData(
   kind: "chat" | "channel" | "announcement" | "group",
   sender: SessionUser,
   draft: Draft,
@@ -238,7 +246,7 @@ function popupData(
     kind,
     senderName: sender.name || sender.email,
     senderRole: ROLE_LABEL[sender.role],
-    senderPhoto: sender.photo_key ? `/api/users/${sender.id}/photo` : "",
+    senderPhoto: photoUrl(sender) ?? "",
     text: location ? "" : draft.body.trim().replace(/\s+/g, " ").slice(0, 300),
     attach,
     place,
@@ -433,8 +441,8 @@ export async function canAccess(user: SessionUser, conv: ConvRow): Promise<boole
 }
 
 /** A forward copies a message this person sent or received, as it reads now. */
-async function resolveForward(sender: SessionUser, draft: Draft): Promise<{ draft: Draft; forwarded: boolean }> {
-  if (!draft.forwardOf) return { draft, forwarded: false };
+async function resolveForward(sender: SessionUser, draft: Draft): Promise<Draft> {
+  if (!draft.forwardOf) return draft;
   const source = await one<{ body: string; file_id: string | null }>(
     `SELECT m.body, m.file_id FROM messages m
      WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL AND m.event IS NULL
@@ -442,7 +450,7 @@ async function resolveForward(sender: SessionUser, draft: Draft): Promise<{ draf
     [draft.forwardOf, sender.id],
   );
   if (!source) throw new AuthError(404, "That message is not here to forward.");
-  return { draft: { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null }, forwarded: true };
+  return { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null };
 }
 
 async function checkReply(conversationId: string, replyToId: string | null | undefined): Promise<void> {
@@ -454,6 +462,19 @@ async function checkReply(conversationId: string, replyToId: string | null | und
   if (!target) throw new AuthError(400, "That message is no longer here to reply to.");
 }
 
+/**
+ * A chat message checked and ready to insert: a forward resolved, some
+ * text or a file present, the reply still there, the file the sender's.
+ * A forwarded file was checked when it was first sent; it stays whoever's it was.
+ */
+async function prepareDraft(sender: SessionUser, conversationId: string, draft: Draft): Promise<{ draft: Draft; file: FileRow | null }> {
+  draft = await resolveForward(sender, draft);
+  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
+  await checkReply(conversationId, draft.replyToId);
+  const file = draft.forwardOf ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
+  return { draft, file };
+}
+
 /* ───────────────────────────── Groups ────────────────────────────── */
 
 /** Say something in a group. Members only; when the group says so, admins only. */
@@ -463,11 +484,8 @@ export async function postGroup(sender: SessionUser, conversationId: string, dra
   const me = await one<{ role: string }>("SELECT role FROM group_members WHERE conversation_id = $1 AND user_id = $2", [conv.id, sender.id]);
   if (!me) throw new AuthError(403, "You are not in this group.");
   if (conv.send_policy === "admins" && me.role !== "admin") throw new AuthError(403, "Only the group's admins can send here.");
-  const fwd = await resolveForward(sender, draft);
-  draft = fwd.draft;
-  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
-  await checkReply(conv.id, draft.replyToId);
-  const file = fwd.forwarded ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
+  const { draft: ready, file } = await prepareDraft(sender, conv.id, draft);
+  draft = ready;
   const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
   const members = await q<{ user_id: string }>("SELECT user_id FROM group_members WHERE conversation_id = $1 AND user_id <> $2", [conv.id, sender.id]);
   const text = preview(draft.body, file?.name);
@@ -509,16 +527,13 @@ export async function groupEvent(groupId: string, actorId: string, text: string)
 }
 
 /**
- * The invitation, as a message in the private chat between the inviter
- * and the invited (nothing when no such chat is allowed). To someone
- * higher up it is worded as a request.
+ * The join request, as a message in the private chat between the asker
+ * and the person higher up (nothing when no such chat is allowed).
  */
-export async function sendGroupInvite(actor: SessionUser, invitee: SessionUser, inviteId: string, groupName: string, upward = false): Promise<void> {
+export async function sendGroupInvite(actor: SessionUser, invitee: SessionUser, inviteId: string, groupName: string): Promise<void> {
   if (!canChat(actor, invitee)) return;
   const convId = await openDirect(actor, invitee.id);
-  const body = upward
-    ? `${actor.name || actor.email} (${ROLE_LABEL[actor.role]}) asks you to join the group "${groupName}"`
-    : `Invitation to join the group "${groupName}"`;
+  const body = `${actor.name || actor.email} (${ROLE_LABEL[actor.role]}) asks you to join the group "${groupName}"`;
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
     `INSERT INTO messages (conversation_id, sender_id, body, season_id, group_invite_id)
@@ -538,12 +553,9 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   const conv = await conversationById(conversationId);
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
-  const fwd = await resolveForward(sender, draft);
-  draft = fwd.draft;
-  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
+  const { draft: ready, file } = await prepareDraft(sender, conv.id, draft);
+  draft = ready;
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
-  await checkReply(conv.id, draft.replyToId);
-  const file = fwd.forwarded ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
   const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
   const text = preview(draft.body, file?.name);
   await deliver({
@@ -565,8 +577,9 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
 }
 
 /**
- * The sender's own private message, still inside the two hours it may be
- * changed in. Anything else is refused with the reason.
+ * The sender's own chat message, still inside the two hours it may be
+ * changed in. Anything else is refused with the reason: an event line or
+ * an invitation card is not the sender's words to change.
  */
 async function ownRecent(user: SessionUser, messageId: string) {
   const m = await one<{
@@ -577,17 +590,19 @@ async function ownRecent(user: SessionUser, messageId: string) {
     kind: Kind | null;
     file_id: string | null;
     conversation_id: string;
-    owner_id: string;
-    member_id: string;
+    owner_id: string | null;
+    member_id: string | null;
     event: string | null;
+    group_invite_id: string | null;
   }>(
-    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id, m.event
+    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id, m.event, m.group_invite_id
      FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id
      WHERE m.id = $1 AND ${LIVE_SEASON("m")}`,
     [messageId],
   );
   if (!m || (m.kind !== "direct" && m.kind !== "group")) throw new AuthError(404, "No such message.");
   if (m.sender_id !== user.id || m.event) throw new AuthError(403, "Only the sender can change a message.");
+  if (m.group_invite_id) throw new AuthError(403, "An invitation is taken back from the group, not changed here.");
   if (m.deleted_at) throw new AuthError(400, "This message was deleted.");
   if (Date.now() - new Date(m.created_at).getTime() > EDIT_WINDOW_MS)
     throw new AuthError(403, "Messages can only be changed within 2 hours of sending.");
@@ -676,9 +691,10 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
             (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
-            (SELECT COALESCE(NULLIF(u.name, ''), u.email) FROM messages m JOIN users u ON u.id = m.sender_id
+            (SELECT CASE WHEN m.event IS NULL THEN COALESCE(NULLIF(u.name, ''), u.email, 'Someone') END
+               FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_sender,
-            (SELECT m.sender_id = $1 FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_mine,
+            (SELECT m.sender_id = $1 AND m.event IS NULL FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_mine,
             (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at,
             (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")})::text AS total
      FROM conversations c JOIN group_members gm ON gm.conversation_id = c.id AND gm.user_id = $1
@@ -692,7 +708,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
       other: {
         id: r.o_id,
         name: r.o_name || r.o_email,
-        role: r.o_role as Role | "group",
+        role: r.o_role,
         roleLabel: ROLE_LABEL[r.o_role],
         photoUrl: r.o_photo ? `/api/users/${r.o_id}/photo` : null,
         status: r.o_status,
@@ -720,7 +736,8 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
         },
         iOpened: false,
         lastMessageAt: g.live_last_at ? new Date(g.live_last_at).toISOString() : null,
-        lastMessage: last ? `${g.last_mine ? "You" : g.last_sender ?? "Someone"}: ${last}` : null,
+        // Who said it — except for an event line, which speaks for itself.
+        lastMessage: last ? (g.last_mine ? `You: ${last}` : g.last_sender ? `${g.last_sender}: ${last}` : last) : null,
         lastStatus: null,
         messages: Number(g.total),
         unread: Number(g.unread),
@@ -822,16 +839,21 @@ export async function markConversationRead(userId: string, conversationId: strin
   await touch(ids);
 }
 
-/** This person's phone or browser has fetched: every private message waiting for them is now delivered (two ticks). */
+/**
+ * This person's phone or browser has fetched: every chat message waiting
+ * for them is now delivered. A private message's ticks move (two); a
+ * group message's delivery shows in its info, which asks afresh, so the
+ * group is not nudged about it.
+ */
 export async function markDelivered(userId: string): Promise<void> {
-  const ids = await q<{ message_id: string }>(
+  const ids = await q<{ message_id: string; kind: Kind }>(
     `UPDATE message_recipients r SET delivered_at = now() FROM messages m, conversations c
-     WHERE m.id = r.message_id AND c.id = m.conversation_id AND c.kind = 'direct'
+     WHERE m.id = r.message_id AND c.id = m.conversation_id AND c.kind IN ('direct', 'group')
        AND r.user_id = $1 AND r.delivered_at IS NULL
-     RETURNING r.message_id`,
+     RETURNING r.message_id, c.kind`,
     [userId],
   );
-  await touch(ids);
+  await touch(ids.filter((r) => r.kind === "direct"));
 }
 
 export type Unread = { total: number; chats: number; home: number };

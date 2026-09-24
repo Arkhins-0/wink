@@ -1,7 +1,7 @@
 import { body, handle, str } from "@/lib/api";
 import { issueToken, requireUser } from "@/lib/auth";
 import { sendInvite } from "@/lib/email";
-import { canCreateRole, chatCandidates, descendants, groupAddMode } from "@/lib/hierarchy";
+import { canCreateRole, chatCandidates, descendants, groupCandidates } from "@/lib/hierarchy";
 import { fail, json } from "@/lib/http";
 import { isRole, ROLE_LABEL } from "@/lib/roles";
 import { audit, createUser, toPublic, userByEmail } from "@/lib/users";
@@ -18,10 +18,8 @@ export const GET = handle(async (request) => {
   const params = new URL(request.url).searchParams;
   const role = params.get("role");
   if (params.get("group") === "1") {
-    const people = (await chatCandidates(user))
-      .map((p) => ({ p, mode: groupAddMode(user, p) }))
-      .filter((x) => x.mode && (!role || x.p.role === role));
-    return json({ users: people.map((x) => ({ ...toPublic(x.p), groupMode: x.mode })) });
+    const people = (await groupCandidates(user)).filter((x) => !role || x.user.role === role);
+    return json({ users: people.map((x) => ({ ...toPublic(x.user), groupMode: x.mode })) });
   }
   const base = params.get("chat") === "1" ? await chatCandidates(user) : await descendants(user);
   const people = base.filter((p) => !role || p.role === role);

@@ -60,6 +60,23 @@ const session = (s: SRow): Session => ({
   endsAt: new Date(s.ends_at).toISOString(),
 });
 
+const weekend = (w: WRow, sessions: SRow[]): Weekend => ({
+  id: w.id,
+  name: w.name,
+  venue: w.venue,
+  city: w.city,
+  country: w.country,
+  timezone: w.timezone,
+  startsOn: w.starts_on,
+  endsOn: w.ends_on,
+  channelOpen: w.channel_open,
+  channelClosedReason: w.channel_open ? null : (w.channel_closed_reason ?? "admin"),
+  seasonId: w.season_id,
+  seasonName: w.season_name,
+  seasonArchived: w.season_status === "archived",
+  sessions: sessions.map(session),
+});
+
 /** Weekends of live seasons — or, with a season id, that season's (archived or not). */
 export async function listWeekends(seasonId?: string): Promise<Weekend[]> {
   const weekends = seasonId
@@ -70,22 +87,7 @@ export async function listWeekends(seasonId?: string): Promise<Weekend[]> {
     "SELECT id, weekend_id, name, starts_at, ends_at FROM race_sessions WHERE weekend_id = ANY($1::uuid[]) ORDER BY starts_at",
     [weekends.map((w) => w.id)],
   );
-  return weekends.map((w) => ({
-    id: w.id,
-    name: w.name,
-    venue: w.venue,
-    city: w.city,
-    country: w.country,
-    timezone: w.timezone,
-    startsOn: w.starts_on,
-    endsOn: w.ends_on,
-    channelOpen: w.channel_open,
-    channelClosedReason: w.channel_open ? null : (w.channel_closed_reason ?? "admin"),
-    seasonId: w.season_id,
-    seasonName: w.season_name,
-    seasonArchived: w.season_status === "archived",
-    sessions: sessions.filter((s) => s.weekend_id === w.id).map(session),
-  }));
+  return weekends.map((w) => weekend(w, sessions.filter((s) => s.weekend_id === w.id)));
 }
 
 export async function weekendById(id: string): Promise<Weekend | null> {
@@ -95,22 +97,7 @@ export async function weekendById(id: string): Promise<Weekend | null> {
     "SELECT id, weekend_id, name, starts_at, ends_at FROM race_sessions WHERE weekend_id = $1 ORDER BY starts_at",
     [id],
   );
-  return {
-    id: w.id,
-    name: w.name,
-    venue: w.venue,
-    city: w.city,
-    country: w.country,
-    timezone: w.timezone,
-    startsOn: w.starts_on,
-    endsOn: w.ends_on,
-    channelOpen: w.channel_open,
-    channelClosedReason: w.channel_open ? null : (w.channel_closed_reason ?? "admin"),
-    seasonId: w.season_id,
-    seasonName: w.season_name,
-    seasonArchived: w.season_status === "archived",
-    sessions: sessions.map(session),
-  };
+  return weekend(w, sessions);
 }
 
 export type NextRace =

@@ -2,7 +2,7 @@ import { handle, isUuid, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { one, q } from "@/lib/db";
 import { fail, json } from "@/lib/http";
-import { ROLE_LABEL, type Role } from "@/lib/roles";
+import { personCard, type PersonRow } from "@/lib/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export const GET = handle<Params<"id">>(async (_request, { params }) => {
   );
   if (!m || (m.kind !== "direct" && m.kind !== "group")) return fail("No such message.", 404);
   if (m.sender_id !== user.id) return fail("Only the sender can see who it reached.", 403);
-  const rows = await q<{ id: string; name: string | null; email: string; role: Role; photo_key: string | null; delivered_at: string | null; read_at: string | null }>(
+  const rows = await q<PersonRow & { delivered_at: string | null; read_at: string | null }>(
     `SELECT u.id, u.name, u.email, u.role, u.photo_key, r.delivered_at, r.read_at
      FROM message_recipients r JOIN users u ON u.id = r.user_id
      WHERE r.message_id = $1 ORDER BY r.read_at DESC NULLS LAST, r.delivered_at DESC NULLS LAST, u.name`,
@@ -31,10 +31,7 @@ export const GET = handle<Params<"id">>(async (_request, { params }) => {
   return json({
     sentAt: new Date(m.created_at).toISOString(),
     recipients: rows.map((r) => ({
-      id: r.id,
-      name: r.name || r.email,
-      roleLabel: ROLE_LABEL[r.role],
-      photoUrl: r.photo_key ? `/api/users/${r.id}/photo` : null,
+      ...personCard(r),
       // Reading implies delivery, even if the delivery mark never landed.
       deliveredAt: iso(r.delivered_at ?? r.read_at),
       readAt: iso(r.read_at),

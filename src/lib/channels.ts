@@ -2,8 +2,8 @@ import "server-only";
 
 import { AuthError, type SessionUser } from "./auth";
 import { q, run, tx } from "./db";
-import { ROLE_LABEL, type Role } from "./roles";
-import { listSeasons } from "./seasons";
+import { personCard, type PersonCard, type PersonRow } from "./messages";
+import { listSeasons, LIVE_SEASON } from "./seasons";
 
 /*
  * The channels page: every race weekend's channel, season by season, the
@@ -11,7 +11,7 @@ import { listSeasons } from "./seasons";
  * they post there like an admin or coordinator.
  */
 
-export type ChannelManager = { id: string; name: string; roleLabel: string; photoUrl: string | null };
+export type ChannelManager = PersonCard;
 
 export type ChannelWeekend = {
   id: string;
@@ -26,15 +26,6 @@ export type ChannelWeekend = {
 };
 
 export type ChannelSeason = { id: string; name: string; current: boolean; status: "active" | "archived"; weekends: ChannelWeekend[] };
-
-type PersonRow = { id: string; name: string | null; email: string; role: Role; photo_key: string | null };
-
-const manager = (r: PersonRow): ChannelManager => ({
-  id: r.id,
-  name: r.name || r.email,
-  roleLabel: ROLE_LABEL[r.role],
-  photoUrl: r.photo_key ? `/api/users/${r.id}/photo` : null,
-});
 
 export async function listChannels(user: SessionUser): Promise<ChannelSeason[]> {
   const seasons = await listSeasons();
@@ -53,14 +44,14 @@ export async function listChannels(user: SessionUser): Promise<ChannelSeason[]> 
       `SELECT w.id, w.name, w.season_id, w.starts_on::text AS starts_on, w.ends_on::text AS ends_on,
               (w.channel_open AND COALESCE(s.status, 'active') = 'active') AS channel_open,
               COALESCE((SELECT count(*) FROM messages m JOIN message_recipients r ON r.message_id = m.id AND r.user_id = $1
-                        WHERE m.conversation_id = c.id AND r.read_at IS NULL), 0)::text AS unread,
-              (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
+                        WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")}), 0)::text AS unread,
+              (SELECT m.created_at FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_at,
               (SELECT COALESCE(NULLIF(u.name, ''), u.email, 'Someone') || ': ' ||
                       CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted'
                            WHEN m.body <> '' THEN m.body
                            ELSE 'Document' END
                  FROM messages m LEFT JOIN users u ON u.id = m.sender_id
-                 WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_body
+                 WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body
        FROM race_weekends w
        LEFT JOIN seasons s ON s.id = w.season_id
        LEFT JOIN conversations c ON c.kind = 'channel' AND c.weekend_id = w.id
@@ -73,7 +64,7 @@ export async function listChannels(user: SessionUser): Promise<ChannelSeason[]> 
     ),
   ]);
   const byWeekend = new Map<string, ChannelManager[]>();
-  for (const m of managers) byWeekend.set(m.weekend_id, [...(byWeekend.get(m.weekend_id) ?? []), manager(m)]);
+  for (const m of managers) byWeekend.set(m.weekend_id, [...(byWeekend.get(m.weekend_id) ?? []), personCard(m)]);
   const row = (w: (typeof weekends)[number]): ChannelWeekend => ({
     id: w.id,
     name: w.name,
@@ -103,7 +94,7 @@ export async function channelManagers(weekendId: string): Promise<ChannelManager
      WHERE cm.weekend_id = $1 ORDER BY u.name NULLS LAST, u.email`,
     [weekendId],
   );
-  return rows.map(manager);
+  return rows.map(personCard);
 }
 
 /** Admin: exactly these people manage the weekend's channel. Only admins and coordinators can be managers. */

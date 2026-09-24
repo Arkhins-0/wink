@@ -107,7 +107,7 @@ export function canChat(a: ChatParty, b: ChatParty): boolean {
 }
 
 /** How far down the tree a role sits: 0 is the top. */
-const LEVEL: Record<string, number> = {
+const LEVEL: Record<Role, number> = {
   admin: 0,
   coordinator: 1,
   race_official: 2,
@@ -131,8 +131,8 @@ const LEVEL: Record<string, number> = {
  */
 export function groupAddMode(actor: ChatParty, target: ChatParty): "direct" | "request" | null {
   if (actor.id === target.id || actor.role === "race_official" || target.role === "race_official") return null;
-  if (!canChat(actor, target)) return null;
-  if (LEVEL[target.role] < LEVEL[actor.role]) return "request";
+  // A request travels in the private chat between the two, so there must be one. Adding someone straight in needs none.
+  if (LEVEL[target.role] < LEVEL[actor.role]) return canChat(actor, target) ? "request" : null;
   const teammate = target.parent_id === actor.parent_id;
   switch (actor.role) {
     case "admin":
@@ -158,12 +158,21 @@ export function groupAddMode(actor: ChatParty, target: ChatParty): "direct" | "r
   }
 }
 
+/** Everyone active but this person, the way lists order them. */
+function activeOthers(user: Pick<SessionUser, "id">): Promise<UserRow[]> {
+  return q<UserRow>(`SELECT ${USER_COLUMNS} FROM users WHERE status = 'active' AND id <> $1 ORDER BY role, name NULLS LAST, email`, [user.id]);
+}
+
 /** Everyone this person may open a chat with. */
 export async function chatCandidates(user: SessionUser): Promise<UserRow[]> {
   if (user.role === "race_official") return [];
-  const all = await q<UserRow>(
-    `SELECT ${USER_COLUMNS} FROM users WHERE status = 'active' AND id <> $1 ORDER BY role, name NULLS LAST, email`,
-    [user.id],
-  );
-  return all.filter((other) => canChat(user, other));
+  return (await activeOthers(user)).filter((other) => canChat(user, other));
+}
+
+/** Everyone this person may bring into a group, and how (see groupAddMode). */
+export async function groupCandidates(user: SessionUser): Promise<{ user: UserRow; mode: "direct" | "request" }[]> {
+  return (await activeOthers(user)).flatMap((other) => {
+    const mode = groupAddMode(user, other);
+    return mode ? [{ user: other, mode }] : [];
+  });
 }

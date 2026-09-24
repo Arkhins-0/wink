@@ -37,16 +37,17 @@ const headers = (accept = "application/vnd.github+json"): Record<string, string>
   ...(env.githubToken ? { Authorization: `Bearer ${env.githubToken}` } : {}),
 });
 
-/** The release body reduced to the list of changes: no headings, no link footer. */
-function changesOnly(body: string): string {
+/** A release body's lines of changes: no headings, no link footer, and not the "; v0.1.2.3" a release commit ends with. */
+function noteLines(body: string): string[] {
   return body
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#") && !line.includes("Full Changelog"))
-    .map((line) => line.replace(/;\s*v\d+(\.\d+)+\s*$/i, ""))
-    .join("\n")
-    .slice(0, 600);
+    .map((line) => line.replace(/;\s*v\d+(\.\d+)+\s*$/i, ""));
 }
+
+/** The release body reduced to the list of changes, for the app's update card. */
+const changesOnly = (body: string): string => noteLines(body).join("\n").slice(0, 600);
 
 async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
   if (!env.githubRepo) return null;
@@ -96,15 +97,11 @@ export type ChangelogEntry = { version: string; date: string; changes: string[] 
 
 let listCache: { at: number; list: ChangelogEntry[] } | null = null;
 
-/** A release body as its list of changes, without the "; v0.1.2.3" a release commit ends with. */
-function changeLines(body: string): string[] {
-  return body
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && !line.includes("Full Changelog"))
-    .map((line) => line.replace(/^[-*]\s*/, "").replace(/;\s*v\d+(\.\d+)+\s*$/i, "").trim())
+/** The changes as plain lines, their bullets stripped, for the "What's new" page. */
+const changeLines = (body: string): string[] =>
+  noteLines(body)
+    .map((line) => line.replace(/^[-*]\s*/, "").trim())
     .filter(Boolean);
-}
 
 /**
  * Every published release, newest first, for the app's "What's new" page.
@@ -133,7 +130,8 @@ export async function allReleases(): Promise<ChangelogEntry[]> {
  * or the plain public link when that fails. Null when there is no APK.
  */
 export async function apkDownloadUrl(): Promise<string | null> {
-  if (!asset) await latestRelease();
+  // The same half-hour check as the version: a new release replaces the APK here too.
+  await latestRelease();
   if (!asset) return null;
   try {
     const response = await fetch(asset.apiUrl, { headers: headers("application/octet-stream"), redirect: "manual", cache: "no-store" });
