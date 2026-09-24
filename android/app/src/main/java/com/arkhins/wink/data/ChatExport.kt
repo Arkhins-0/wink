@@ -6,6 +6,7 @@ import com.arkhins.wink.ui.logStamp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
+import android.util.Base64
 import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -30,6 +31,7 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
             val zipName = "Wink chat with $safeName ${fileStampNow()}.zip"
             val tmp = File(File(context.cacheDir, "exports").apply { mkdirs() }, zipName)
             val paths = mutableMapOf<String, String>() // message id → path inside the zip
+            val locals = mutableMapOf<String, File>() // message id → the copy on the phone
             val used = mutableSetOf<String>()
             val withFiles = messages.filter { it.file != null && !it.deleted }
 
@@ -54,15 +56,18 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                     }
                     val path = "$folder/$name"
                     paths[m.id] = path
+                    locals[m.id] = local
                     zip.putNextEntry(ZipEntry(path))
                     local.inputStream().use { it.copyTo(zip) }
                     zip.closeEntry()
                 }
                 zip.putNextEntry(ZipEntry("chat.txt"))
+                // A byte-order mark, so every viewer reads the emoji as UTF-8.
+                zip.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
                 zip.write(log(other, myName, messages, paths).toByteArray())
                 zip.closeEntry()
                 zip.putNextEntry(ZipEntry("chat.html"))
-                zip.write(html(other, myName, messages, paths).toByteArray())
+                zip.write(html(other, myName, messages, paths, locals).toByteArray())
                 zip.closeEntry()
             }
             onProgress("Saving to Downloads…")
@@ -100,13 +105,19 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
     private fun esc(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun html(other: OtherUser, myName: String, messages: List<Message>, paths: Map<String, String>): String = buildString {
+    /** Pictures and voice notes go into the page itself (up to a few MB each), so it shows them even when opened straight from inside the zip. */
+    private fun inline(file: File?, mime: String, fallback: String): String {
+        if (file == null || file.length() > 6L * 1024 * 1024) return fallback
+        return runCatching { "data:$mime;base64," + Base64.encodeToString(file.readBytes(), Base64.NO_WRAP) }.getOrDefault(fallback)
+    }
+
+    private fun html(other: OtherUser, myName: String, messages: List<Message>, paths: Map<String, String>, locals: Map<String, File>): String = buildString {
         append(
             """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wink chat with ${esc(other.name)}</title>
 <style>
 body{margin:0;background:#0b0b0d;color:#f4f4f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{position:sticky;top:0;background:#131317;border-bottom:1px solid #26262c;padding:12px 16px}
+header{position:sticky;top:0;z-index:5;background:#131317;border-bottom:1px solid #26262c;padding:12px 16px}
 header h1{margin:0;font-size:18px}header p{margin:2px 0 0;font-size:12px;color:#8a8a94}
 main{max-width:720px;margin:0 auto;padding:12px 12px 40px}
 .day{text-align:center;margin:14px 0}.day span{background:#131317;border:1px solid #26262c;border-radius:999px;padding:3px 12px;font-size:12px;color:#8a8a94}
@@ -145,8 +156,8 @@ a{color:inherit}.doc{display:block;padding:6px 0}
                 if (f != null) {
                     when {
                         path == null -> append("<span class=\"doc\">📄 ${esc(f.name)} (not on this phone)</span>")
-                        f.mime.startsWith("image/") -> append("<a href=\"${esc(path)}\"><img src=\"${esc(path)}\" alt=\"${esc(f.name)}\"></a>")
-                        f.mime.startsWith("audio/") -> append("<audio controls src=\"${esc(path)}\"></audio>")
+                        f.mime.startsWith("image/") -> append("<a href=\"${esc(path)}\"><img src=\"${esc(inline(locals[m.id], f.mime, path))}\" alt=\"${esc(f.name)}\"></a>")
+                        f.mime.startsWith("audio/") -> append("<audio controls src=\"${esc(inline(locals[m.id], f.mime, path))}\"></audio>")
                         else -> append("<a class=\"doc\" href=\"${esc(path)}\">📄 ${esc(f.name)}</a>")
                     }
                 }
