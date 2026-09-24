@@ -34,7 +34,8 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const badge = (href: string) => (href === "/home" ? badges.home : href === "/chats" ? badges.chats : 0);
   // A chat thread wants the whole phone screen: no bottom bar under the composer.
-  const immersive = /^\/chats\/[^/]+$/.test(pathname);
+  // A chat (or a form opened from the chats tab) fills the phone; the Channels tab keeps the bottom bar.
+  const immersive = /^\/chats\/[^/]+$/.test(pathname) && pathname !== "/chats/channels";
   // Chats are app-like: header and composer stay put, only the messages scroll.
   const fixedHeight = pathname === "/chats" || pathname.startsWith("/chats/");
 
