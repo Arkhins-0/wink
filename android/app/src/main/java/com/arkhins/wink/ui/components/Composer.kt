@@ -70,6 +70,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.arkhins.wink.LocalApp
@@ -128,7 +131,7 @@ fun Composer(
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var body by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf(TextFieldValue("")) }
     var picked by remember { mutableStateOf<Picked?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -144,7 +147,7 @@ fun Composer(
 
     // Starting an edit fills the field; leaving it clears what the edit put there.
     LaunchedEffect(editText) {
-        if (editText != null) body = editText else if (body == lastEdit) body = ""
+        if (editText != null) body = TextFieldValue(editText, TextRange(editText.length)) else if (body.text == lastEdit) body = TextFieldValue("")
         lastEdit = editText
     }
     // Starting a reply or an edit puts the cursor in the field.
@@ -164,7 +167,7 @@ fun Composer(
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
-    fun doSend(urgent: Boolean, attachment: Picked? = picked, text: String = body) {
+    fun doSend(urgent: Boolean, attachment: Picked? = picked, text: String = body.text) {
         if (busy || (text.isBlank() && attachment == null)) return
         busy = true
         error = null
@@ -172,7 +175,7 @@ fun Composer(
             try {
                 val fileId = attachment?.let { upload(context, app.api, app.documents, app.chatMedia, it) }
                 send(Draft(text.trim(), fileId, urgent))
-                body = ""
+                body = TextFieldValue("")
                 picked = null
             } catch (e: Exception) {
                 error = e.message ?: "Could not send."
@@ -246,7 +249,11 @@ fun Composer(
             } else {
                 BasicTextField(
                     value = body,
-                    onValueChange = { body = it },
+                    onValueChange = { next ->
+                        // Selecting a word while the keyboard is down brings it back up.
+                        if (!next.selection.collapsed && next.text == body.text && next.selection != body.selection) keyboard?.show()
+                        body = next
+                    },
                     enabled = !busy,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = Snow),
                     cursorBrush = SolidColor(Gold),
@@ -258,7 +265,7 @@ fun Composer(
                         .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
                     decorationBox = { inner ->
                         Box {
-                            if (body.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = SnowFaint)
+                            if (body.text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = SnowFaint)
                             inner()
                         }
                     },
@@ -266,7 +273,7 @@ fun Composer(
                 if (!editing) PlainIcon(painterResource(R.drawable.ic_clip), "Attach", SnowSoft, enabled = !busy) { sheet = true }
             }
 
-            val canSend = !busy && (body.isNotBlank() || picked != null)
+            val canSend = !busy && (body.text.isNotBlank() || picked != null)
             Box {
                 when {
                     busy -> Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), color = Gold, strokeWidth = 2.dp) }
@@ -316,7 +323,8 @@ fun Composer(
                         contentAlignment = Alignment.Center,
                     ) { Icon(painterResource(R.drawable.ic_mic), contentDescription = "Hold to record", tint = if (recording != null) Danger else Gold, modifier = Modifier.size(24.dp)) }
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                // Not focusable: the keyboard stays as it was, up or down, while the menu is open.
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, properties = PopupProperties(focusable = false)) {
                     DropdownMenuItem(
                         text = { Text(sendLabel) },
                         leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null, tint = Gold) },
