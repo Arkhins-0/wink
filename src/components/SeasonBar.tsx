@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client";
 import type { Season } from "@/lib/seasons";
+import { Icon } from "./Icon";
+import { Glyph } from "./schedule/Glyph";
+import { SeasonConfirm, type SeasonAction } from "./schedule/SeasonConfirm";
 
 /**
  * The seasons, for the admin: which is current, a new one, and for each
@@ -17,6 +20,7 @@ export function SeasonBar({ seasons, isAdmin }: { seasons: Season[]; isAdmin: bo
   const [editing, setEditing] = useState<Season | "new" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{ what: SeasonAction; season: Season } | null>(null);
   const current = seasons.find((s) => s.current);
   const active = seasons.filter((s) => s.status === "active");
 
@@ -30,8 +34,16 @@ export function SeasonBar({ seasons, isAdmin }: { seasons: Season[]; isAdmin: bo
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setBusy(false);
+      setConfirm(null);
     }
   };
+
+  const run = ({ what, season: s }: { what: SeasonAction; season: Season }) =>
+    act(() =>
+      what === "delete"
+        ? api(`/api/seasons/${s.id}`, { method: "DELETE" })
+        : api(`/api/seasons/${s.id}`, { method: "PATCH", json: what === "current" ? { current: true } : { archived: true } }),
+    );
 
   return (
     <div className="card space-y-3 p-4">
@@ -69,45 +81,38 @@ export function SeasonBar({ seasons, isAdmin }: { seasons: Season[]; isAdmin: bo
                 </span>
               </span>
               {!s.current && (
-                <button
-                  className="btn-ghost px-3 py-1 text-xs text-gold"
-                  disabled={busy}
-                  onClick={() =>
-                    confirm(
-                      `Make ${s.name} the current season? New weekends, announcements and messages go into it from now on. The season that is current now is archived: its announcements, channels and calendar leave everyone's live pages and become read-only under Archive, until it is brought back.`,
-                    ) && act(() => api(`/api/seasons/${s.id}`, { method: "PATCH", json: { current: true } }))
-                  }
-                >
+                <button className="btn-ghost px-3 py-1 text-xs text-gold" disabled={busy} onClick={() => setConfirm({ what: "current", season: s })}>
+                  <Glyph name="check" className="h-4 w-4" />
                   Make current
                 </button>
               )}
               <button className="btn-ghost px-3 py-1 text-xs" disabled={busy} onClick={() => setEditing(s)}>
+                <Icon name="edit" className="h-4 w-4" />
                 Edit
               </button>
-              <button
-                className="btn-ghost px-3 py-1 text-xs"
-                disabled={busy}
-                onClick={() =>
-                  confirm(`Archive ${s.name}? Its weekends, channels, announcements and chats become read-only under Archive.`) &&
-                  act(() => api(`/api/seasons/${s.id}`, { method: "PATCH", json: { archived: true } }))
-                }
-              >
+              <button className="btn-ghost px-3 py-1 text-xs" disabled={busy} onClick={() => setConfirm({ what: "archive", season: s })}>
+                <Icon name="archive" className="h-4 w-4" />
                 Archive
               </button>
-              <button
-                className="btn-danger px-3 py-1 text-xs"
-                disabled={busy}
-                onClick={() =>
-                  confirm(`Delete ${s.name} with all its weekends, sessions and messages? This cannot be undone.`) &&
-                  act(() => api(`/api/seasons/${s.id}`, { method: "DELETE" }))
-                }
-              >
+              <button className="btn-danger px-3 py-1 text-xs" disabled={busy} onClick={() => setConfirm({ what: "delete", season: s })}>
+                <Icon name="trash" className="h-4 w-4" />
                 Delete
               </button>
             </li>
           ))}
           {active.length === 0 && <li className="py-2 text-sm text-snow-faint">No active season. Create one.</li>}
         </ul>
+      )}
+
+      {confirm && (
+        <SeasonConfirm
+          what={confirm.what}
+          season={confirm.season}
+          oldName={current && current.id !== confirm.season.id ? current.name : null}
+          busy={busy}
+          onConfirm={() => run(confirm)}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       {editing && (

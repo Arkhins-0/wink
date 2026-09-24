@@ -9,7 +9,8 @@ export default async function Archive() {
   await requireProfile();
   const seasons = await listSeasons();
   const archived = seasons.filter((s) => s.status === "archived");
-  const active = seasons.filter((s) => s.status === "active");
+  // The current season (the one an admin chose) first, then any other season not archived yet.
+  const active = seasons.filter((s) => s.status === "active").sort((x, y) => Number(y.current) - Number(x.current));
 
   return (
     <div className="space-y-5">
@@ -33,7 +34,7 @@ export default async function Archive() {
       )}
       {active.length > 0 && (
         <>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-snow-faint">Current seasons</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-snow-faint">{active.length === 1 && active[0].current ? "Current season" : "Active seasons"}</h2>
           <div className="card divide-y divide-night-line p-2">
             {active.map((s) => (
               <Link key={s.id} href={`/archive/${s.id}`} className="row">

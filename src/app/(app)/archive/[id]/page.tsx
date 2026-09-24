@@ -3,7 +3,7 @@ import { Avatar } from "@/components/Avatar";
 import { LocalTime } from "@/components/LocalTime";
 import { SeasonAdminActions } from "@/components/SeasonAdminActions";
 import { Attachment } from "@/components/MessageList";
-import { seasonArchive, type ArchivedMessage } from "@/lib/seasons";
+import { listSeasons, seasonArchive, type ArchivedMessage } from "@/lib/seasons";
 import { requireProfile } from "@/lib/session";
 import { formatIn } from "@/lib/time";
 
@@ -14,19 +14,21 @@ export default async function SeasonArchivePage({ params }: { params: Promise<{ 
   const user = await requireProfile();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const a = await seasonArchive(user, id);
+  const [a, seasons] = await Promise.all([seasonArchive(user, id), listSeasons()]);
   if (!a) notFound();
+  // The season an admin chose, not the newest one: making this one current archives it.
+  const current = seasons.find((s) => s.current);
 
   return (
     <div className="space-y-6">
       <section className="card">
-        <p className="label">{a.season.status === "archived" ? "Archived season" : "Season"}</p>
+        <p className="label">{a.season.status === "archived" ? "Archived season" : a.season.current ? "Current season" : "Season"}</p>
         <h1 className="text-xl font-semibold">{a.season.name}</h1>
         <p className="text-sm text-snow-soft">
           {a.season.startsOn}
           {a.season.endsOn ? ` → ${a.season.endsOn}` : ""}
         </p>
-        {user.role === "admin" && <SeasonAdminActions season={a.season} />}
+        {user.role === "admin" && <SeasonAdminActions season={a.season} currentName={current?.name ?? null} />}
       </section>
 
       <section className="space-y-3">
