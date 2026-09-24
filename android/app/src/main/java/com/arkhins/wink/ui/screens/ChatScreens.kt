@@ -449,7 +449,6 @@ fun ChatScreen(
             if (detail == null) {
                 detail = cached
                 cached.other?.let(onOther)
-                if (cached.messages.isNotEmpty()) list.scrollToItem(cached.messages.size * 2)
             }
         }
     }
@@ -457,11 +456,9 @@ fun ChatScreen(
     LaunchedEffect(conversationId, reload, vm.refreshTick) {
         try {
             val d = app.chatCache.sync(conversationId, markRead = true)
-            val grew = d.messages.size != (detail?.messages?.size ?: -1)
             detail = d
             error = null
             d.other?.let(onOther)
-            if (grew && d.messages.isNotEmpty()) list.animateScrollToItem(d.messages.size * 2)
         } catch (e: Exception) {
             if (detail == null) error = e.message
         }
@@ -492,6 +489,16 @@ fun ChatScreen(
         }
     }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
+    // The newest message is what a chat opens on; anything new after that scrolls into view. Done once the rows
+    // exist, not when the data lands — a scroll before the list is laid out goes nowhere.
+    var shownRows by remember { mutableStateOf(-1) }
+    LaunchedEffect(rows.size) {
+        if (rows.isEmpty()) return@LaunchedEffect
+        val first = shownRows < 0
+        val grew = rows.size > shownRows
+        shownRows = rows.size
+        if (first) list.scrollToItem(rows.size - 1) else if (grew) list.animateScrollToItem(rows.size - 1)
+    }
 
     fun toggle(m: Message) {
         if (m.deleted || m.id.startsWith("local-")) return
@@ -530,9 +537,6 @@ fun ChatScreen(
     }
     SideEffect { onSelection(bar) }
     LaunchedEffect(bar, selected) { if (bar == null && selected.isNotEmpty()) selected = emptySet() }
-    LaunchedEffect(pending.size) {
-        if (pending.isNotEmpty()) list.animateScrollToItem(rows.size)
-    }
 
     /** Scroll to a quoted message and light it up for a second. */
     fun jump(id: String) {
