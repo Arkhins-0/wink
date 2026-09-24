@@ -89,6 +89,7 @@ import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.whenLabel
 import com.arkhins.wink.ui.components.Attachment
 import com.arkhins.wink.ui.components.FileView
+import com.arkhins.wink.ui.components.isImage
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Composer
@@ -606,6 +607,9 @@ private fun Bubble(
                 .offset { IntOffset(slide.value.roundToInt(), 0) },
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         ) {
+            // A picture sits in a thin frame; its caption, quote and time keep the usual inset.
+            val picture = !m.deleted && m.file?.isImage == true
+            val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
             Box {
                 Column(
                     Modifier
@@ -622,7 +626,7 @@ private fun Bubble(
                                 menu = true
                             },
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .then(if (picture) Modifier.padding(start = 3.dp, end = 3.dp, top = 3.dp, bottom = 6.dp) else Modifier.padding(horizontal = 12.dp, vertical = 8.dp)),
                 ) {
                     if (m.deleted) {
                         Text(
@@ -633,18 +637,18 @@ private fun Bubble(
                         )
                     } else {
                         quote?.let {
-                            Quote(it, onDark = !mine) { onQuote(it.id) }
+                            Box(inset) { Quote(it, onDark = !mine) { onQuote(it.id) } }
                             Spacer(Modifier.height(4.dp))
                         }
                         if (m.urgent) {
-                            Chip("Urgent", if (mine) Night else Danger, filled = mine)
+                            Box(inset) { Chip("Urgent", if (mine) Night else Danger, filled = mine) }
                             Spacer(Modifier.height(4.dp))
                         }
                         val loc = locationIn(m.body)
                         if (loc != null) {
                             LocationCard(loc.first, loc.second, onDark = !mine)
                         } else if (m.body.isNotBlank()) {
-                            Text(m.body, style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow)
+                            Text(m.body, style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
                         }
                         if (m.file != null) {
                             if (m.body.isNotBlank()) Spacer(Modifier.height(6.dp))
@@ -652,7 +656,7 @@ private fun Bubble(
                         }
                     }
                     Spacer(Modifier.height(2.dp))
-                    Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.align(Alignment.End).then(inset), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             (if (m.editedAt != null && !m.deleted) "edited · " else "") + localTime(m.createdAt),
                             style = MaterialTheme.typography.labelSmall,
