@@ -18,8 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,13 +59,16 @@ import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.components.GoldButton
+import com.arkhins.wink.ui.components.IconAction
 import com.arkhins.wink.ui.components.KeyValue
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.components.SectionTitle
 import com.arkhins.wink.ui.components.StatusChip
 import com.arkhins.wink.ui.components.statusTone
+import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
+import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
@@ -81,6 +89,8 @@ fun PeopleScreen(me: Me?, onOpen: (String) -> Unit, onAdd: () -> Unit, onEmail: 
     val app = LocalApp.current
     var people by remember { mutableStateOf<List<PublicUser>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var mailMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         try {
@@ -92,23 +102,32 @@ fun PeopleScreen(me: Me?, onOpen: (String) -> Unit, onAdd: () -> Unit, onEmail: 
     }
 
     val canCreate = me?.canCreate?.isNotEmpty() == true
-    val p = people
+    val canEmail = me?.canBulkEmail == true || me?.canRelay == true
+    val p = people?.filter { u ->
+        query.isBlank() || "${u.displayName} ${u.roleLabel} ${u.teamName ?: ""}".contains(query.trim(), ignoreCase = true)
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (me?.canRelay == true) {
-                    GhostButton("Email volunteers") { onEmail("volunteers") }
-                    GhostButton("Email security") { onEmail("security") }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Field(query, { query = it }, "Search", modifier = Modifier.weight(1f), placeholder = "Name, designation or team")
+                if (canCreate) IconAction(Icons.Outlined.Add, "Add person", Gold, onClick = onAdd)
+                if (canEmail) {
+                    Box {
+                        IconAction(Icons.Outlined.Email, "Email", Danger) {
+                            if (me?.canBulkEmail == true) onEmail(null) else mailMenu = true
+                        }
+                        DropdownMenu(expanded = mailMenu, onDismissRequest = { mailMenu = false }, containerColor = NightPanel) {
+                            DropdownMenuItem(text = { Text("Email volunteers", color = Snow) }, onClick = { mailMenu = false; onEmail("volunteers") })
+                            DropdownMenuItem(text = { Text("Email security", color = Snow) }, onClick = { mailMenu = false; onEmail("security") })
+                        }
+                    }
                 }
-                if (me?.canBulkEmail == true) GhostButton("Email everyone") { onEmail(null) }
-                Spacer(Modifier.weight(1f))
-                if (canCreate) GoldButton("Add person", onClick = onAdd)
             }
         }
         when {
             error != null && p == null -> item { ErrorText(error) }
             p == null -> item { Loading() }
-            p.isEmpty() -> item { Empty(if (canCreate) "Nobody yet. Add the first person." else "Nobody reports to you.") }
+            p.isEmpty() -> item { Empty(if (people?.isEmpty() == true) (if (canCreate) "Nobody yet. Add the first person." else "Nobody reports to you.") else "No one matches.") }
             else -> {
                 val groups = ROLE_ORDER.mapNotNull { r -> p.filter { it.role == r }.takeIf { it.isNotEmpty() }?.let { r to it } }
                 items(groups, key = { it.first }) { (role, list) ->
