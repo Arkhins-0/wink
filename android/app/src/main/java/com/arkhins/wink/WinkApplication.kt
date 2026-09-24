@@ -14,6 +14,7 @@ import com.arkhins.wink.data.LocalStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.arkhins.wink.data.Documents
 import com.arkhins.wink.data.SessionStore
 import com.arkhins.wink.data.UpdateChecker
@@ -46,8 +47,14 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** Asks the server (or GitHub) what the latest release is. */
     val updates: UpdateChecker by lazy { UpdateChecker() }
 
-    /** Downloads a release APK and hands it to the system installer. */
+    /** Downloads a release APK and installs it through the package installer. */
     val updater: AppUpdater by lazy { AppUpdater(this) }
+
+    /**
+     * Why the last install failed, from [com.arkhins.wink.data.UpdateInstallReceiver],
+     * for the update dialog to show. Cleared by whoever shows it.
+     */
+    val installFailure = MutableStateFlow<String?>(null)
 
     /** Who is signed in, once /api/me has answered; screens outside the view model read it here. */
     @Volatile

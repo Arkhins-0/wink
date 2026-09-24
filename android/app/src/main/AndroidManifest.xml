@@ -101,8 +101,14 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/gold" />
 
-        <!-- Lends the downloaded update APK to the system installer, and
-             downloaded documents to the app that opens them on older Android. -->
+        <!-- Where the package installer reports how the in-app update went. -->
+        <receiver
+            android:name=".data.UpdateInstallReceiver"
+            android:exported="false" />
+
+        <!-- Lends the downloaded update APK to the system installer when the
+             package installer cannot be used, and downloaded documents to
+             the app that opens them on older Android. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates"

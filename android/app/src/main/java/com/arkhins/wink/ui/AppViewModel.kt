@@ -316,8 +316,10 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             return
         }
         updateStage = UpdateStage.Installing
-        runCatching { app.updater.install(file) }
-            .onFailure { updateStage = UpdateStage.Failed(it.message ?: "The installer could not be opened.") }
+        viewModelScope.launch {
+            runCatching { app.updater.install(file) }
+                .onFailure { updateStage = UpdateStage.Failed(it.message ?: "The installer could not be opened.") }
+        }
     }
 
     fun openInstallSettings() = app.updater.openInstallSettings()
@@ -328,6 +330,15 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         refreshMe()
         checkForUpdate()
         viewModelScope.launch { Notifications.events.collect { popup = it; refreshTick++ } }
+        // The package installer reports a failed install after install() has returned.
+        viewModelScope.launch {
+            app.installFailure.collect { message ->
+                if (message != null) {
+                    updateStage = UpdateStage.Failed(message)
+                    app.installFailure.value = null
+                }
+            }
+        }
         viewModelScope.launch {
             Notifications.syncs.collect { s ->
                 if (s.scope == "chat") {
