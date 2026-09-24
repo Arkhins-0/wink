@@ -2,7 +2,6 @@ package com.arkhins.wink.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,8 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -27,7 +24,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +36,6 @@ import com.arkhins.wink.data.ManagersResponse
 import com.arkhins.wink.data.PublicUser
 import com.arkhins.wink.data.UsersResponse
 import com.arkhins.wink.ui.AppViewModel
-import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
@@ -56,7 +51,9 @@ import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
 import com.arkhins.wink.ui.whenLabel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.putJsonArray
 
@@ -158,7 +155,7 @@ fun ChannelsScreen(vm: AppViewModel, onOpenWeekend: (String) -> Unit) {
             managing = null
             app.appScope.launch {
                 runCatching { app.api.put("/api/weekends/${w.id}/managers", ManagersResponse.serializer()) { putJsonArray("userIds") { ids.forEach { add(it) } } } }
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { reload++ }
+                withContext(Dispatchers.Main) { reload++ }
             }
         }
     }
@@ -169,14 +166,13 @@ fun ChannelsScreen(vm: AppViewModel, onOpenWeekend: (String) -> Unit) {
 @Composable
 private fun ManagersSheet(w: ChannelWeekend, onDismiss: () -> Unit, onSave: (List<String>) -> Unit) {
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
     var people by remember { mutableStateOf<List<PublicUser>?>(null) }
     var picked by remember { mutableStateOf(w.managers.map { it.id }.toSet()) }
     var filter by remember { mutableStateOf("") }
-    // Only admins and coordinators can manage a channel.
-    fun eligible(list: List<PublicUser>) = list.filter { u -> u.status == "active" && (u.role == "admin" || u.role == "coordinator") }
+    // Only admins and coordinators can manage a channel. The phone's list first, then the server's.
     LaunchedEffect(Unit) {
-        scope.launch { runCatching { app.store.get("/api/users", UsersResponse.serializer()) { people = eligible(it.users) }.users }.onSuccess { people = eligible(it) } }
+        fun show(users: List<PublicUser>) { people = users.filter { it.status == "active" && (it.role == "admin" || it.role == "coordinator") } }
+        runCatching { app.store.get("/api/users", UsersResponse.serializer()) { show(it.users) } }.onSuccess { show(it.users) }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
@@ -187,30 +183,7 @@ private fun ManagersSheet(w: ChannelWeekend, onDismiss: () -> Unit, onSave: (Lis
             Spacer(Modifier.height(6.dp))
             val p = people
             Box(Modifier.weight(1f, fill = false)) {
-                if (p == null) Loading() else {
-                    val shown = p.filter { filter.isBlank() || "${it.name ?: ""} ${it.email} ${it.teamName ?: ""} ${it.roleLabel}".contains(filter, ignoreCase = true) }
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        items(shown, key = { it.id }) { u ->
-                            val on = u.id in picked
-                            Row(
-                                Modifier.fillMaxWidth().clickable { picked = if (on) picked - u.id else picked + u.id }.padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Avatar(app.api.absolute(u.photoUrl), u.displayName, 40)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(u.displayName, style = MaterialTheme.typography.titleSmall, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(u.roleLabel + (u.teamName?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = SnowFaint)
-                                }
-                                Checkbox(
-                                    checked = on,
-                                    onCheckedChange = { picked = if (on) picked - u.id else picked + u.id },
-                                    colors = CheckboxDefaults.colors(checkedColor = Gold, checkmarkColor = Night, uncheckedColor = SnowFaint),
-                                )
-                            }
-                        }
-                    }
-                }
+                if (p == null) Loading() else PeoplePicker(p, picked, filter, avatar = 40) { picked = it }
             }
             Spacer(Modifier.height(12.dp))
             GoldButton("Save", Modifier.fillMaxWidth()) { onSave(picked.toList()) }

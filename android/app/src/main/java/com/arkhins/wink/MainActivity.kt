@@ -34,11 +34,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        com.arkhins.wink.push.Notifications.foreground = true
+        Notifications.foreground = true
     }
 
     override fun onPause() {
-        com.arkhins.wink.push.Notifications.foreground = false
+        Notifications.foreground = false
         super.onPause()
     }
 

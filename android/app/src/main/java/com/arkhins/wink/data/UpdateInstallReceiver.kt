@@ -4,8 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
-import android.os.Build
 import android.util.Log
+import androidx.core.content.IntentCompat
 import com.arkhins.wink.WinkApplication
 
 /**
@@ -31,7 +31,7 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 // The first update after a browser install, Android 11 and
                 // below, or Play Protect wanting a word: Android's own
                 // confirmation screen, which it asks us to show.
-                val confirm = confirmIntent(intent) ?: return
+                val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java) ?: return
                 runCatching { context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                     .onFailure { report(context, "The install screen could not be opened.") }
             }
@@ -40,16 +40,11 @@ class UpdateInstallReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun confirmIntent(intent: Intent): Intent? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_INTENT)
-        }
-
     private fun report(context: Context, message: String) {
-        (context.applicationContext as? WinkApplication)?.installFailure?.value = message
+        val app = context.applicationContext as? WinkApplication ?: return
+        // Nothing was installed: the notes kept for the first open after must not greet a later update from elsewhere.
+        app.whatsNew.clearPending()
+        app.installFailure.value = message
     }
 
     /** A line fit for the dialog. Android's own message is kept when it has one. */

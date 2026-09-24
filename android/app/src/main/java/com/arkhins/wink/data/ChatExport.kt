@@ -1,13 +1,16 @@
 package com.arkhins.wink.data
 
 import android.content.Context
+import android.util.Base64
+import android.util.Base64OutputStream
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.logStamp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
-import android.util.Base64
 import java.io.File
+import java.io.OutputStream
+import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -21,7 +24,8 @@ import java.util.zip.ZipOutputStream
  * as a page, bubbles and all) and the attachments under `images/`, `audio/`
  * and `docs/`. Every attachment is first fetched into the app's own media
  * folder, where it stays, so the next export and the chat itself have it
- * without asking the server again.
+ * without asking the server again. Everything is streamed into the zip:
+ * a chat full of photos never has to fit in memory at once.
  */
 class ChatExport(private val context: Context, private val media: ChatMedia, private val documents: Documents) {
 
@@ -39,44 +43,45 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                 onProgress("Fetching file ${i + 1} of ${withFiles.size}…")
                 runCatching { media.fetch(m.file!!) }
             }
-            onProgress("Writing the zip…")
-            ZipOutputStream(BufferedOutputStream(tmp.outputStream())).use { zip ->
-                withFiles.forEach { m ->
-                    val f = m.file!!
-                    val local = media.local(f) ?: return@forEach
-                    val folder = when {
-                        f.mime.startsWith("image/") -> "images"
-                        f.mime.startsWith("audio/") -> "audio"
-                        else -> "docs"
+            try {
+                onProgress("Writing the zip…")
+                ZipOutputStream(BufferedOutputStream(tmp.outputStream())).use { zip ->
+                    withFiles.forEach { m ->
+                        val f = m.file!!
+                        val local = media.local(f) ?: return@forEach
+                        val folder = when {
+                            f.mime.startsWith("image/") -> "images"
+                            f.mime.startsWith("audio/") -> "audio"
+                            else -> "docs"
+                        }
+                        val name = "${fileStamp(m.createdAt)} ${f.name}".replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                        // The same name in the same second (a forward of a forward): told apart by the file's id, then a count.
+                        var path = "$folder/$name"
+                        var n = 0
+                        while (!used.add(path)) path = "$folder/${f.id.take(8)}${if (++n > 1) "-$n" else ""} $name"
+                        paths[m.id] = path
+                        locals[m.id] = local
+                        zip.putNextEntry(ZipEntry(path))
+                        local.inputStream().use { it.copyTo(zip) }
+                        zip.closeEntry()
                     }
-                    var name = "${fileStamp(m.createdAt)} ${f.name}".replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                    if (!used.add("$folder/$name")) {
-                        name = "${f.id.take(8)} $name"
-                        used.add("$folder/$name")
-                    }
-                    val path = "$folder/$name"
-                    paths[m.id] = path
-                    locals[m.id] = local
-                    zip.putNextEntry(ZipEntry(path))
-                    local.inputStream().use { it.copyTo(zip) }
+                    zip.putNextEntry(ZipEntry("chat.txt"))
+                    // A byte-order mark, so every viewer reads the emoji as UTF-8.
+                    zip.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                    zip.text(log(other, myName, messages, paths))
+                    zip.closeEntry()
+                    zip.putNextEntry(ZipEntry("chat.html"))
+                    html(zip, other, myName, messages, paths, locals)
                     zip.closeEntry()
                 }
-                zip.putNextEntry(ZipEntry("chat.txt"))
-                // A byte-order mark, so every viewer reads the emoji as UTF-8.
-                zip.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
-                zip.write(log(other, myName, messages, paths).toByteArray())
-                zip.closeEntry()
-                zip.putNextEntry(ZipEntry("chat.html"))
-                zip.write(html(other, myName, messages, paths, locals).toByteArray())
-                zip.closeEntry()
-            }
-            onProgress("Saving to Downloads…")
-            try {
+                onProgress("Saving to Downloads…")
                 documents.saveToDownloads(zipName, "application/zip", tmp)
             } finally {
                 tmp.delete()
             }
         }
+
+    private fun exportedAt(): String = logStamp(Instant.now().toString())
 
     /* ───────────────────────────── The log ───────────────────────────── */
 
@@ -84,7 +89,7 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
 
     private fun log(other: OtherUser, myName: String, messages: List<Message>, paths: Map<String, String>): String = buildString {
         appendLine("Wink chat with ${other.name} (${other.roleLabel})")
-        appendLine("Exported ${logStamp(ZonedDateTime.now().toInstant().toString())}")
+        appendLine("Exported ${exportedAt()}")
         appendLine()
         messages.sortedBy { it.createdAt }.forEach { m ->
             val stamp = "[${logStamp(m.createdAt)}] ${who(m, myName)}:"
@@ -105,14 +110,25 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
     private fun esc(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    /** Pictures and voice notes go into the page itself (up to a few MB each), so it shows them even when opened straight from inside the zip. */
-    private fun inline(file: File?, mime: String, fallback: String): String {
-        if (file == null || file.length() > 6L * 1024 * 1024) return fallback
-        return runCatching { "data:$mime;base64," + Base64.encodeToString(file.readBytes(), Base64.NO_WRAP) }.getOrDefault(fallback)
+    private fun OutputStream.text(s: String) = write(s.toByteArray())
+
+    /**
+     * Pictures and voice notes go into the page itself (up to a few MB
+     * each), so it shows them even when opened straight from inside the
+     * zip. Base64 needs no escaping, so it is streamed in as it is.
+     */
+    private fun OutputStream.inline(file: File?, mime: String, fallback: String) {
+        if (file == null || file.length() > 6L * 1024 * 1024) {
+            text(esc(fallback))
+            return
+        }
+        text("data:$mime;base64,")
+        // NO_CLOSE: closing the encoder writes its padding but leaves the zip open.
+        Base64OutputStream(this, Base64.NO_WRAP or Base64.NO_CLOSE).use { b64 -> file.inputStream().use { it.copyTo(b64) } }
     }
 
-    private fun html(other: OtherUser, myName: String, messages: List<Message>, paths: Map<String, String>, locals: Map<String, File>): String = buildString {
-        append(
+    private fun html(out: OutputStream, other: OtherUser, myName: String, messages: List<Message>, paths: Map<String, String>, locals: Map<String, File>) {
+        out.text(
             """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wink chat with ${esc(other.name)}</title>
 <style>
@@ -131,7 +147,7 @@ main{max-width:720px;margin:0 auto;padding:12px 12px 40px}
 img{max-width:100%;border-radius:12px;display:block;margin:4px 0}audio{width:240px;max-width:100%;margin:4px 0}
 a{color:inherit}.doc{display:block;padding:6px 0}
 </style></head><body>
-<header><h1>${esc(other.name)}</h1><p>${esc(other.roleLabel)} · exported ${esc(logStamp(ZonedDateTime.now().toInstant().toString()))}</p></header>
+<header><h1>${esc(other.name)}</h1><p>${esc(other.roleLabel)} · exported ${esc(exportedAt())}</p></header>
 <main>
 """,
         )
@@ -140,32 +156,40 @@ a{color:inherit}.doc{display:block;padding:6px 0}
             val day = dayFormat.format(instant(m.createdAt).atZone(ZoneId.systemDefault()))
             if (day != lastDay) {
                 lastDay = day
-                append("<div class=\"day\"><span>${esc(day)}</span></div>\n")
+                out.text("<div class=\"day\"><span>${esc(day)}</span></div>\n")
             }
-            append("<div class=\"row ${if (m.mine) "mine" else "theirs"}\"><div class=\"b\">")
+            out.text("<div class=\"row ${if (m.mine) "mine" else "theirs"}\"><div class=\"b\">")
             if (m.deleted) {
-                append("<span class=\"del\">This message was deleted</span>")
+                out.text("<span class=\"del\">This message was deleted</span>")
             } else {
-                if (m.forwarded) append("<div class=\"fw\">↪ Forwarded</div>")
+                if (m.forwarded) out.text("<div class=\"fw\">↪ Forwarded</div>")
                 m.replyTo?.let { r ->
-                    append("<div class=\"q\"><b>${esc(if (r.mine) myName else r.senderName)}</b><br>${esc(if (r.deleted) "This message was deleted" else r.body.ifBlank { r.fileName ?: "" })}</div>")
+                    out.text("<div class=\"q\"><b>${esc(if (r.mine) myName else r.senderName)}</b><br>${esc(if (r.deleted) "This message was deleted" else r.body.ifBlank { r.fileName ?: "" })}</div>")
                 }
-                if (m.body.isNotBlank()) append(esc(m.body.trim()))
+                if (m.body.isNotBlank()) out.text(esc(m.body.trim()))
                 val path = paths[m.id]
                 val f = m.file
                 if (f != null) {
                     when {
-                        path == null -> append("<span class=\"doc\">📄 ${esc(f.name)} (not on this phone)</span>")
-                        f.mime.startsWith("image/") -> append("<a href=\"${esc(path)}\"><img src=\"${esc(inline(locals[m.id], f.mime, path))}\" alt=\"${esc(f.name)}\"></a>")
-                        f.mime.startsWith("audio/") -> append("<audio controls src=\"${esc(inline(locals[m.id], f.mime, path))}\"></audio>")
-                        else -> append("<a class=\"doc\" href=\"${esc(path)}\">📄 ${esc(f.name)}</a>")
+                        path == null -> out.text("<span class=\"doc\">📄 ${esc(f.name)} (not on this phone)</span>")
+                        f.mime.startsWith("image/") -> {
+                            out.text("<a href=\"${esc(path)}\"><img src=\"")
+                            out.inline(locals[m.id], f.mime, path)
+                            out.text("\" alt=\"${esc(f.name)}\"></a>")
+                        }
+                        f.mime.startsWith("audio/") -> {
+                            out.text("<audio controls src=\"")
+                            out.inline(locals[m.id], f.mime, path)
+                            out.text("\"></audio>")
+                        }
+                        else -> out.text("<a class=\"doc\" href=\"${esc(path)}\">📄 ${esc(f.name)}</a>")
                     }
                 }
             }
-            append("<span class=\"t\">${esc(who(m, myName))} · ${esc(logStamp(m.createdAt))}</span>")
-            append("</div></div>\n")
+            out.text("<span class=\"t\">${esc(who(m, myName))} · ${esc(logStamp(m.createdAt))}</span>")
+            out.text("</div></div>\n")
         }
-        append("</main></body></html>\n")
+        out.text("</main></body></html>\n")
     }
 
     private val dayFormat = DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.getDefault())

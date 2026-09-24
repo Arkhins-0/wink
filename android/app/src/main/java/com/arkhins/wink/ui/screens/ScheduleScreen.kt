@@ -70,8 +70,6 @@ import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
 import com.arkhins.wink.ui.components.Field
-import com.arkhins.wink.ui.components.GhostButton
-import com.arkhins.wink.ui.components.GoldButton
 import com.arkhins.wink.ui.components.IconAction
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.Panel
@@ -81,7 +79,6 @@ import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.localTime
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
-import com.arkhins.wink.ui.theme.Night
 import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
@@ -90,6 +87,7 @@ import com.arkhins.wink.ui.trackDateTime
 import com.arkhins.wink.ui.trackTime
 import com.arkhins.wink.ui.zone
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.put
 import java.time.Instant
 import java.time.LocalDateTime
@@ -278,7 +276,7 @@ private fun SeasonDialog(season: Season?, onDismiss: () -> Unit, onSaved: () -> 
                 error = null
                 scope.launch {
                     try {
-                        val body: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {
+                        val body: JsonObjectBuilder.() -> Unit = {
                             put("name", name.trim())
                             put("startsOn", startsOn.trim())
                             if (endsOn.isNotBlank()) put("endsOn", endsOn.trim())
@@ -492,7 +490,7 @@ private fun WeekendDialog(w: Weekend?, seasons: List<Season>, onDismiss: () -> U
                 error = null
                 scope.launch {
                     try {
-                        val body: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {
+                        val body: JsonObjectBuilder.() -> Unit = {
                             put("name", name.trim())
                             put("venue", venue.trim())
                             put("city", city.trim())

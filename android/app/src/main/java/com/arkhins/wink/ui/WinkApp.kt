@@ -202,7 +202,11 @@ private fun MainNav(vm: AppViewModel) {
     var chatsPage by remember { mutableIntStateOf(0) }
     var chatExport by remember { mutableIntStateOf(0) }
     var chatCanExport by remember { mutableStateOf(true) }
-    LaunchedEffect(tab) { if (tab != "chat") chatSearch = false }
+    // Every screen change, another chat included, starts without the last chat's search bar or its name in the header.
+    LaunchedEffect(entry) {
+        chatSearch = false
+        chatWith = null
+    }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -269,6 +273,7 @@ private fun MainNav(vm: AppViewModel) {
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
         "weekend" -> "Race weekend"
+        "chat" -> chatWith?.name ?: ""
         else -> title
     }
 
@@ -308,7 +313,7 @@ private fun MainNav(vm: AppViewModel) {
                     "chat/{id}",
                     enterTransition = { slideInHorizontally(tween(220)) { it } },
                     popExitTransition = { slideOutHorizontally(tween(200)) { it } },
-                ) { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
+                ) { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }

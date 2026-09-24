@@ -46,6 +46,7 @@ import com.arkhins.wink.ui.theme.SnowSoft
 import kotlinx.coroutines.delay
 
 private val BALL = 60.dp
+private val PILL = RoundedCornerShape(999.dp)
 
 /**
  * The in-app popup for a message that arrived while the app was open. The
@@ -90,9 +91,9 @@ fun PopupBubble(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Uni
                 .offset(y = (-140).dp * settled)
                 .width(BALL + (full - BALL) * open.value)
                 .height(BALL)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(PILL)
                 .background(NightPanel)
-                .border(1.dp, Gold.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
+                .border(1.dp, Gold.copy(alpha = 0.5f), PILL)
                 .clickable { onOpen(event.link) }
                 .padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,

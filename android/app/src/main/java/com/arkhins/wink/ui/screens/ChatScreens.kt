@@ -29,10 +29,8 @@ import android.widget.Toast
 import android.content.Intent
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Email
-import com.arkhins.wink.push.Notifications as PushNotifications
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.runtime.LaunchedEffect as ComposeLaunchedEffect
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -78,7 +76,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.animation.core.Animatable
@@ -122,8 +119,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
-import com.arkhins.wink.data.Conversation
-import com.arkhins.wink.data.CachedChat
 import com.arkhins.wink.data.ConversationsResponse
 import com.arkhins.wink.data.IdResponse
 import com.arkhins.wink.data.Message
@@ -136,7 +131,6 @@ import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.data.OtherUser
 import com.arkhins.wink.ui.components.isImage
 import com.arkhins.wink.ui.components.Avatar
-import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Composer
 import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
@@ -145,7 +139,6 @@ import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.LocationCard
 import com.arkhins.wink.ui.components.locationIn
-import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.localTime
 import com.arkhins.wink.ui.theme.Danger
@@ -359,9 +352,8 @@ fun NewChatScreen(onNewGroup: () -> Unit = {}, onOpened: (String) -> Unit) {
             p == null && error == null -> Loading()
             p != null && p.isEmpty() -> Empty("There is nobody you can chat with yet.")
             p != null -> {
-                val shown = p.filter { filter.isBlank() || "${it.name ?: ""} ${it.email} ${it.teamName ?: ""} ${it.roleLabel}".contains(filter, ignoreCase = true) }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items(shown, key = { it.id }) { u ->
+                    items(p.filter { it.matches(filter) }, key = { it.id }) { u ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -520,13 +512,12 @@ fun ChatScreen(
     val d = detail
     val rows = remember(d?.messages, pending) {
         buildList {
-            var lastDay = ""
+            // One header per day: a phone clock behind the server's could otherwise put a message just sent
+            // under a day already shown, and two rows with the same key would crash the list.
+            val days = mutableSetOf<String>()
             (d?.messages.orEmpty() + pending).forEach { m ->
                 val day = dayHeader.format(instant(m.createdAt).atZone(ZoneId.systemDefault()))
-                if (day != lastDay) {
-                    lastDay = day
-                    add(ChatRow.Day(day))
-                }
+                if (days.add(day)) add(ChatRow.Day(day))
                 add(ChatRow.Msg(m))
             }
         }
@@ -535,7 +526,7 @@ fun ChatScreen(
     LaunchedEffect(d?.group?.myRole, d != null) { if (d != null) onCanExport(d.group == null || d.group.myRole == "admin") }
     // The list is laid out from the bottom (newest first, reversed), so a chat opens on its newest message
     // with no scroll at all. Something new is brought into view when you are at the bottom or it is yours.
-    val shown = remember(rows) { rows.asReversed() }
+    val shown = rows.asReversed()
     var lastNewest by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(rows.size) {
         val newest = (rows.lastOrNull() as? ChatRow.Msg)?.m ?: return@LaunchedEffect
@@ -571,8 +562,8 @@ fun ChatScreen(
     DisposableEffect(Unit) { onDispose { onSelection(null) } }
     // While this chat is on screen its messages need no notification or popup.
     DisposableEffect(conversationId) {
-        PushNotifications.openChat = conversationId
-        onDispose { if (PushNotifications.openChat == conversationId) PushNotifications.openChat = null }
+        Notifications.openChat = conversationId
+        onDispose { if (Notifications.openChat == conversationId) Notifications.openChat = null }
     }
     // Built in the same frame the selection changes, so the bar is there at once.
     val bar = remember(selected, d?.messages) {
@@ -586,7 +577,7 @@ fun ChatScreen(
         fun copy() {
             // One message: its words alone. Several: each with its time and who said it, the way WhatsApp does.
             val text = if (one != null) copyText(one)
-            else chosen.sortedBy { it.createdAt }.joinToString("\n") { "[${copyStamp(it.createdAt)}] ${if (it.mine) myName else it.sender?.name ?: "Unknown"}: ${copyText(it)}" }
+            else chosen.sortedBy { it.createdAt }.joinToString("\n") { "[${logStamp(it.createdAt)}] ${if (it.mine) myName else it.sender?.name ?: "Unknown"}: ${copyText(it)}" }
             clipboard.setText(AnnotatedString(text))
             Toast.makeText(context, if (one != null) "Copied" else "${chosen.size} messages copied", Toast.LENGTH_SHORT).show()
             selected = emptySet()
@@ -629,17 +620,19 @@ fun ChatScreen(
         if (query.isBlank()) emptyList()
         else rows.filter { it is ChatRow.Msg && !it.m.deleted && it.m.body.contains(query.trim(), ignoreCase = true) }.map { (it as ChatRow.Msg).m.id }
     }
-    ComposeLaunchedEffect(hits) {
+    LaunchedEffect(hits) {
         hitAt = (hits.size - 1).coerceAtLeast(0)
         hits.lastOrNull()?.let(::jump)
     }
-    ComposeLaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
-    ComposeLaunchedEffect(exportTick) {
-        if (exportTick == 0) return@ComposeLaunchedEffect
-        val other = d?.other ?: d?.group?.asOther() ?: return@ComposeLaunchedEffect
+    LaunchedEffect(searchOpen) { if (!searchOpen) query = "" }
+    // The tick counts on across chats: only a tap made while this one is open is an export of it.
+    val exportTickAtOpen = remember { exportTick }
+    LaunchedEffect(exportTick) {
+        if (exportTick == exportTickAtOpen) return@LaunchedEffect
+        val other = d?.other ?: d?.group?.asOther() ?: return@LaunchedEffect
         if (d?.group != null && d.group.myRole != "admin") {
             actionError = "Only the group's admins can export it."
-            return@ComposeLaunchedEffect
+            return@LaunchedEffect
         }
         exporting = "Fetching the chat…"
         try {
@@ -666,11 +659,11 @@ fun ChatScreen(
                 )
                 IconAction(Icons.Outlined.KeyboardArrowUp, "Older match", if (hitAt > 0) Gold else SnowFaint, enabled = hitAt > 0) {
                     hitAt--
-                    jump(hits[hitAt])
+                    hits.getOrNull(hitAt)?.let(::jump)
                 }
                 IconAction(Icons.Outlined.KeyboardArrowDown, "Newer match", if (hitAt < hits.size - 1) Gold else SnowFaint, enabled = hitAt < hits.size - 1) {
                     hitAt++
-                    jump(hits[hitAt])
+                    hits.getOrNull(hitAt)?.let(::jump)
                 }
                 IconAction(Icons.Outlined.Close, "Close search", SnowSoft, onClick = onSearchClose)
             }
@@ -871,8 +864,6 @@ fun ChatScreen(
 
 /** What copying a message puts on the clipboard: its words, or what it carried. */
 private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(refOf(m)) }
-
-private fun copyStamp(iso: String): String = logStamp(iso)
 
 /** The message text with every match of the search lit up. */
 private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnnotatedString {

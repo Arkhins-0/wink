@@ -26,8 +26,8 @@ data class CachedChat(val other: OtherUser? = null, val messages: List<Message> 
  * opens from here at once, and only what is new is asked of the server.
  * The server stays the source of truth — each sync also brings the ids of
  * every message still live, so anything archived or deleted there drops
- * out here too. Pictures and voice notes are fetched as soon as they
- * arrive (see [ChatMedia]); everything is wiped on sign-out.
+ * out here too. Attachments are fetched as soon as they arrive (see
+ * [ChatMedia]); everything is wiped on sign-out.
  */
 class ChatCache(context: Context, private val api: WinkApi, private val media: ChatMedia, private val scope: CoroutineScope) {
     private val dir = File(context.filesDir, "chats").apply { mkdirs() }
@@ -41,6 +41,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     @Volatile private var memList: List<Conversation>? = null
 
     private fun file(id: String) = File(dir, "$id.json")
+    private val listFile get() = File(dir, "list.json")
 
     /** A chat as the phone last had it, straight from memory: null until it has been loaded or synced once. */
     fun peek(id: String): CachedChat? = mem[id]
@@ -52,7 +53,6 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         write(file(id), json.encodeToString(CachedChat.serializer(), chat))
         mem[id] = chat
     }
-    private val listFile get() = File(dir, "list.json")
 
     private fun write(target: File, text: String) {
         val tmp = File(target.path + ".tmp")
@@ -68,15 +68,16 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
 
     /** What the phone has for a chat, without asking the server. */
     suspend fun load(id: String): CachedChat? = withContext(Dispatchers.IO) {
-        mem[id] ?: runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()?.also { mem[id] = it }
+        // putIfAbsent: a sync may have kept a newer copy while the disk was being read; that one wins.
+        mem[id] ?: runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()?.let { mem.putIfAbsent(id, it) ?: it }
     }
 
     /**
      * Bring a chat up to date: ask only for messages after the newest one
      * the phone has, merge them in, drop what the server no longer has
-     * live, and start fetching new pictures and voice notes. [markRead] is
-     * false for syncing in the background, so nothing is marked read that
-     * the person has not looked at.
+     * live, and start fetching new attachments. [markRead] is false for
+     * syncing in the background, so nothing is marked read that the
+     * person has not looked at.
      */
     suspend fun sync(id: String, markRead: Boolean): CachedChat = locks.getOrPut(id) { Mutex() }.withLock {
         withContext(Dispatchers.IO) {
@@ -93,8 +94,11 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                 d.messages
             } else {
                 val live = d.liveIds.toSet()
-                // Copies the phone made up (a forward still on its way) stay until the server's answer replaces them.
-                (cached.messages.filter { it.id in live || it.id.startsWith("local-") } + d.messages)
+                // Copies the phone made up (a forward still on its way) stay until the server's answer replaces
+                // them — but not for ever: one left behind by a forward the process did not live to finish
+                // would otherwise sit in the chat with its clock, and nothing could select or delete it.
+                val stale = System.currentTimeMillis() - LOCAL_COPY_LIFE
+                (cached.messages.filter { it.id in live || (it.id.startsWith("local-") && instant(it.createdAt).toEpochMilli() > stale) } + d.messages)
                     .associateBy { it.id }
                     .values
                     .sortedBy { instant(it.createdAt) }
@@ -162,12 +166,17 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         ownerFile.writeText(userId)
         return previous != null
     }
+
+    private companion object {
+        /** How long a made-up copy may wait for the server's answer before a sync drops it. */
+        const val LOCAL_COPY_LIFE = 10 * 60 * 1000L
+    }
 }
 
 /**
- * Pictures and voice notes from private chats, kept in the app's own
- * storage under the file's id. Once a file is here it is always shown or
- * played from here, never fetched again.
+ * Attachments from private chats, kept in the app's own storage under the
+ * file's id. Once a file is here it is always shown or played from here,
+ * never fetched again.
  */
 class ChatMedia(context: Context, private val api: WinkApi) {
     private val dir = File(context.filesDir, "chat-media").apply { mkdirs() }

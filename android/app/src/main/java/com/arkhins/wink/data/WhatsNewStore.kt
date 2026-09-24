@@ -1,6 +1,7 @@
 package com.arkhins.wink.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.arkhins.wink.BuildConfig
 
 /**
@@ -34,19 +35,17 @@ class WhatsNewStore(context: Context) {
         )
     }
 
+    /** Forget the release saved by [savePending]: it did not install after all. */
     fun clearPending() {
-        prefs.edit().remove(PENDING_VERSION).remove(PENDING_NOTES).remove(PENDING_URL).apply()
+        prefs.edit().dropPending().apply()
     }
 
     /** The version running now counts as seen; the pending release, shown or not, is done with. */
     fun markSeen() {
-        prefs.edit()
-            .putString(LAST_SEEN, BuildConfig.VERSION_NAME)
-            .remove(PENDING_VERSION)
-            .remove(PENDING_NOTES)
-            .remove(PENDING_URL)
-            .apply()
+        prefs.edit().putString(LAST_SEEN, BuildConfig.VERSION_NAME).dropPending().apply()
     }
+
+    private fun SharedPreferences.Editor.dropPending(): SharedPreferences.Editor = remove(PENDING_VERSION).remove(PENDING_NOTES).remove(PENDING_URL)
 
     /**
      * What to show on this start: the notes of the version that was just

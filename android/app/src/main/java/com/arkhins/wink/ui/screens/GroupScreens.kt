@@ -2,6 +2,7 @@ package com.arkhins.wink.ui.screens
 
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -132,7 +133,7 @@ fun NewGroupScreen(onCreated: (String) -> Unit) {
                         putJsonArray("memberIds") { picked.forEach { add(it) } }
                     }
                     if (r.skipped.isNotEmpty()) Toast.makeText(context, "Not added: ${r.skipped.joinToString()}", Toast.LENGTH_LONG).show()
-                    onCreated(r.id ?: return@launch)
+                    onCreated(checkNotNull(r.id) { "Could not create the group." })
                 } catch (e: Exception) {
                     error = e.message ?: "Could not create the group."
                     busy = false
@@ -142,12 +143,16 @@ fun NewGroupScreen(onCreated: (String) -> Unit) {
     }
 }
 
+/** Whether a person matches what was typed in a people search: their name, email, team or role. */
+fun PublicUser.matches(filter: String): Boolean =
+    filter.isBlank() || "${name ?: ""} $email ${teamName ?: ""} $roleLabel".contains(filter, ignoreCase = true)
+
 /** A list of people with a tick beside each. */
 @Composable
-private fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: String, onPicked: (Set<String>) -> Unit) {
-    val shown = people.filter { filter.isBlank() || "${it.name ?: ""} ${it.email} ${it.teamName ?: ""} ${it.roleLabel}".contains(filter, ignoreCase = true) }
+fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: String, avatar: Int = 44, onPicked: (Set<String>) -> Unit) {
+    val app = LocalApp.current
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(shown, key = { it.id }) { u ->
+        items(people.filter { it.matches(filter) }, key = { it.id }) { u ->
             val on = u.id in picked
             Row(
                 Modifier
@@ -156,7 +161,7 @@ private fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: 
                     .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(app_absolute(u.photoUrl), u.displayName, 44)
+                Avatar(app.api.absolute(u.photoUrl), u.displayName, avatar)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(u.displayName, style = MaterialTheme.typography.titleSmall, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -173,9 +178,6 @@ private fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: 
         }
     }
 }
-
-@Composable
-private fun app_absolute(path: String?): String? = LocalApp.current.api.absolute(path)
 
 /**
  * The group: its picture and name, who may send, the members and who is
@@ -246,7 +248,7 @@ fun GroupScreen(vm: AppViewModel, groupId: String, onOpenChat: (String) -> Unit,
         item {
             Panel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.clickable(enabled = admin && !busy) { pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                    Box(Modifier.clickable(enabled = admin && !busy) { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                         Avatar(g.photoUrl?.let { app.api.absolute("$it?v=$photoVersion") }, g.name, 72)
                     }
                     Spacer(Modifier.width(14.dp))
@@ -440,9 +442,10 @@ private fun AddPeopleSheet(exclude: Set<String>, onDismiss: () -> Unit, onAdd: (
     var people by remember { mutableStateOf<List<PublicUser>?>(null) }
     var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
     var filter by remember { mutableStateOf("") }
+    // The phone's list first, then the server's.
     LaunchedEffect(Unit) {
-        runCatching { app.store.get("/api/users?group=1", UsersResponse.serializer()) { people = it.users.filter { u -> u.id !in exclude } }.users }
-            .onSuccess { people = it.filter { u -> u.id !in exclude } }
+        fun show(users: List<PublicUser>) { people = users.filter { it.id !in exclude } }
+        runCatching { app.store.get("/api/users?group=1", UsersResponse.serializer()) { show(it.users) } }.onSuccess { show(it.users) }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {

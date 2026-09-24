@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -24,24 +25,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.WinkApplication
 import com.arkhins.wink.data.MessageInfo
 import com.arkhins.wink.data.MessageRecipient
-import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.push.Notifications
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.launch
+import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
 
 /** Message info fetched ahead of time (as soon as a message is selected), so the sheet opens full. */
-private val infoCache = java.util.concurrent.ConcurrentHashMap<String, MessageInfo>()
+private val infoCache = ConcurrentHashMap<String, MessageInfo>()
 
 /** Fetch a message's info in the background, ready for when its sheet opens. */
-fun prefetchMessageInfo(app: com.arkhins.wink.WinkApplication, messageId: String) {
+fun prefetchMessageInfo(app: WinkApplication, messageId: String) {
     app.appScope.launch { runCatching { app.api.get("/api/messages/$messageId/info", MessageInfo.serializer()) }.onSuccess { infoCache[messageId] = it } }
 }
 
@@ -93,7 +96,7 @@ fun MessageInfoSheet(messageId: String, conversationId: String, preview: String,
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.section(title: String, people: List<MessageRecipient>, time: (MessageRecipient) -> String?) {
+private fun LazyListScope.section(title: String, people: List<MessageRecipient>, time: (MessageRecipient) -> String?) {
     if (people.isEmpty()) return
     item(key = title) { Text(title, style = MaterialTheme.typography.labelSmall, color = Gold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
     items(people, key = { "$title-${it.id}" }) { p -> RecipientRow(p, time(p)) }

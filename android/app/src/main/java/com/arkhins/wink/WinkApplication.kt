@@ -36,7 +36,7 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** Work that outlives a screen: fetching chat pictures and voice notes, background syncs. */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Pictures and voice notes from private chats, kept on the phone. */
+    /** Attachments from private chats, kept on the phone. */
     val chatMedia: ChatMedia by lazy { ChatMedia(this, api) }
 
     /** The phone's own copy of every private chat. */

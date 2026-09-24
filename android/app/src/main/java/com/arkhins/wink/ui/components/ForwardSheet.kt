@@ -60,8 +60,9 @@ fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>)
             Field(search, { search = it }, "Search people")
             Spacer(Modifier.height(4.dp))
             // The people talked to most come first, then whoever spoke last.
+            val needle = search.trim()
             val list = chats?.sortedWith(compareByDescending<Conversation> { it.messages }.thenByDescending { it.lastMessageAt ?: "" })
-                ?.filter { search.isBlank() || it.other.name.contains(search.trim(), ignoreCase = true) || it.other.roleLabel.contains(search.trim(), ignoreCase = true) }
+                ?.filter { needle.isBlank() || it.other.name.contains(needle, ignoreCase = true) || it.other.roleLabel.contains(needle, ignoreCase = true) }
             when {
                 list == null -> Loading()
                 list.isEmpty() -> Text(if (search.isBlank()) "No chats to forward to." else "No one matches.", color = SnowFaint)

@@ -65,7 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -80,6 +79,7 @@ import com.arkhins.wink.R
 import com.arkhins.wink.data.ChatMedia
 import com.arkhins.wink.data.Documents
 import com.arkhins.wink.data.FileInfo
+import com.arkhins.wink.data.Ok
 import com.arkhins.wink.data.UploadSlot
 import com.arkhins.wink.data.WinkApi
 import com.arkhins.wink.ui.theme.Danger
@@ -99,7 +99,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.put
 import java.io.File
 import java.util.Locale
-import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 
 /** What a composer hands back. */
@@ -416,7 +415,8 @@ private suspend fun currentLocation(context: Context): Location? = withContext(D
             for (p in providers) {
                 val got = withTimeoutOrNull(8_000) {
                     suspendCancellableCoroutine<Location?> { cont ->
-                        manager.getCurrentLocation(p, null, Executors.newSingleThreadExecutor()) { cont.resume(it) }
+                        // The main executor: a new thread here would never be shut down, one more for every location sent.
+                        manager.getCurrentLocation(p, null, ContextCompat.getMainExecutor(context)) { cont.resume(it) }
                     }
                 }
                 if (got != null) return@withContext got
@@ -502,7 +502,7 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
             if (!slot.direct || temp.length() > slot.maxProxyBytes) throw e
             api.putBytes(api.url("/api/files/${slot.id}/content"), temp, p.mime)
         }
-        api.post("/api/files/${slot.id}/ready", com.arkhins.wink.data.Ok.serializer())
+        api.post("/api/files/${slot.id}/ready", Ok.serializer())
         val info = FileInfo(slot.id, p.name, p.mime, temp.length())
         runCatching { media.put(info, temp) }
         if (!info.mime.startsWith("image/") && !info.mime.startsWith("audio/")) runCatching { documents.keepSent(info, temp) }
@@ -512,6 +512,3 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
         if (p.uri.scheme == "file") runCatching { File(p.uri.path!!).delete() }
     }
 }
-
-@Suppress("unused")
-private val keepVector: ImageVector? = null

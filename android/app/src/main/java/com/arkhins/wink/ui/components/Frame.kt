@@ -1,20 +1,14 @@
 package com.arkhins.wink.ui.components
 
-import kotlinx.coroutines.launch
-import com.arkhins.wink.ui.theme.Danger
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.collectAsState
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,15 +35,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.R
 import com.arkhins.wink.data.NextRace
-import com.arkhins.wink.push.PushEvent
 import com.arkhins.wink.ui.countdown
 import com.arkhins.wink.ui.instant
+import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.Night
 import com.arkhins.wink.ui.theme.NightLine
@@ -56,6 +52,7 @@ import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** The bar at the top of every screen: a title (or a back arrow and title) and the countdown chip on the right. */
 @Composable
