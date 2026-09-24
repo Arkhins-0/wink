@@ -59,6 +59,16 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -147,6 +157,25 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
     val app = LocalApp.current
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // Pull the list down at the top to slide the filter row out from under the header; pull again to put it back.
+    var filters by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf("all") }
+    val pull = remember {
+        object : NestedScrollConnection {
+            var armed = false
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y > 0f && !armed && source == NestedScrollSource.UserInput) {
+                    armed = true
+                    filters = !filters
+                }
+                return Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                armed = false
+                return Velocity.Zero
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (chats == null) app.chatCache.loadList()?.let { chats = it }
@@ -165,13 +194,52 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
 
     val canOpen = vm.me?.user?.role != "race_official"
     val c = chats
+    val shown = remember(c, filter) {
+        c?.filter {
+            when (filter) {
+                "unread" -> it.unread > 0
+                "groups" -> it.kind == "group"
+                else -> true
+            }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)) {
+      Column(Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = filters,
+            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "All", "unread" to "Unread", "groups" to "Groups").forEach { (key, label) ->
+                    val on = filter == key
+                    Box(
+                        Modifier
+                            .background(if (on) Gold else NightPanel, RoundedCornerShape(999.dp))
+                            .border(1.dp, if (on) Gold else NightLine, RoundedCornerShape(999.dp))
+                            .clickable { filter = key }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                    ) { Text(label, style = MaterialTheme.typography.labelMedium, color = if (on) Night else SnowSoft) }
+                }
+            }
+        }
+        LazyColumn(Modifier.weight(1f).nestedScroll(pull), contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)) {
             when {
                 error != null && c == null -> item { Box(Modifier.padding(16.dp)) { ErrorText(error) } }
-                c == null -> item { Loading() }
-                c.isEmpty() -> item { Box(Modifier.padding(16.dp)) { Empty(if (canOpen) "No chats yet. Tap the pencil to start one." else "Race officials do not have private chats.") } }
-                else -> itemsIndexed(c, key = { _, chat -> chat.id }) { i, chat ->
+                c == null || shown == null -> item { Loading() }
+                shown.isEmpty() -> item {
+                    Box(Modifier.padding(16.dp)) {
+                        Empty(
+                            when {
+                                filter == "unread" -> "Nothing unread."
+                                filter == "groups" -> "No groups yet."
+                                canOpen -> "No chats yet. Tap the pencil to start one."
+                                else -> "Race officials do not have private chats."
+                            },
+                        )
+                    }
+                }
+                else -> itemsIndexed(shown, key = { _, chat -> chat.id }) { i, chat ->
                     if (i > 0) Box(Modifier.padding(start = 76.dp)) { Divider() }
                     Row(
                         Modifier
@@ -208,6 +276,7 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
                 }
             }
         }
+      }
         if (canOpen) {
             Box(
                 Modifier

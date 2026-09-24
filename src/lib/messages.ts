@@ -314,6 +314,8 @@ export async function postToChannel(sender: SessionUser, weekendId: string, draf
 
 export type ConversationOut = {
   id: string;
+  /** "direct" for a private chat; "group" for a group. */
+  kind: "direct" | "group";
   other: { id: string; name: string; role: Role; roleLabel: string; photoUrl: string | null; status: string };
   iOpened: boolean;
   lastMessageAt: string | null;
@@ -500,6 +502,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
   );
   return rows.map((r) => ({
     id: r.id,
+    kind: "direct" as const,
     other: {
       id: r.o_id,
       name: r.o_name || r.o_email,
