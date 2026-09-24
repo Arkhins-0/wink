@@ -89,6 +89,7 @@ import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.whenLabel
 import com.arkhins.wink.ui.components.Attachment
 import com.arkhins.wink.ui.components.FileView
+import com.arkhins.wink.data.OtherUser
 import com.arkhins.wink.ui.components.isImage
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
@@ -300,7 +301,7 @@ private val ReadBlue = Color(0xFF0B5CAD)
  * swipe it right to left to reply; tap a quote to go to the original.
  */
 @Composable
-fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onTitle: (String) -> Unit) {
+fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> Unit, onOther: (OtherUser) -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var detail by remember { mutableStateOf<CachedChat?>(null) }
@@ -340,7 +341,7 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
         app.chatCache.load(conversationId)?.let { cached ->
             if (detail == null) {
                 detail = cached
-                cached.other?.let { onTitle(it.name) }
+                cached.other?.let(onOther)
                 if (cached.messages.isNotEmpty()) list.scrollToItem(cached.messages.size * 2)
             }
         }
@@ -352,7 +353,7 @@ fun ChatScreen(vm: AppViewModel, conversationId: String, onView: (FileView) -> U
             val grew = d.messages.size != (detail?.messages?.size ?: -1)
             detail = d
             error = null
-            d.other?.let { onTitle(it.name) }
+            d.other?.let(onOther)
             if (grew && d.messages.isNotEmpty()) list.animateScrollToItem(d.messages.size * 2)
         } catch (e: Exception) {
             if (detail == null) error = e.message

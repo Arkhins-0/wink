@@ -56,7 +56,7 @@ import kotlinx.coroutines.delay
 
 /** The bar at the top of every screen: a title (or a back arrow and title) and the countdown chip on the right. */
 @Composable
-fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) -> Unit, showCountdown: Boolean = true) {
+fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) -> Unit, showCountdown: Boolean = true, photo: (@Composable () -> Unit)? = null) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -68,6 +68,10 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, onOpenWeekend: (String) 
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back", tint = Snow) }
         } else {
             Spacer(Modifier.width(12.dp))
+        }
+        if (photo != null) {
+            photo()
+            Spacer(Modifier.width(10.dp))
         }
         Text(
             title,

@@ -31,8 +31,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.FileInfo
+import com.arkhins.wink.data.OtherUser
 import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.ui.components.FileView
+import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.BottomNav
 import com.arkhins.wink.ui.components.PopupCard
 import com.arkhins.wink.ui.components.TopBar
@@ -170,6 +172,7 @@ private fun MainNav(vm: AppViewModel) {
     val route = entry?.destination?.route ?: "home"
     val tab = route.substringBefore("/").substringBefore("?")
     var title by remember { mutableStateOf("") }
+    var chatWith by remember { mutableStateOf<OtherUser?>(null) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
@@ -243,6 +246,7 @@ private fun MainNav(vm: AppViewModel) {
             onBack = if (isTab) null else ({ nav.popBackStack() }),
             onOpenWeekend = openWeekend,
             showCountdown = tab != "pdf" && tab != "image",
+            photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
         )
         Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "home") {
@@ -252,7 +256,7 @@ private fun MainNav(vm: AppViewModel) {
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
                 composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view) { title = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view) { title = it.name; chatWith = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
                 composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") }) { title = it } }
