@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -149,7 +152,7 @@ private fun AuthNav(vm: AppViewModel) {
         // Any other link waits for sign-in; MainNav picks it up.
     }
 
-    NavHost(nav, startDestination = "login") {
+    NavHost(nav, startDestination = "login", enterTransition = { fadeIn(tween(120)) }, exitTransition = { fadeOut(tween(90)) }) {
         composable("login") { LoginScreen(onSignedIn = vm::signedIn, onForgot = { nav.navigate("forgot") }) }
         composable("forgot") { ForgotScreen(onBack = { nav.popBackStack() }) }
         composable("setpassword/{kind}/{token}") { entry ->
@@ -262,7 +265,15 @@ private fun MainNav(vm: AppViewModel) {
             menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }, "Export chat" to { chatExport++ }) else emptyList(),
         )
         Box(Modifier.weight(1f)) {
-            NavHost(nav, startDestination = "home") {
+            // Screens change in a blink: the default fade is far too slow for opening and closing a chat.
+            NavHost(
+                nav,
+                startDestination = "home",
+                enterTransition = { fadeIn(tween(120)) },
+                exitTransition = { fadeOut(tween(90)) },
+                popEnterTransition = { fadeIn(tween(120)) },
+                popExitTransition = { fadeOut(tween(90)) },
+            ) {
                 composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
