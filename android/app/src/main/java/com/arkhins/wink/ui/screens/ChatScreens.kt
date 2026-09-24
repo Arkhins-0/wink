@@ -180,22 +180,18 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
     val app = LocalApp.current
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    // Pull the list down at the top to slide the filter row out from under the header; pull again to put it back.
+    // Pull the list down at the top to slide the filter row out from under the header; push up to put it back.
     var filters by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("all") }
     val pull = remember {
         object : NestedScrollConnection {
-            var armed = false
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y > 0f && !armed && source == NestedScrollSource.UserInput) {
-                    armed = true
-                    filters = !filters
-                }
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (filters && available.y < -4f && source == NestedScrollSource.UserInput) filters = false
                 return Offset.Zero
             }
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                armed = false
-                return Velocity.Zero
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (!filters && available.y > 4f && source == NestedScrollSource.UserInput) filters = true
+                return Offset.Zero
             }
         }
     }
