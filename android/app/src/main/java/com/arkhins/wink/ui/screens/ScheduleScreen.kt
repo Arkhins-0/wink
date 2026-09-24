@@ -1,6 +1,14 @@
 package com.arkhins.wink.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,6 +27,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -35,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -259,9 +274,12 @@ private fun SeasonDialog(season: Season?, onDismiss: () -> Unit, onSaved: () -> 
     )
 }
 
-/** One weekend: header, sessions, and — for admins — the buttons to change any of it. */
+/**
+ * One weekend: the header, an arrow that drops the sessions down and folds
+ * them away, and — for admins — a menu to add a session or change the weekend.
+ */
 @Composable
-fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () -> Unit) {
+fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () -> Unit, startOpen: Boolean = false) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<RaceSession?>(null) }
@@ -269,46 +287,84 @@ fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () 
     var editingWeekend by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var open by remember { mutableStateOf(startOpen) }
+    var menu by remember { mutableStateOf(false) }
+    val turn by animateFloatAsState(if (open) 180f else 0f, label = "sessions-arrow")
     val now = System.currentTimeMillis()
     Panel {
         Column {
-            Column(Modifier.clickable(onClick = onOpen)) {
-                Text(w.name, style = MaterialTheme.typography.titleLarge, color = Snow)
-                if (w.place.isNotBlank()) Text(w.place, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
-                Text(
-                    "${w.startsOn} → ${w.endsOn} · track time ${w.timezone}" + if (isAdmin) " · channel ${if (w.channelOpen) "open" else "closed"}" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SnowFaint,
-                )
-            }
-            ErrorText(error)
-            if (w.sessions.isNotEmpty()) Spacer(Modifier.height(10.dp))
-            w.sessions.forEachIndexed { i, s ->
-                if (i > 0) Divider()
-                val start = instant(s.startsAt).toEpochMilli()
-                val end = instant(s.endsAt).toEpochMilli()
-                val live = start <= now && end > now
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(s.name, style = MaterialTheme.typography.titleSmall, color = if (end <= now) SnowFaint else Snow)
-                            if (live) {
-                                Spacer(Modifier.width(6.dp))
-                                Chip("LIVE", Gold, filled = true)
-                            }
-                        }
-                        Text("${localDateTime(s.startsAt)} – ${localTime(s.endsAt)}", style = MaterialTheme.typography.bodySmall, color = SnowSoft)
-                        Text("${trackDateTime(s.startsAt, w.timezone)} – ${trackTime(s.endsAt, w.timezone)} track", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
+                    Text(w.name, style = MaterialTheme.typography.titleLarge, color = Snow)
+                    if (w.place.isNotBlank()) Text(w.place, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
+                }
+                if (w.sessions.isNotEmpty()) {
+                    IconButton(onClick = { open = !open }) {
+                        Icon(
+                            Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = if (open) "Hide sessions" else "Show sessions",
+                            tint = Gold,
+                            modifier = Modifier.size(28.dp).rotate(turn),
+                        )
                     }
-                    if (isAdmin) IconAction(Icons.Outlined.Edit, "Edit session", Gold) { editing = s }
+                }
+                if (isAdmin) {
+                    Box {
+                        IconAction(Icons.Outlined.MoreVert, "More", SnowSoft) { menu = true }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = NightPanel) {
+                            DropdownMenuItem(
+                                text = { Text("Add session", color = Gold) },
+                                leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null, tint = Gold) },
+                                onClick = { menu = false; adding = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit weekend", color = SnowSoft) },
+                                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = SnowSoft) },
+                                onClick = { menu = false; editingWeekend = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete weekend", color = Danger) },
+                                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = Danger) },
+                                onClick = { menu = false; confirmDelete = true },
+                            )
+                        }
+                    }
                 }
             }
-            if (isAdmin) {
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    IconAction(Icons.Outlined.Add, "Add session", Gold) { adding = true }
-                    IconAction(Icons.Outlined.Edit, "Edit weekend", SnowSoft) { editingWeekend = true }
-                    IconAction(Icons.Outlined.Delete, "Delete weekend", Danger) { confirmDelete = true }
+            Text(
+                "${w.startsOn} → ${w.endsOn} · track time ${w.timezone}" + if (isAdmin) " · channel ${if (w.channelOpen) "open" else "closed"}" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = SnowFaint,
+                modifier = Modifier.clickable(onClick = onOpen),
+            )
+            ErrorText(error)
+            AnimatedVisibility(
+                visible = open && w.sessions.isNotEmpty(),
+                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+            ) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    w.sessions.forEachIndexed { i, s ->
+                        if (i > 0) Divider()
+                        val start = instant(s.startsAt).toEpochMilli()
+                        val end = instant(s.endsAt).toEpochMilli()
+                        val live = start <= now && end > now
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(s.name, style = MaterialTheme.typography.titleSmall, color = if (end <= now) SnowFaint else Snow)
+                                    if (live) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Chip("LIVE", Gold, filled = true)
+                                    }
+                                }
+                                Text("${localDateTime(s.startsAt)} – ${localTime(s.endsAt)}", style = MaterialTheme.typography.bodySmall, color = SnowSoft)
+                                Text("${trackDateTime(s.startsAt, w.timezone)} – ${trackTime(s.endsAt, w.timezone)} track", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                            }
+                            if (isAdmin) IconAction(Icons.Outlined.Edit, "Edit session", Gold) { editing = s }
+                        }
+                    }
                 }
             }
         }

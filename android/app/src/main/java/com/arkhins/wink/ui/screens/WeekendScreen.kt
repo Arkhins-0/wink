@@ -62,7 +62,7 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
             error != null && w == null -> item { ErrorText(error) }
             w == null -> item { Loading() }
             else -> {
-                item { WeekendCard(w, isAdmin = vm.me?.isAdmin == true, onOpen = {}, onChanged = { reload++ }) }
+                item { WeekendCard(w, isAdmin = vm.me?.isAdmin == true, onOpen = {}, onChanged = { reload++ }, startOpen = true) }
                 item { Text("Weekend channel", style = MaterialTheme.typography.titleMedium, color = Snow) }
                 val c = channel
                 if (c?.canPost == true) {
