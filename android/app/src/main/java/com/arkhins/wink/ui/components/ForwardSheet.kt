@@ -43,6 +43,7 @@ fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>)
     val app = LocalApp.current
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var search by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (chats == null) app.chatCache.loadList()?.let { chats = it }
@@ -56,10 +57,14 @@ fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>)
                 color = Snow,
             )
             Spacer(Modifier.height(8.dp))
-            val list = chats
+            Field(search, { search = it }, "Search people")
+            Spacer(Modifier.height(4.dp))
+            // The people talked to most come first, then whoever spoke last.
+            val list = chats?.sortedWith(compareByDescending<Conversation> { it.messages }.thenByDescending { it.lastMessageAt ?: "" })
+                ?.filter { search.isBlank() || it.other.name.contains(search.trim(), ignoreCase = true) || it.other.roleLabel.contains(search.trim(), ignoreCase = true) }
             when {
                 list == null -> Loading()
-                list.isEmpty() -> Text("No chats to forward to.", color = SnowFaint)
+                list.isEmpty() -> Text(if (search.isBlank()) "No chats to forward to." else "No one matches.", color = SnowFaint)
                 else -> LazyColumn(Modifier.weight(1f, fill = false)) {
                     items(list, key = { it.id }) { c ->
                         val on = c.id in picked
@@ -92,7 +97,7 @@ fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>)
                 enabled = picked.isNotEmpty() && !sending,
             ) {
                 sending = true
-                onSend(list.orEmpty().filter { it.id in picked })
+                onSend(chats.orEmpty().filter { it.id in picked })
             }
         }
     }

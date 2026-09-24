@@ -321,6 +321,8 @@ export type ConversationOut = {
   /** Ticks on the last message when you sent it; null when it is theirs or deleted. */
   lastStatus: "sent" | "delivered" | "read" | null;
   unread: number;
+  /** How many messages the chat holds: how often these two talk. */
+  messages: number;
 };
 
 /**
@@ -473,6 +475,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     last_file: string | null;
     live_last_at: string | null;
     last_status: "sent" | "delivered" | "read" | null;
+    total: string;
   }>(
     `SELECT c.id, c.owner_id, c.member_id, c.last_message_at,
             o.id AS o_id, o.name AS o_name, o.email AS o_email, o.role AS o_role, o.photo_key AS o_photo, o.status AS o_status,
@@ -487,7 +490,8 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
                          WHEN rr.delivered_at IS NOT NULL THEN 'delivered'
                          ELSE 'sent' END
                FROM messages m LEFT JOIN message_recipients rr ON rr.message_id = m.id AND rr.user_id <> $1
-               WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_status
+               WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_status,
+            (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")})::text AS total
      FROM conversations c
      JOIN users o ON o.id = CASE WHEN c.owner_id = $1 THEN c.member_id ELSE c.owner_id END
      WHERE c.kind = 'direct' AND (c.owner_id = $1 OR c.member_id = $1)
@@ -508,6 +512,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
     lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
     lastStatus: r.last_status,
+    messages: Number(r.total),
     unread: Number(r.unread),
   }));
 }
