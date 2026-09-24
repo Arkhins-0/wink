@@ -173,8 +173,10 @@ private fun ManagersSheet(w: ChannelWeekend, onDismiss: () -> Unit, onSave: (Lis
     var people by remember { mutableStateOf<List<PublicUser>?>(null) }
     var picked by remember { mutableStateOf(w.managers.map { it.id }.toSet()) }
     var filter by remember { mutableStateOf("") }
+    // Only admins and coordinators can manage a channel.
+    fun eligible(list: List<PublicUser>) = list.filter { u -> u.status == "active" && (u.role == "admin" || u.role == "coordinator") }
     LaunchedEffect(Unit) {
-        scope.launch { runCatching { app.store.get("/api/users", UsersResponse.serializer()) { people = it.users.filter { u -> u.status == "active" } }.users }.onSuccess { people = it.filter { u -> u.status == "active" } } }
+        scope.launch { runCatching { app.store.get("/api/users", UsersResponse.serializer()) { people = eligible(it.users) }.users }.onSuccess { people = eligible(it) } }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {

@@ -106,7 +106,7 @@ export async function channelManagers(weekendId: string): Promise<ChannelManager
   return rows.map(manager);
 }
 
-/** Admin: exactly these people manage the weekend's channel. */
+/** Admin: exactly these people manage the weekend's channel. Only admins and coordinators can be managers. */
 export async function setChannelManagers(admin: SessionUser, weekendId: string, userIds: string[]): Promise<ChannelManager[]> {
   if (admin.role !== "admin") throw new AuthError(403, "Only an admin assigns channel managers.");
   const ids = Array.from(new Set(userIds));
@@ -115,7 +115,8 @@ export async function setChannelManagers(admin: SessionUser, weekendId: string, 
     if (ids.length > 0) {
       await c.query(
         `INSERT INTO channel_managers (weekend_id, user_id)
-         SELECT $1, u.id FROM users u WHERE u.id = ANY($2::uuid[]) AND u.status = 'active'`,
+         SELECT $1, u.id FROM users u
+         WHERE u.id = ANY($2::uuid[]) AND u.status = 'active' AND u.role IN ('admin', 'coordinator')`,
         [weekendId, ids],
       );
     }
