@@ -404,18 +404,18 @@ fun EmailScreen(group: String?, onSent: () -> Unit) {
                 }
             }
         }
-        Composer(placeholder = "What everyone needs to know", urgentOption = false, sendLabel = "Send email") { d ->
+        Composer(placeholder = "What everyone needs to know", urgentOption = false, sendLabel = "Send email", voiceNoteSends = false) { d ->
             val r = if (group != null) {
                 app.api.post("/api/email/relay", SentResponse.serializer()) {
                     put("group", group)
                     put("body", d.body)
-                    if (d.fileId != null) put("fileId", d.fileId)
+                    putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                 }
             } else {
                 app.api.post("/api/email/bulk", SentResponse.serializer()) {
                     putJsonArray("roles") { roles.forEach { add(it) } }
                     put("body", d.body)
-                    if (d.fileId != null) put("fileId", d.fileId)
+                    putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                 }
             }
             sent = r.delivered

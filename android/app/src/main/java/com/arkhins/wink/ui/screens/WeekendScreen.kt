@@ -34,7 +34,9 @@ import com.arkhins.wink.ui.components.MessageCard
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 /** One race weekend: its sessions and its channel. */
 @Composable
@@ -73,10 +75,10 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
                 val c = channel
                 if (c?.canPost == true) {
                     item {
-                        Composer(placeholder = "Post to everyone for this weekend", sendLabel = "Post") { d ->
+                        Composer(placeholder = "Post to everyone for this weekend", sendLabel = "Post", voiceNoteSends = false) { d ->
                             app.api.post("/api/weekends/$weekendId/channel", IdResponse.serializer()) {
                                 put("body", d.body)
-                                if (d.fileId != null) put("fileId", d.fileId)
+                                putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                                 put("urgent", d.urgent)
                             }
                             reload++

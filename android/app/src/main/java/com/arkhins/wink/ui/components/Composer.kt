@@ -102,19 +102,27 @@ import java.util.Locale
 import kotlin.coroutines.resume
 
 /** What a composer hands back. */
-data class Draft(val body: String, val fileId: String?, val urgent: Boolean)
+data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolean) {
+    /** The first attachment, for callers that only ever sent one. */
+    val fileId: String? get() = fileIds.firstOrNull()
+}
 
 /** What sits above the field: the message being answered or edited, with a way out. */
 data class ComposerBanner(val title: String, val text: String, val onCancel: () -> Unit)
 
-private data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
+internal data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
+
+/** What the server takes in one message. */
+private const val MAX_PHOTOS = 30
+private const val MAX_ATTACHMENTS = 50
 
 /**
  * The message box, the way a chat app does it: the clip and the send
  * button live inside the field; with nothing to send the button is a mic
  * (hold to record a voice note); a long press on send offers the urgent
  * send that also goes out by email. The clip opens a sheet with gallery,
- * document, audio and location.
+ * document, audio and location; what is picked waits in a tray (photos
+ * above the field, tags below) until the message goes.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -125,15 +133,23 @@ fun Composer(
     banner: ComposerBanner? = null,
     /** Set while editing a message: the field holds its text; attachments and voice notes step aside. */
     editText: String? = null,
+    /** True in chats: a finished voice note goes out at once. False elsewhere: it joins the tray as a tag. */
+    voiceNoteSends: Boolean = true,
     send: suspend (Draft) -> Unit,
 ) {
     val app = LocalApp.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var body by remember { mutableStateOf(TextFieldValue("")) }
-    var picked by remember { mutableStateOf<Picked?>(null) }
+    var images by remember { mutableStateOf<List<Picked>>(emptyList()) }
+    var docs by remember { mutableStateOf<List<Picked>>(emptyList()) }
+    var audios by remember { mutableStateOf<List<Picked>>(emptyList()) }
+    var location by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    // Files already uploaded for this tray, so a retry after a failure doesn't send them twice.
+    val uploaded = remember { mutableMapOf<Uri, String>() }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
     var sheet by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<VoiceRecorder?>(null) }
@@ -157,27 +173,78 @@ fun Composer(
         }
     }
 
-    val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) picked = describe(context, uri)
+    /** How many more files the message can carry. */
+    fun room() = MAX_ATTACHMENTS - images.size - docs.size - audios.size
+
+    /** New files onto the end of a list, skipping ones already there, within the per-message limit. */
+    fun added(to: List<Picked>, uris: List<Uri>, cap: Int = Int.MAX_VALUE): List<Picked> {
+        val fresh = uris.distinct().filter { u -> to.none { it.uri == u } }
+        val fits = minOf(fresh.size, room(), cap - to.size).coerceAtLeast(0)
+        if (fits < fresh.size) error = if (cap - to.size < room()) "Up to $MAX_PHOTOS photos at a time." else "Up to $MAX_ATTACHMENTS attachments at a time."
+        return to + fresh.take(fits).map { describe(context, it) }
     }
-    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) picked = describe(context, uri)
+
+    val pickDocuments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) docs = added(docs, uris)
+    }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) audios = added(audios, uris)
+    }
+    val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
+        if (uris.isNotEmpty()) images = added(images, uris, MAX_PHOTOS)
     }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
-    fun doSend(urgent: Boolean, attachment: Picked? = picked, text: String = body.text) {
-        if (busy || (text.isBlank() && attachment == null)) return
+    /** Uploads the tray in order (photos, documents, audio), then hands over the text with the location as its last line. */
+    fun doSend(urgent: Boolean) {
+        val text = body.text
+        // While editing, the tray steps aside: only the text changes.
+        val files = if (editing) emptyList() else images + docs + audios
+        val loc = if (editing) null else location
+        if (busy || (text.isBlank() && files.isEmpty() && loc == null)) return
         busy = true
         error = null
         scope.launch {
             try {
-                val fileId = attachment?.let { upload(context, app.api, app.documents, app.chatMedia, it) }
-                send(Draft(text.trim(), fileId, urgent))
+                val ids = files.mapIndexed { i, p ->
+                    uploaded[p.uri] ?: run {
+                        status = "Uploading ${i + 1} of ${files.size}…"
+                        upload(context, app.api, app.documents, app.chatMedia, p).also { uploaded[p.uri] = it }
+                    }
+                }
+                status = null
+                val full = listOfNotNull(text.trim().ifEmpty { null }, loc?.let { (lat, lng) -> locationText(lat, lng) }).joinToString("\n")
+                send(Draft(full, ids, urgent))
                 body = TextFieldValue("")
-                picked = null
+                if (!editing) {
+                    images = emptyList()
+                    docs = emptyList()
+                    audios = emptyList()
+                    location = null
+                    uploaded.clear()
+                }
             } catch (e: Exception) {
                 error = e.message ?: "Could not send."
+            } finally {
+                busy = false
+                status = null
+            }
+        }
+    }
+
+    /** A chat's voice note goes out on its own at once, whatever sits in the field. */
+    fun sendNote(note: Picked) {
+        if (busy) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val id = upload(context, app.api, app.documents, app.chatMedia, note)
+                send(Draft("", listOf(id), false))
+            } catch (e: Exception) {
+                error = e.message ?: "Could not send."
+                note.uri.path?.let { runCatching { File(it).delete() } }
             } finally {
                 busy = false
             }
@@ -203,6 +270,7 @@ fun Composer(
         if (error != null) {
             ErrorText(error, Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
         }
+        status?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = SnowSoft, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) }
         banner?.let { b ->
             Row(
                 Modifier
@@ -221,18 +289,8 @@ fun Composer(
                 PlainIcon(rememberVectorPainter(Icons.Outlined.Close), "Cancel", SnowFaint, enabled = !busy) { b.onCancel() }
             }
         }
-        picked?.let { p ->
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painterResource(if (p.mime.startsWith("image/")) R.drawable.ic_gallery else if (p.mime.startsWith("audio/")) R.drawable.ic_audio else R.drawable.ic_document),
-                    contentDescription = null,
-                    tint = Gold,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(p.name, style = MaterialTheme.typography.bodySmall, color = SnowSoft, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text("Remove", style = MaterialTheme.typography.labelSmall, color = SnowFaint, modifier = Modifier.clickable(enabled = !busy) { picked = null }.padding(4.dp))
-            }
+        if (!editing && images.isNotEmpty()) {
+            PhotoStrip(images, enabled = !busy) { p -> images = images - p; uploaded.remove(p.uri) }
         }
         Row(verticalAlignment = Alignment.Bottom) {
             if (recording != null) {
@@ -240,7 +298,7 @@ fun Composer(
                     Box(Modifier.size(10.dp).background(Danger, CircleShape))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Recording ${String.format(Locale.US, "%d:%02d", recordSeconds / 60, recordSeconds % 60)} · release to send",
+                        "Recording ${String.format(Locale.US, "%d:%02d", recordSeconds / 60, recordSeconds % 60)} · release to ${if (voiceNoteSends) "send" else "attach"}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Snow,
                     )
@@ -272,7 +330,8 @@ fun Composer(
                 if (!editing) PlainIcon(painterResource(R.drawable.ic_clip), "Attach", SnowSoft, enabled = !busy) { sheet = true }
             }
 
-            val canSend = !busy && (body.text.isNotBlank() || picked != null)
+            val trayFull = !editing && (images.isNotEmpty() || docs.isNotEmpty() || audios.isNotEmpty() || location != null)
+            val canSend = !busy && (body.text.isNotBlank() || trayFull)
             Box {
                 when {
                     busy -> Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), color = Gold, strokeWidth = 2.dp) }
@@ -311,7 +370,14 @@ fun Composer(
                                                 "audio/mp4",
                                                 file.length(),
                                             )
-                                            doSend(false, attachment = note, text = "")
+                                            if (voiceNoteSends) {
+                                                sendNote(note)
+                                            } else if (room() <= 0) {
+                                                file.delete()
+                                                error = "Up to $MAX_ATTACHMENTS attachments at a time."
+                                            } else {
+                                                audios = audios + note
+                                            }
                                         } else {
                                             file?.delete()
                                         }
@@ -337,6 +403,22 @@ fun Composer(
                 }
             }
         }
+        if (!editing) {
+            TrayTags(
+                docs,
+                audios,
+                location,
+                enabled = !busy,
+                onRemoveDoc = { p -> docs = docs - p; uploaded.remove(p.uri) },
+                onRemoveAudio = { p ->
+                    audios = audios - p
+                    uploaded.remove(p.uri)
+                    // A recorded note lives only in cache; detaching it throws it away.
+                    if (p.uri.scheme == "file") p.uri.path?.let { runCatching { File(it).delete() } }
+                },
+                onRemoveLocation = { location = null },
+            )
+        }
     }
 
     if (sheet) {
@@ -350,15 +432,16 @@ fun Composer(
             ) {
                 SheetTile("Gallery", { Icon(painterResource(R.drawable.ic_gallery), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
                     sheet = false
-                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    if (images.size >= MAX_PHOTOS) error = "Up to $MAX_PHOTOS photos at a time."
+                    else pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }
                 SheetTile("Document", { Icon(painterResource(R.drawable.ic_document), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
                     sheet = false
-                    pickDocument.launch(arrayOf("application/pdf", "application/vnd.*", "application/msword", "text/*"))
+                    pickDocuments.launch(arrayOf("application/pdf", "application/vnd.*", "application/msword", "text/*"))
                 }
                 SheetTile("Audio", { Icon(painterResource(R.drawable.ic_audio), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
                     sheet = false
-                    pickDocument.launch(arrayOf("audio/*"))
+                    pickAudio.launch(arrayOf("audio/*"))
                 }
                 SheetTile("Location", { Icon(Icons.Outlined.Place, contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }, busy = locating) {
                     sheet = false
@@ -373,7 +456,8 @@ fun Composer(
                             val loc = currentLocation(context)
                             locating = false
                             if (loc == null) error = "Could not get your location. Is location turned on?"
-                            else doSend(false, attachment = null, text = locationText(loc))
+                            // One location per message: picking again replaces it.
+                            else location = loc.latitude to loc.longitude
                         }
                     }
                 }
@@ -403,8 +487,10 @@ private fun SheetTile(label: String, icon: @Composable () -> Unit, busy: Boolean
 /* ───────────────────────────── Location ──────────────────────────── */
 
 /** A location message: a pin, then a Maps link the bubble turns into a card. */
-fun locationText(loc: Location): String =
-    "📍 My location\nhttps://maps.google.com/?q=${"%.6f".format(Locale.US, loc.latitude)},${"%.6f".format(Locale.US, loc.longitude)}"
+fun locationText(loc: Location): String = locationText(loc.latitude, loc.longitude)
+
+fun locationText(lat: Double, lng: Double): String =
+    "📍 My location\nhttps://maps.google.com/?q=${"%.6f".format(Locale.US, lat)},${"%.6f".format(Locale.US, lng)}"
 
 /** The phone's position now, or the last known one; null when nothing is available within a few seconds. */
 private suspend fun currentLocation(context: Context): Location? = withContext(Dispatchers.IO) {
@@ -506,9 +592,10 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
         val info = FileInfo(slot.id, p.name, p.mime, temp.length())
         runCatching { media.put(info, temp) }
         if (!info.mime.startsWith("image/") && !info.mime.startsWith("audio/")) runCatching { documents.keepSent(info, temp) }
+        // A recorded note goes once it's up; on a failure it stays, so the tray can try again.
+        if (p.uri.scheme == "file") runCatching { File(p.uri.path!!).delete() }
         slot.id
     } finally {
         temp.delete()
-        if (p.uri.scheme == "file") runCatching { File(p.uri.path!!).delete() }
     }
 }

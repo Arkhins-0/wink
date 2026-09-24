@@ -120,12 +120,12 @@ fun ComposeScreen(onSent: () -> Unit) {
                 }
                 item { Text("${picked.size} selected", style = MaterialTheme.typography.labelSmall, color = SnowSoft) }
                 item {
-                    Composer { d ->
+                    Composer(voiceNoteSends = false) { d ->
                         if (picked.isEmpty()) throw IllegalStateException("Pick at least one person.")
                         val r = app.api.post("/api/messages", SentResponse.serializer()) {
                             putJsonArray("recipientIds") { picked.forEach { add(it) } }
                             put("body", d.body)
-                            if (d.fileId != null) put("fileId", d.fileId)
+                            putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                             put("urgent", d.urgent)
                         }
                         sent = r.delivered
