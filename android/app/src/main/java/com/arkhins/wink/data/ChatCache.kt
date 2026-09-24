@@ -36,8 +36,22 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         explicitNulls = false
     }
     private val locks = ConcurrentHashMap<String, Mutex>()
+    // The same copies held in memory, so a chat or the list opened a second time is there in the very first frame.
+    private val mem = ConcurrentHashMap<String, CachedChat>()
+    @Volatile private var memList: List<Conversation>? = null
 
     private fun file(id: String) = File(dir, "$id.json")
+
+    /** A chat as the phone last had it, straight from memory: null until it has been loaded or synced once. */
+    fun peek(id: String): CachedChat? = mem[id]
+
+    /** The chats list as last seen, straight from memory. */
+    fun peekList(): List<Conversation>? = memList
+
+    private fun keep(id: String, chat: CachedChat) {
+        write(file(id), json.encodeToString(CachedChat.serializer(), chat))
+        mem[id] = chat
+    }
     private val listFile get() = File(dir, "list.json")
 
     private fun write(target: File, text: String) {
@@ -54,7 +68,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
 
     /** What the phone has for a chat, without asking the server. */
     suspend fun load(id: String): CachedChat? = withContext(Dispatchers.IO) {
-        runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()
+        mem[id] ?: runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()?.also { mem[id] = it }
     }
 
     /**
@@ -89,7 +103,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             val deletedNow = d.messages.filter { it.deleted }.map { it.id }.toSet()
             cached?.messages?.filter { it.id in deletedNow }?.mapNotNull { it.file }?.forEach { media.remove(it) }
             val out = CachedChat(d.other ?: cached?.other, merged, d.group ?: cached?.group)
-            write(file(id), json.encodeToString(CachedChat.serializer(), out))
+            keep(id, out)
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
             merged.filter { it.id !in known }.mapNotNull { it.file }.filter { media.wanted(it) }.forEach { f ->
                 scope.launch { runCatching { media.fetch(f) } }
@@ -104,7 +118,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             val cached = load(id) ?: return@withContext null
             val merged = (cached.messages.filter { it.id != message.id } + message).sortedBy { instant(it.createdAt) }
             val out = cached.copy(messages = merged)
-            write(file(id), json.encodeToString(CachedChat.serializer(), out))
+            keep(id, out)
             out
         }
     }
@@ -115,23 +129,26 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             val cached = load(id) ?: return@withContext null
             val rest = cached.messages.filter { it.id != localId && it.id != message?.id }
             val out = cached.copy(messages = (if (message == null) rest else rest + message).sortedBy { instant(it.createdAt) })
-            write(file(id), json.encodeToString(CachedChat.serializer(), out))
+            keep(id, out)
             out
         }
     }
 
     /** The chats list as last seen, for showing at once. */
     suspend fun loadList(): List<Conversation>? = withContext(Dispatchers.IO) {
-        runCatching { json.decodeFromString(ListSerializer(Conversation.serializer()), listFile.readText()) }.getOrNull()
+        memList ?: runCatching { json.decodeFromString(ListSerializer(Conversation.serializer()), listFile.readText()) }.getOrNull()?.also { memList = it }
     }
 
     suspend fun saveList(list: List<Conversation>) = withContext(Dispatchers.IO) {
+        memList = list
         runCatching { write(listFile, json.encodeToString(ListSerializer(Conversation.serializer()), list)) }
     }
 
     fun sizeBytes(): Long = dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
     fun wipe() {
+        mem.clear()
+        memList = null
         dir.deleteRecursively()
         dir.mkdirs()
     }

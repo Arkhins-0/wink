@@ -178,7 +178,7 @@ fun ChatsScreen(vm: AppViewModel, page: Int, onPage: (Int) -> Unit, onOpen: (Str
 @Composable
 private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Unit) {
     val app = LocalApp.current
-    var chats by remember { mutableStateOf<List<Conversation>?>(null) }
+    var chats by remember { mutableStateOf(app.chatCache.peekList()) }
     var error by remember { mutableStateOf<String?>(null) }
     // Pull the list down at the top to slide the filter row out from under the header; push up to put it back.
     var filters by remember { mutableStateOf(false) }
@@ -446,7 +446,8 @@ fun ChatScreen(
 ) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
-    var detail by remember { mutableStateOf<CachedChat?>(null) }
+    // What the phone already holds for this chat, from the very first frame: no blank page while it opens.
+    var detail by remember { mutableStateOf(app.chatCache.peek(conversationId)) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
     var replyTo by remember { mutableStateOf<Message?>(null) }
@@ -491,12 +492,8 @@ fun ChatScreen(
 
     // The phone's copy first: the chat is there at once, even offline.
     LaunchedEffect(conversationId) {
-        app.chatCache.load(conversationId)?.let { cached ->
-            if (detail == null) {
-                detail = cached
-                (cached.other ?: cached.group?.asOther())?.let(onOther)
-            }
-        }
+        val cached = detail ?: app.chatCache.load(conversationId)?.also { if (detail == null) detail = it }
+        cached?.let { (it.other ?: it.group?.asOther())?.let(onOther) }
     }
     // Then only what changed.
     LaunchedEffect(conversationId, reload, vm.refreshTick) {
@@ -536,15 +533,15 @@ fun ChatScreen(
     }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
     LaunchedEffect(d?.group?.myRole, d != null) { if (d != null) onCanExport(d.group == null || d.group.myRole == "admin") }
-    // The newest message is what a chat opens on; anything new after that scrolls into view. Done once the rows
-    // exist, not when the data lands — a scroll before the list is laid out goes nowhere.
-    var shownRows by remember { mutableStateOf(-1) }
+    // The list is laid out from the bottom (newest first, reversed), so a chat opens on its newest message
+    // with no scroll at all. Something new is brought into view when you are at the bottom or it is yours.
+    val shown = remember(rows) { rows.asReversed() }
+    var lastNewest by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(rows.size) {
-        if (rows.isEmpty()) return@LaunchedEffect
-        val first = shownRows < 0
-        val grew = rows.size > shownRows
-        shownRows = rows.size
-        if (first) list.scrollToItem(rows.size - 1) else if (grew) list.animateScrollToItem(rows.size - 1)
+        val newest = (rows.lastOrNull() as? ChatRow.Msg)?.m ?: return@LaunchedEffect
+        val before = lastNewest
+        lastNewest = newest.id
+        if (before != null && before != newest.id && (newest.mine || list.firstVisibleItemIndex <= 2)) list.animateScrollToItem(0)
     }
 
     val context = LocalContext.current
@@ -618,10 +615,10 @@ fun ChatScreen(
 
     /** Scroll to a quoted message and light it up for a second. */
     fun jump(id: String) {
-        val index = rows.indexOfFirst { it is ChatRow.Msg && it.m.id == id }
+        val index = shown.indexOfFirst { it is ChatRow.Msg && it.m.id == id }
         if (index < 0) return
         scope.launch {
-            list.animateScrollToItem((index - 1).coerceAtLeast(0))
+            list.animateScrollToItem(index)
             flash = id
             delay(1000)
             if (flash == id) flash = null
@@ -678,12 +675,12 @@ fun ChatScreen(
                 IconAction(Icons.Outlined.Close, "Close search", SnowSoft, onClick = onSearchClose)
             }
         }
-        LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(Modifier.weight(1f), state = list, reverseLayout = true, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when {
                 error != null && d == null -> item { ErrorText(error) }
                 d == null -> item { Loading() }
                 d.messages.isEmpty() && pending.isEmpty() -> item { Empty("No messages yet. Say hello.") }
-                else -> items(rows, key = { r -> if (r is ChatRow.Msg) r.m.id else "day-${(r as ChatRow.Day).label}" }) { r ->
+                else -> items(shown, key = { r -> if (r is ChatRow.Msg) r.m.id else "day-${(r as ChatRow.Day).label}" }) { r ->
                     when (r) {
                         is ChatRow.Day -> DaySeparator(r.label)
                         is ChatRow.Msg -> if (r.m.event != null) EventLine(r.m.event) else {
