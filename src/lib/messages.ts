@@ -3,10 +3,10 @@ import "server-only";
 import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
-import { fileById, type FileRow } from "./files";
+import { filesByIds, messageFileIds, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
-import { activeUserIds, deliver, preview } from "./notify";
+import { activeUserIds, deliver, describeFiles, preview } from "./notify";
 import { pushSync } from "./push";
 import { CHANNEL_POSTERS, ROLE_LABEL, type Role } from "./roles";
 import { APP_NAME } from "./config";
@@ -20,6 +20,12 @@ import { currentSeason, LIVE_SEASON } from "./seasons";
  */
 
 export type Kind = "broadcast" | "channel" | "direct" | "group";
+
+export type FileRef = { id: string; name: string; mime: string; size: number };
+
+/** At most this many photos, and this many attachments in all, in one message. */
+export const MAX_PHOTOS = 30;
+export const MAX_FILES = 50;
 
 /** A person's picture, or null when they have none. */
 export const photoUrl = (u: { id: string; photo_key: string | null }): string | null => (u.photo_key ? `/api/users/${u.id}/photo` : null);
@@ -47,7 +53,10 @@ export type MessageOut = {
   weekendId: string | null;
   sender: { id: string; name: string; role: Role; roleLabel: string; photoUrl: string | null } | null;
   body: string;
-  file: { id: string; name: string; mime: string; size: number } | null;
+  /** The first attachment (what older clients show). */
+  file: FileRef | null;
+  /** Every attachment, in the order they were picked: photos, documents, audio. */
+  files: FileRef[];
   urgent: boolean;
   createdAt: string;
   readAt: string | null;
@@ -111,6 +120,7 @@ type Row = {
   event: string | null;
   gi_group: string | null;
   gi_name: string | null;
+  files_json: FileRef[] | null;
   rm_sender_id: string | null;
   rm_sender_name: string | null;
   rm_body: string | null;
@@ -130,7 +140,9 @@ const SELECT = `
          rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
          m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name,
-         gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event
+         gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event,
+         (SELECT json_agg(json_build_object('id', xf.id, 'name', xf.name, 'mime', xf.mime, 'size', xf.size) ORDER BY mf.position)
+            FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json
   FROM messages m
   LEFT JOIN conversations c ON c.id = m.conversation_id
   LEFT JOIN users s ON s.id = m.sender_id
@@ -164,6 +176,11 @@ function out(row: Row, viewerId: string): MessageOut {
     file: row.file_id
       ? { id: row.file_id, name: row.file_name ?? "file", mime: row.file_mime ?? "", size: Number(row.file_size ?? 0) }
       : null,
+    files: row.files_json
+      ? row.files_json.map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: Number(f.size) }))
+      : row.file_id
+        ? [{ id: row.file_id, name: row.file_name ?? "file", mime: row.file_mime ?? "", size: Number(row.file_size ?? 0) }]
+        : [],
     urgent: row.urgent,
     createdAt: new Date(row.created_at).toISOString(),
     readAt: iso(row.read_at),
@@ -209,19 +226,35 @@ function out(row: Row, viewerId: string): MessageOut {
 
 export type Draft = {
   body: string;
+  /** One attachment (older clients). */
   fileId?: string | null;
+  /** Several attachments, in order (photos, documents, audio). */
+  fileIds?: string[];
   urgent?: boolean;
   replyToId?: string | null;
-  /** Forward this message instead: its text and file are copied, marked as forwarded. */
+  /**
+   * Forward this message instead: its text and files are copied, marked as
+   * forwarded. With `fileIds` too, only those of its files go (and no text):
+   * a few photos picked out of an album.
+   */
   forwardOf?: string | null;
 };
 
-async function checkFile(sender: SessionUser, fileId: string | null | undefined) {
-  if (!fileId) return null;
-  const file = await fileById(fileId);
-  if (!file || !file.ready) throw new AuthError(400, "That file has not finished uploading.");
-  if (file.uploaded_by !== sender.id && sender.role !== "admin") throw new AuthError(403, "Not your file.");
-  return file;
+/** The attachments a draft names, in order, each once. */
+const draftFileIds = (d: Draft): string[] => Array.from(new Set([d.fileId, ...(d.fileIds ?? [])].filter((x): x is string => Boolean(x))));
+
+const hasContent = (d: Draft): boolean => Boolean(d.body.trim()) || draftFileIds(d).length > 0;
+
+/** The sender's own uploaded files, finished, within the limits. */
+async function checkFiles(sender: SessionUser, d: Draft): Promise<FileRow[]> {
+  const ids = draftFileIds(d);
+  if (ids.length === 0) return [];
+  if (ids.length > MAX_FILES) throw new AuthError(400, `Up to ${MAX_FILES} attachments at a time.`);
+  const files = await filesByIds(ids);
+  if (files.length !== ids.length || files.some((f) => !f.ready)) throw new AuthError(400, "A file has not finished uploading.");
+  if (files.some((f) => f.uploaded_by !== sender.id) && sender.role !== "admin") throw new AuthError(403, "Not your file.");
+  if (files.filter((f) => f.mime.startsWith("image/")).length > MAX_PHOTOS) throw new AuthError(400, `Up to ${MAX_PHOTOS} photos at a time.`);
+  return files;
 }
 
 /** What the app's popup shows: the sender, where it was said, the words, and what is attached. */
@@ -257,13 +290,20 @@ function senderLabel(sender: SessionUser): string {
   return `${sender.name || sender.email} · ${ROLE_LABEL[sender.role]}`;
 }
 
-async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, fileId: string | null) {
+async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, files: FileRow[]) {
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
     `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`,
-    [conversationId, sender.id, draft.body, fileId, Boolean(draft.urgent), season.id, draft.replyToId ?? null, Boolean(draft.forwardOf)],
+    [conversationId, sender.id, draft.body, files[0]?.id ?? null, Boolean(draft.urgent), season.id, draft.replyToId ?? null, Boolean(draft.forwardOf)],
   );
+  if (files.length > 0) {
+    await run(
+      `INSERT INTO message_files (message_id, file_id, position)
+       SELECT $1, f, i - 1 FROM unnest($2::uuid[]) WITH ORDINALITY AS t(f, i)`,
+      [row!.id, files.map((f) => f.id)],
+    );
+  }
   if (conversationId) {
     await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [conversationId, row!.created_at]);
   }
@@ -279,22 +319,23 @@ export async function sendBroadcast(
 ): Promise<{ id: string; delivered: number }> {
   const recipients = await filterBelow(sender, draft.recipientIds);
   if (recipients.length === 0) throw new AuthError(400, "Pick at least one person below you.");
-  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
-  const file = await checkFile(sender, draft.fileId);
-  const id = await insertMessage(null, sender, draft, file?.id ?? null);
-  const text = preview(draft.body, file?.name);
-  const mail = draft.urgent || file || draft.forceEmail;
+  if (!hasContent(draft)) throw new AuthError(400, "Write something or attach a document.");
+  const files = await checkFiles(sender, draft);
+  const id = await insertMessage(null, sender, draft, files);
+  const text = preview(draft.body, files);
+  const mail = draft.urgent || files.length > 0 || draft.forceEmail;
   await deliver({
     messageId: id,
     recipientIds: recipients,
-    push: { title: senderLabel(sender), body: text, link: `/home?m=${id}`, tag: `m-${id}`, popup: popupData("announcement", sender, draft, file) },
+    push: { title: senderLabel(sender), body: text, link: `/home?m=${id}`, tag: `m-${id}`, popup: popupData("announcement", sender, draft, files[0] ?? null) },
     sync: { scope: "home" },
     email: mail
       ? {
-          subject: `${draft.urgent ? "Urgent: " : ""}${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
-          title: file ? `New document from ${sender.name || sender.email}` : `Message from ${sender.name || sender.email}`,
-          body: draft.body.trim() || `A document was shared: ${file?.name ?? ""}`,
+          subject: `${draft.urgent ? "Urgent: " : ""}${text.slice(0, 80)}`,
+          title: `Message from ${sender.name || sender.email}`,
+          body: mailBody(draft, files),
           force: Boolean(draft.forceEmail),
+          files,
         }
       : undefined,
   });
@@ -336,10 +377,10 @@ export async function postToChannel(sender: SessionUser, weekendId: string, draf
   const channel = await channelFor(weekendId);
   if (!channel) throw new AuthError(404, "No such race weekend.");
   if (!channel.open) throw new AuthError(403, "This channel is closed.");
-  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
-  const file = await checkFile(sender, draft.fileId);
-  const id = await insertMessage(channel.id, sender, draft, file?.id ?? null);
-  const text = preview(draft.body, file?.name);
+  if (!hasContent(draft)) throw new AuthError(400, "Write something or attach a document.");
+  const files = await checkFiles(sender, draft);
+  const id = await insertMessage(channel.id, sender, draft, files);
+  const text = preview(draft.body, files);
   await deliver({
     messageId: id,
     recipientIds: await activeUserIds(sender.id),
@@ -348,15 +389,16 @@ export async function postToChannel(sender: SessionUser, weekendId: string, draf
       body: text,
       link: `/w/${weekendId}`,
       tag: `w-${weekendId}`,
-      popup: popupData("channel", sender, draft, file, channel.name),
+      popup: popupData("channel", sender, draft, files[0] ?? null, channel.name),
     },
     sync: { scope: "weekend", id: weekendId },
     email:
-      draft.urgent || file
+      draft.urgent || files.length > 0
         ? {
-            subject: `${draft.urgent ? "Urgent: " : ""}${channel.name} — ${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
+            subject: `${draft.urgent ? "Urgent: " : ""}${channel.name} — ${text.slice(0, 80)}`,
             title: `${channel.name}`,
-            body: draft.body.trim() || `A document was shared: ${file?.name ?? ""}`,
+            body: mailBody(draft, files),
+            files,
           }
         : undefined,
   });
@@ -440,17 +482,32 @@ export async function canAccess(user: SessionUser, conv: ConvRow): Promise<boole
   return canRead(user, conv);
 }
 
-/** A forward copies a message this person sent or received, as it reads now. */
+/**
+ * A forward copies a message this person sent or received, as it reads now:
+ * all of it, or — when the draft names some of its files — just those
+ * files, without its text.
+ */
 async function resolveForward(sender: SessionUser, draft: Draft): Promise<Draft> {
   if (!draft.forwardOf) return draft;
-  const source = await one<{ body: string; file_id: string | null }>(
-    `SELECT m.body, m.file_id FROM messages m
+  const source = await one<{ id: string; body: string; file_id: string | null }>(
+    `SELECT m.id, m.body, m.file_id FROM messages m
      WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL AND m.event IS NULL
        AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
     [draft.forwardOf, sender.id],
   );
   if (!source) throw new AuthError(404, "That message is not here to forward.");
-  return { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null };
+  const own = await messageFileIds(source.id);
+  const all = own.length ? own : source.file_id ? [source.file_id] : [];
+  const picked = draft.fileIds?.length ? all.filter((id) => draft.fileIds!.includes(id)) : null;
+  if (picked && picked.length === 0) throw new AuthError(404, "Those files are not in that message.");
+  return { ...draft, body: picked ? "" : source.body, fileId: null, fileIds: picked ?? all, urgent: false, replyToId: null };
+}
+
+/** A mail's text: the words, then what is attached. */
+function mailBody(draft: Draft, files: FileRow[]): string {
+  const words = draft.body.trim();
+  const attached = describeFiles(files);
+  return [words, attached && `Attached: ${attached}`].filter(Boolean).join("\n\n") || "New message";
 }
 
 async function checkReply(conversationId: string, replyToId: string | null | undefined): Promise<void> {
@@ -467,12 +524,12 @@ async function checkReply(conversationId: string, replyToId: string | null | und
  * text or a file present, the reply still there, the file the sender's.
  * A forwarded file was checked when it was first sent; it stays whoever's it was.
  */
-async function prepareDraft(sender: SessionUser, conversationId: string, draft: Draft): Promise<{ draft: Draft; file: FileRow | null }> {
+async function prepareDraft(sender: SessionUser, conversationId: string, draft: Draft): Promise<{ draft: Draft; files: FileRow[] }> {
   draft = await resolveForward(sender, draft);
-  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
+  if (!hasContent(draft)) throw new AuthError(400, "Write something or attach a document.");
   await checkReply(conversationId, draft.replyToId);
-  const file = draft.forwardOf ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
-  return { draft, file };
+  const files = draft.forwardOf ? await filesByIds(draftFileIds(draft)) : await checkFiles(sender, draft);
+  return { draft, files };
 }
 
 /* ───────────────────────────── Groups ────────────────────────────── */
@@ -484,11 +541,11 @@ export async function postGroup(sender: SessionUser, conversationId: string, dra
   const me = await one<{ role: string }>("SELECT role FROM group_members WHERE conversation_id = $1 AND user_id = $2", [conv.id, sender.id]);
   if (!me) throw new AuthError(403, "You are not in this group.");
   if (conv.send_policy === "admins" && me.role !== "admin") throw new AuthError(403, "Only the group's admins can send here.");
-  const { draft: ready, file } = await prepareDraft(sender, conv.id, draft);
+  const { draft: ready, files } = await prepareDraft(sender, conv.id, draft);
   draft = ready;
-  const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
+  const id = await insertMessage(conv.id, sender, draft, files);
   const members = await q<{ user_id: string }>("SELECT user_id FROM group_members WHERE conversation_id = $1 AND user_id <> $2", [conv.id, sender.id]);
-  const text = preview(draft.body, file?.name);
+  const text = preview(draft.body, files);
   const name = conv.name ?? "Group";
   await deliver({
     messageId: id,
@@ -498,14 +555,15 @@ export async function postGroup(sender: SessionUser, conversationId: string, dra
       body: text,
       link: `/chats/${conv.id}`,
       tag: `c-${conv.id}`,
-      popup: popupData("group", sender, draft, file, name),
+      popup: popupData("group", sender, draft, files[0] ?? null, name),
     },
     sync: { scope: "chat", id: conv.id },
     email: draft.urgent
       ? {
-          subject: `Urgent: ${name} — ${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
+          subject: `Urgent: ${name} — ${text.slice(0, 80)}`,
           title: `${name}: message from ${sender.name || sender.email}`,
-          body: draft.body.trim() || `A document was shared: ${file?.name ?? ""}`,
+          body: mailBody(draft, files),
+          files,
         }
       : undefined,
   });
@@ -553,23 +611,24 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   const conv = await conversationById(conversationId);
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
-  const { draft: ready, file } = await prepareDraft(sender, conv.id, draft);
+  const { draft: ready, files } = await prepareDraft(sender, conv.id, draft);
   draft = ready;
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
-  const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
-  const text = preview(draft.body, file?.name);
+  const id = await insertMessage(conv.id, sender, draft, files);
+  const text = preview(draft.body, files);
   await deliver({
     messageId: id,
     recipientIds: [otherId],
-    push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}`, popup: popupData("chat", sender, draft, file) },
+    push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}`, popup: popupData("chat", sender, draft, files[0] ?? null) },
     sync: { scope: "chat", id: conv.id },
     // Private chats email only when the sender marks the message urgent.
     email:
       draft.urgent
         ? {
-            subject: `${draft.urgent ? "Urgent: " : ""}${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
+            subject: `Urgent: ${text.slice(0, 80)}`,
             title: `Message from ${sender.name || sender.email}`,
-            body: draft.body.trim() || `A document was shared: ${file?.name ?? ""}`,
+            body: mailBody(draft, files),
+            files,
           }
         : undefined,
   });
@@ -589,18 +648,21 @@ async function ownRecent(user: SessionUser, messageId: string) {
     deleted_at: string | null;
     kind: Kind | null;
     file_id: string | null;
-    conversation_id: string;
+    conversation_id: string | null;
     owner_id: string | null;
     member_id: string | null;
+    weekend_id: string | null;
     event: string | null;
     group_invite_id: string | null;
+    body: string;
   }>(
-    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id, m.event, m.group_invite_id
+    `SELECT m.id, m.sender_id, m.created_at, m.deleted_at, c.kind, m.file_id, m.conversation_id, c.owner_id, c.member_id, c.weekend_id,
+            m.event, m.group_invite_id, m.body
      FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id
      WHERE m.id = $1 AND ${LIVE_SEASON("m")}`,
     [messageId],
   );
-  if (!m || (m.kind !== "direct" && m.kind !== "group")) throw new AuthError(404, "No such message.");
+  if (!m) throw new AuthError(404, "No such message.");
   if (m.sender_id !== user.id || m.event) throw new AuthError(403, "Only the sender can change a message.");
   if (m.group_invite_id) throw new AuthError(403, "An invitation is taken back from the group, not changed here.");
   if (m.deleted_at) throw new AuthError(400, "This message was deleted.");
@@ -613,14 +675,41 @@ export async function editDirect(user: SessionUser, messageId: string, body: str
   const m = await ownRecent(user, messageId);
   if (!body.trim() && !m.file_id) throw new AuthError(400, "Write something, or delete the message instead.");
   await run("UPDATE messages SET body = $2, edited_at = now(), changed_at = now() WHERE id = $1", [m.id, body]);
-  after(async () => pushSync(await partyIds(m), { scope: "chat", id: m.conversation_id }));
+  after(() => nudge(m));
 }
 
-/** Gone for both people: the text and the file go, a "deleted" placeholder stays. */
+/** Gone for everyone: the text and the files go, a "deleted" placeholder stays. */
 export async function deleteDirect(user: SessionUser, messageId: string): Promise<void> {
   const m = await ownRecent(user, messageId);
+  await run("DELETE FROM message_files WHERE message_id = $1", [m.id]);
   await run("UPDATE messages SET body = '', file_id = NULL, deleted_at = now(), changed_at = now() WHERE id = $1", [m.id]);
-  after(async () => pushSync(await partyIds(m), { scope: "chat", id: m.conversation_id }));
+  after(() => nudge(m));
+}
+
+/**
+ * Take some photos (or other files) out of your own message, within the
+ * same two hours. With nothing left to show, the message reads as deleted.
+ */
+export async function removeFiles(user: SessionUser, messageId: string, fileIds: string[]): Promise<void> {
+  const m = await ownRecent(user, messageId);
+  await run("DELETE FROM message_files WHERE message_id = $1 AND file_id = ANY($2::uuid[])", [m.id, fileIds]);
+  const left = await messageFileIds(m.id);
+  if (left.length === 0 && !m.body.trim()) {
+    await run("UPDATE messages SET body = '', file_id = NULL, deleted_at = now(), changed_at = now() WHERE id = $1", [m.id]);
+  } else {
+    await run("UPDATE messages SET file_id = $2, changed_at = now() WHERE id = $1", [m.id, left[0] ?? null]);
+  }
+  after(() => nudge(m));
+}
+
+type Changed = { id: string; kind: Kind | null; conversation_id: string | null; owner_id: string | null; member_id: string | null; weekend_id: string | null };
+
+/** After a change, the phones that hold the message fetch it again: the chat, the weekend's channel, or Home. */
+async function nudge(m: Changed): Promise<void> {
+  if (m.kind === "direct" || m.kind === "group") return pushSync(await partyIds({ ...m, conversation_id: m.conversation_id! }), { scope: "chat", id: m.conversation_id! });
+  const people = (await q<{ user_id: string }>("SELECT user_id FROM message_recipients WHERE message_id = $1", [m.id])).map((r) => r.user_id);
+  if (m.kind === "channel" && m.weekend_id) return pushSync(people, { scope: "weekend", id: m.weekend_id });
+  return pushSync(people, { scope: "home" });
 }
 
 /** Everyone in a private chat or a group, for the nudge that follows a change. */
@@ -645,7 +734,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     o_status: string;
     unread: string;
     last_body: string | null;
-    last_file: string | null;
+    last_files: { name: string; mime: string }[] | null;
     live_last_at: string | null;
     last_status: "sent" | "delivered" | "read" | null;
     total: string;
@@ -656,7 +745,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
               WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
+            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
             (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at,
             (SELECT CASE WHEN m.sender_id <> $1 OR m.deleted_at IS NOT NULL THEN NULL
                          WHEN rr.read_at IS NOT NULL THEN 'read'
@@ -678,7 +767,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     members: string;
     unread: string;
     last_body: string | null;
-    last_file: string | null;
+    last_files: { name: string; mime: string }[] | null;
     last_sender: string | null;
     last_mine: boolean | null;
     live_last_at: string | null;
@@ -690,7 +779,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
               WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
+            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
             (SELECT CASE WHEN m.event IS NULL THEN COALESCE(NULLIF(u.name, ''), u.email, 'Someone') END
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_sender,
@@ -715,14 +804,14 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
       },
       iOpened: r.owner_id === user.id,
       lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
-      lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
+      lastMessage: r.last_body?.trim() || describeFiles(r.last_files ?? []) || null,
       lastStatus: r.last_status,
       messages: Number(r.total),
       unread: Number(r.unread),
     })),
     ...groups.map((g) => {
       const n = Number(g.members);
-      const last = g.last_body?.trim() || (g.last_file ? `Document: ${g.last_file}` : null);
+      const last = g.last_body?.trim() || describeFiles(g.last_files ?? []) || null;
       return {
         id: g.id,
         kind: "group" as const,

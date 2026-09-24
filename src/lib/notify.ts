@@ -2,7 +2,9 @@ import "server-only";
 
 import { after } from "next/server";
 import { q, run } from "./db";
-import { sendNotice } from "./email";
+import { sendNotice, type Attachment } from "./email";
+import type { FileRow } from "./files";
+import { storage } from "./storage";
 import { pushSync, pushTo, type Push, type SyncSignal } from "./push";
 import { NO_AUTO_EMAIL, type Role } from "./roles";
 import { SITE_URL } from "./config";
@@ -27,6 +29,8 @@ export type Delivery = {
     body: string;
     /** Send to volunteers and security too (a coordinator relay, or the admin's bulk mail). */
     force?: boolean;
+    /** The message's photos, documents and audio: attached to the mail itself. */
+    files?: FileRow[];
   };
 };
 
@@ -52,7 +56,11 @@ export async function deliver(d: Delivery): Promise<void> {
          AND ($2::text[] IS NULL OR NOT (role = ANY($2::text[])))`,
       [ids, roles],
     );
-    await sendNotice(people, d.email.subject, d.email.title, d.email.body, `${SITE_URL}${d.push.link}`).catch(
+    const { attached, skipped } = await attachmentsFor(d.email.files ?? []);
+    const body = skipped.length
+      ? `${d.email.body}\n\nToo large to attach here — open it in the app: ${skipped.join(", ")}`
+      : d.email.body;
+    await sendNotice(people, d.email.subject, d.email.title, body, `${SITE_URL}${d.push.link}`, attached).catch(
       (error) => console.error("[notify] email", error),
     );
   });
@@ -66,9 +74,68 @@ export async function activeUserIds(except?: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
-/** A short preview for a push body. */
-export function preview(body: string, fileName?: string | null): string {
+/** A short preview for a push body: the words, or what is attached. */
+export function preview(body: string, files: { name: string; mime: string }[] = []): string {
   const text = body.trim().replace(/\s+/g, " ");
   if (text) return text.length > 140 ? `${text.slice(0, 137)}…` : text;
-  return fileName ? `Document: ${fileName}` : "New message";
+  return describeFiles(files) || "New message";
+}
+
+/** What a message carries, in a few words: "📷 Photo", "Document: x.pdf", "📷 3 photos · 📄 2 documents". */
+export function describeFiles(files: { name: string; mime: string }[]): string {
+  if (files.length === 0) return "";
+  if (files.length === 1) {
+    const f = files[0];
+    return f.mime.startsWith("image/") ? "📷 Photo" : f.mime.startsWith("audio/") ? "🎤 Audio" : `Document: ${f.name}`;
+  }
+  const photos = files.filter((f) => f.mime.startsWith("image/")).length;
+  const audio = files.filter((f) => f.mime.startsWith("audio/")).length;
+  const docs = files.length - photos - audio;
+  return [
+    photos ? `📷 ${photos} photo${photos === 1 ? "" : "s"}` : "",
+    audio ? `🎤 ${audio} audio` : "",
+    docs ? `📄 ${docs} document${docs === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+/*
+ * Mail attachments. Brevo takes files inline (base64) and only with the
+ * extensions it lists; the whole mail has a size cap, so attachments stop
+ * at MAIL_ATTACH_BYTES and anything past it (or of a kind Brevo refuses)
+ * is named in the mail instead, to open in the app.
+ */
+const MAIL_ATTACH_BYTES = 10 * 1024 * 1024;
+const MAIL_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "odt", "ods", "rtf",
+  "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff",
+  "mp3", "m4a", "wav", "ogg", "flac", "aif", "aiff", "wma", "mp4",
+]);
+const EXT_FOR_MIME: Record<string, string> = {
+  "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+  "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/ogg": "ogg",
+  "audio/webm": "webm", "audio/wav": "wav", "audio/x-wav": "wav", "audio/3gpp": "3gp", "audio/amr": "amr",
+  "application/pdf": "pdf", "text/csv": "csv", "text/plain": "txt",
+};
+
+async function attachmentsFor(files: FileRow[]): Promise<{ attached: Attachment[]; skipped: string[] }> {
+  const attached: Attachment[] = [];
+  const skipped: string[] = [];
+  let total = 0;
+  for (const f of files) {
+    const dot = f.name.lastIndexOf(".");
+    const ext = (dot > 0 ? f.name.slice(dot + 1) : EXT_FOR_MIME[f.mime] ?? "").toLowerCase();
+    const name = dot > 0 ? f.name : `${f.name}.${ext}`;
+    if (!MAIL_EXTENSIONS.has(ext) || total + Number(f.size) > MAIL_ATTACH_BYTES) {
+      skipped.push(f.name);
+      continue;
+    }
+    const stored = await storage().get(f.key).catch(() => null);
+    if (!stored) {
+      skipped.push(f.name);
+      continue;
+    }
+    total += stored.body.length;
+    attached.push({ name, content: Buffer.from(stored.body).toString("base64") });
+  }
+  return { attached, skipped };
 }

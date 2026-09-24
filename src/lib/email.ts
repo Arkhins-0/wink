@@ -11,10 +11,13 @@ import { APP_NAME, SITE_URL } from "./config";
 
 export type Recipient = { email: string; name?: string | null };
 
+/** A file carried by the mail itself: its name (with an extension Brevo accepts) and its bytes in base64. */
+export type Attachment = { name: string; content: string };
+
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const VERSIONS_PER_CALL = 500;
 
-export async function sendEmail(to: Recipient[], subject: string, html: string, text?: string): Promise<void> {
+export async function sendEmail(to: Recipient[], subject: string, html: string, text?: string, attachments: Attachment[] = []): Promise<void> {
   const recipients = to.filter((r) => r.email);
   if (recipients.length === 0) return;
   if (!isEmailConfigured()) {
@@ -33,6 +36,7 @@ export async function sendEmail(to: Recipient[], subject: string, html: string, 
       // Brevo needs a top-level `to` even when versions carry their own.
       to: [{ email: chunk[0].email, name: chunk[0].name || undefined }],
       messageVersions: chunk.map((r) => ({ to: [{ email: r.email, name: r.name || undefined }] })),
+      ...(attachments.length ? { attachment: attachments } : {}),
     };
     const response = await fetch(BREVO_URL, {
       method: "POST",
@@ -110,10 +114,12 @@ export async function sendReset(to: Recipient, token: string) {
   );
 }
 
-export async function sendNotice(to: Recipient[], subject: string, title: string, body: string, link?: string) {
+export async function sendNotice(to: Recipient[], subject: string, title: string, body: string, link?: string, attachments: Attachment[] = []) {
   await sendEmail(
     to,
     subject,
     layout(title, escapeHtml(body), link ? { label: `Open in ${APP_NAME}`, url: link } : undefined),
+    undefined,
+    attachments,
   );
 }

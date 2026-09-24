@@ -1,4 +1,4 @@
-import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
+import { body, bool, handle, isUuid, str, uuids, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
 import { canPostChannel, channelFor, conversationMessages, markConversationRead, postToChannel } from "@/lib/messages";
@@ -49,6 +49,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const messageId = await postToChannel(user, id, {
     body: str(b.body, 5000),
     fileId: str(b.fileId, 64) || null,
+    fileIds: uuids(b.fileIds),
     urgent: bool(b.urgent),
   });
   return json({ id: messageId }, 201);

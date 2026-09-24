@@ -3,7 +3,7 @@ import "server-only";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env, isStorageConfigured } from "./env";
-import { one, run } from "./db";
+import { one, q, run } from "./db";
 import { storage } from "./storage";
 
 /*
@@ -86,6 +86,19 @@ const fullKey = (k: string) => (env.s3.prefix ? `${env.s3.prefix}/${k}` : k);
 
 export async function fileById(id: string): Promise<FileRow | undefined> {
   return one<FileRow>("SELECT * FROM files WHERE id = $1", [id]);
+}
+
+/** Several files, in the order asked for; unknown ids are left out. */
+export async function filesByIds(ids: string[]): Promise<FileRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await q<FileRow>("SELECT * FROM files WHERE id = ANY($1::uuid[])", [ids]);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is FileRow => Boolean(r));
+}
+
+/** A message's attachments, in their order. */
+export async function messageFileIds(messageId: string): Promise<string[]> {
+  return (await q<{ file_id: string }>("SELECT file_id FROM message_files WHERE message_id = $1 ORDER BY position", [messageId])).map((r) => r.file_id);
 }
 
 /** Where a client should PUT the bytes. Direct to S3 when configured, through the server otherwise. */

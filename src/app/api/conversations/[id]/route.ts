@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
+import { body, bool, handle, isUuid, str, uuids, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
 import { canAccess, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, personCard, postDirect, postGroup } from "@/lib/messages";
@@ -58,6 +58,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const messageId = await post(user, id, {
     body: str(b.body, 5000),
     fileId: str(b.fileId, 64) || null,
+    fileIds: uuids(b.fileIds),
     urgent: bool(b.urgent),
     replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
     forwardOf: isUuid(str(b.forwardOf, 64)) ? str(b.forwardOf, 64) : null,

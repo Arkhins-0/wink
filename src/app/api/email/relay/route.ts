@@ -1,4 +1,4 @@
-import { body, handle, str } from "@/lib/api";
+import { body, handle, str, uuids } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { q } from "@/lib/db";
 import { fail, json } from "@/lib/http";
@@ -41,6 +41,7 @@ export const POST = handle(async (request) => {
     recipientIds: rows.map((r) => r.id),
     body: str(b.body, 5000),
     fileId: str(b.fileId, 64) || null,
+    fileIds: uuids(b.fileIds),
     urgent: true,
     forceEmail: true,
   });

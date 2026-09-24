@@ -44,4 +44,7 @@ export const strings = (v: unknown, max = 1000): string[] =>
 export const isUuid = (v: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
+/** A list of ids from a request body, anything that isn't one dropped. */
+export const uuids = (v: unknown, max = 100): string[] => strings(v, max).filter(isUuid);
+
 export { NextResponse };
