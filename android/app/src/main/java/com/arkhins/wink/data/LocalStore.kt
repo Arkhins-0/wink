@@ -81,7 +81,7 @@ class LocalStore(context: Context, private val api: WinkApi, private val media: 
             is ChannelResponse -> value.messages
             else -> return
         }
-        messages.mapNotNull { it.file }.filter { media.wanted(it) && media.local(it) == null }.forEach { f ->
+        messages.flatMap { it.attachments }.filter { media.wanted(it) && media.local(it) == null }.forEach { f ->
             scope.launch { runCatching { media.fetch(f) } }
         }
     }

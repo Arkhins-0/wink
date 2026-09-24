@@ -36,10 +36,13 @@ import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
 
-/** Pick the chats to forward to. The phone's list shows first; the server's replaces it. */
+/**
+ * Pick the chats to forward to. The phone's list shows first; the server's replaces it.
+ * [what] names what is going when it is not whole messages ("3 photos").
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>) -> Unit) {
+fun ForwardSheet(count: Int, onDismiss: () -> Unit, what: String? = null, onSend: (List<Conversation>) -> Unit) {
     val app = LocalApp.current
     var chats by remember { mutableStateOf<List<Conversation>?>(null) }
     var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -52,7 +55,7 @@ fun ForwardSheet(count: Int, onDismiss: () -> Unit, onSend: (List<Conversation>)
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
             Text(
-                "Forward ${if (count == 1) "message" else "$count messages"} to…",
+                "Forward ${what ?: if (count == 1) "message" else "$count messages"} to…",
                 style = MaterialTheme.typography.titleMedium,
                 color = Snow,
             )

@@ -3,13 +3,19 @@ package com.arkhins.wink.ui.components
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -49,6 +55,7 @@ import coil.compose.AsyncImage
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.R
 import com.arkhins.wink.data.FileInfo
+import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.ui.bytes
 import com.arkhins.wink.ui.theme.Danger
@@ -65,10 +72,28 @@ import java.util.Locale
 sealed interface FileView {
     data class Image(val file: FileInfo) : FileView
     data class Pdf(val doc: SavedDocument) : FileView
+    /** A message's photos one under another, starting at [start]: to view, forward or take out. */
+    data class Gallery(val message: Message, val start: Int = 0) : FileView
 }
 
 val FileInfo.isImage: Boolean get() = mime.startsWith("image/")
 val FileInfo.isAudio: Boolean get() = mime.startsWith("audio/")
+
+/**
+ * One line naming what a message carries, the way a quote or a copy shows it:
+ * "📷 Photo", "📄 name" and "🎤 Voice note" for one file (as always), and
+ * counts for several ("📷 3 photos, 📄 2 documents").
+ */
+fun filesLabel(files: List<FileInfo>): String {
+    val photos = files.count { it.isImage }
+    val audio = files.count { it.isAudio }
+    val docs = files.filter { !it.isImage && !it.isAudio }
+    return listOfNotNull(
+        when (photos) { 0 -> null; 1 -> "📷 Photo"; else -> "📷 $photos photos" },
+        when (audio) { 0 -> null; 1 -> "🎤 Voice note"; else -> "🎤 $audio voice notes" },
+        when (docs.size) { 0 -> null; 1 -> "📄 ${docs[0].name}"; else -> "📄 ${docs.size} documents" },
+    ).joinToString(", ")
+}
 
 /**
  * An attachment inside a message, the way a chat app does it: pictures
@@ -92,6 +117,16 @@ private val MAPS = Regex("https://maps\\.google\\.com/\\?q=(-?\\d+\\.\\d+),(-?\\
 /** A location message, if the body is one: the coordinates in it. */
 fun locationIn(body: String): Pair<Double, Double>? =
     MAPS.find(body)?.let { it.groupValues[1].toDoubleOrNull()?.let { lat -> it.groupValues[2].toDoubleOrNull()?.let { lng -> lat to lng } } }
+
+/**
+ * The words of a message as shown above its location card: the Maps link
+ * (and the "📍 My location" line that comes with it) are left out, since
+ * the card stands for them. A body with no link is returned as it is.
+ */
+fun textOf(body: String): String {
+    if (!MAPS.containsMatchIn(body)) return body
+    return body.lines().filterNot { MAPS.containsMatchIn(it) || it.trim() == "📍 My location" }.joinToString("\n").trim()
+}
 
 /** A shared location as a card that opens the maps app. */
 @Composable
@@ -124,13 +159,20 @@ fun LocationCard(lat: Double, lng: Double, onDark: Boolean = true) {
 
 /* ───────────────────────────── Pictures ──────────────────────────── */
 
+/** A picture as the phone has it: its own copy once fetched, else the server's. */
 @Composable
-private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit) {
+fun photoModel(file: FileInfo): Any {
     val app = LocalApp.current
     val landed by app.chatMedia.version.collectAsState()
     val local = remember(file.id, landed) { app.chatMedia.local(file) }
+    return local ?: app.api.url("/api/files/${file.id}/content?inline=1")
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null) {
     AsyncImage(
-        model = local ?: app.api.url("/api/files/${file.id}/content?inline=1"),
+        model = photoModel(file),
         contentDescription = file.name,
         contentScale = ContentScale.Crop,
         modifier = Modifier
@@ -138,8 +180,65 @@ private fun ImageAttachment(file: FileInfo, onView: (FileView) -> Unit) {
             .heightIn(min = 120.dp, max = 320.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Night)
-            .clickable { onView(FileView.Image(file)) },
+            .combinedClickable(onLongClick = onLongPress) { onView(FileView.Image(file)) },
     )
+}
+
+/**
+ * A message's photos, grouped the way WhatsApp shows a batch sent at once:
+ * one is shown as it always was; two side by side; three as one wide on top
+ * and two below; four or more as a 2×2 grid whose last tile says "+N" for
+ * the rest. One photo opens full screen; several open the gallery at the
+ * one tapped. [onLongPress] lets a long press select the message instead.
+ */
+@Composable
+fun PhotoGrid(m: Message, photos: List<FileInfo>, onView: (FileView) -> Unit, onLongPress: (() -> Unit)? = null) {
+    if (photos.isEmpty()) return
+    if (photos.size == 1) {
+        ImageAttachment(photos[0], onView, onLongPress)
+        return
+    }
+    val gap = 2.dp
+    val open = { i: Int -> onView(FileView.Gallery(m, i)) }
+    @Composable
+    fun RowScope.Tile(i: Int, ratio: Float, more: Int = 0) =
+        PhotoTile(photos[i], Modifier.weight(1f).aspectRatio(ratio), more, { open(i) }, onLongPress)
+    Column(
+        Modifier.widthIn(max = 260.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)),
+        verticalArrangement = Arrangement.spacedBy(gap),
+    ) {
+        when (photos.size) {
+            2 -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 0.75f); Tile(1, 0.75f) }
+            3 -> {
+                Row { Tile(0, 1.6f) }
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(1, 1f); Tile(2, 1f) }
+            }
+            else -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(0, 1f); Tile(1, 1f) }
+                // Past four, the last tile is dimmed and counts itself too, as WhatsApp does: five photos say "+2".
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) { Tile(2, 1f); Tile(3, 1f, more = if (photos.size > 4) photos.size - 3 else 0) }
+            }
+        }
+    }
+}
+
+/** One photo of a grid, cropped to its tile; a [more] above 0 dims it under "+more". */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: () -> Unit, onLongPress: (() -> Unit)?) {
+    Box(modifier.background(Night).combinedClickable(onLongClick = onLongPress, onClick = onClick), contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = photoModel(file),
+            contentDescription = file.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (more > 0) {
+            Box(Modifier.fillMaxSize().background(Night.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+                Text("+$more", style = MaterialTheme.typography.headlineMedium, color = Snow)
+            }
+        }
+    }
 }
 
 /* ───────────────────────────── Audio ─────────────────────────────── */

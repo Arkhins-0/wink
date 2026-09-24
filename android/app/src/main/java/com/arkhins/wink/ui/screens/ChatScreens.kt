@@ -141,6 +141,11 @@ import com.arkhins.wink.ui.components.Field
 import com.arkhins.wink.ui.components.Loading
 import com.arkhins.wink.ui.components.LocationCard
 import com.arkhins.wink.ui.components.locationIn
+import com.arkhins.wink.ui.components.PhotoGrid
+import com.arkhins.wink.ui.components.filesLabel
+import com.arkhins.wink.ui.components.textOf
+import com.arkhins.wink.data.FileInfo
+import com.arkhins.wink.data.attachments
 import com.arkhins.wink.ui.instant
 import com.arkhins.wink.ui.localTime
 import com.arkhins.wink.ui.theme.Danger
@@ -153,7 +158,9 @@ import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -398,18 +405,29 @@ private fun changeable(m: Message): Boolean =
     m.mine && !m.deleted && !m.id.startsWith("local-") && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < EDIT_WINDOW_MS
 
 /** A message as a quote. */
-private fun refOf(m: Message) = ReplyRef(m.id, m.sender?.name ?: "Unknown", m.mine, m.body, m.file?.name, m.file?.mime, m.deleted)
+private fun refOf(m: Message) = m.attachments.firstOrNull().let { f -> ReplyRef(m.id, m.sender?.name ?: "Unknown", m.mine, m.body, f?.name, f?.mime, m.deleted) }
 
-/** One line saying what a message was: its text, or what it carried. */
-private fun snippet(r: ReplyRef): String = when {
-    r.deleted -> "This message was deleted"
-    locationIn(r.body) != null -> "📍 Location"
-    r.body.isNotBlank() -> r.body.trim()
-    r.fileMime?.startsWith("image/") == true -> "📷 Photo"
-    r.fileMime?.startsWith("audio/") == true -> "🎤 Voice note"
-    r.fileName != null -> "📄 ${r.fileName}"
-    else -> ""
+/**
+ * One line saying what a message was: its text, or what it carried. A quote
+ * only knows its first file; when the whole message is at hand, [files]
+ * lets several be counted ("📷 3 photos").
+ */
+private fun snippet(r: ReplyRef, files: List<FileInfo> = emptyList()): String {
+    val text = textOf(r.body).trim()
+    return when {
+        r.deleted -> "This message was deleted"
+        text.isNotBlank() -> text
+        locationIn(r.body) != null -> "📍 Location"
+        files.isNotEmpty() -> filesLabel(files)
+        r.fileMime?.startsWith("image/") == true -> "📷 Photo"
+        r.fileMime?.startsWith("audio/") == true -> "🎤 Voice note"
+        r.fileName != null -> "📄 ${r.fileName}"
+        else -> ""
+    }
 }
+
+/** One line saying what a message was, counting all its files. */
+private fun snippet(m: Message): String = snippet(refOf(m), m.attachments)
 
 /** What the chat's list shows, in order: day separators and messages. */
 private sealed interface ChatRow {
@@ -673,6 +691,7 @@ fun ChatScreen(
                             Bubble(
                                 m = m,
                                 quote = quote,
+                                quoteText = m.replyTo?.let { ref -> byId[ref.id]?.let(::snippet) },
                                 flash = flash == m.id,
                                 selected = m.id in selected,
                                 selecting = selected.isNotEmpty(),
@@ -709,10 +728,10 @@ fun ChatScreen(
             Composer(
                 placeholder = "Message",
                 banner = when {
-                    editingNow != null -> ComposerBanner("Edit message", snippet(refOf(editingNow))) { editing = null }
+                    editingNow != null -> ComposerBanner("Edit message", snippet(editingNow)) { editing = null }
                     replyingTo != null -> ComposerBanner(
                         "Replying to ${if (replyingTo.mine) "yourself" else replyingTo.sender?.name ?: "message"}",
-                        snippet(refOf(replyingTo)),
+                        snippet(replyingTo),
                     ) { replyTo = null }
                     else -> null
                 },
@@ -722,7 +741,7 @@ fun ChatScreen(
                 if (editingNow != null) {
                     app.api.patch("/api/messages/${editingNow.id}", Ok.serializer()) { put("body", draft.body) }
                     editing = null
-                } else if (draft.fileId == null) {
+                } else if (draft.fileIds.isEmpty()) {
                     // Text goes on screen at once; sending carries on even if the chat is closed.
                     val local = Message(
                         id = "local-" + UUID.randomUUID(),
@@ -741,7 +760,7 @@ fun ChatScreen(
                 } else {
                     val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
                         put("body", draft.body)
-                        put("fileId", draft.fileId)
+                        putJsonArray("fileIds") { draft.fileIds.forEach { add(it) } }
                         put("urgent", draft.urgent)
                         if (replyingTo != null) put("replyToId", replyingTo.id)
                     }
@@ -766,7 +785,7 @@ fun ChatScreen(
                     val ids = chosen.map { it.id }.toSet()
                     if (editing?.id in ids) editing = null
                     if (replyTo?.id in ids) replyTo = null
-                    detail = detail?.let { it.copy(messages = it.messages.map { m -> if (m.id in ids) m.copy(body = "", file = null, deleted = true) else m }) }
+                    detail = detail?.let { it.copy(messages = it.messages.map { m -> if (m.id in ids) m.copy(body = "", file = null, files = emptyList(), deleted = true) else m }) }
                     app.appScope.launch {
                         val failed = chosen.count { m -> runCatching { app.api.delete("/api/messages/${m.id}") }.isFailure }
                         withContext(Dispatchers.Main) {
@@ -808,7 +827,7 @@ fun ChatScreen(
             dismissButton = { TextButton(onClick = { exported = null }) { Text("Done", color = SnowFaint) } },
         )
     }
-    infoFor?.let { m -> MessageInfoSheet(m.id, conversationId, snippet(refOf(m))) { infoFor = null } }
+    infoFor?.let { m -> MessageInfoSheet(m.id, conversationId, snippet(m)) { infoFor = null } }
     if (forwarding) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
@@ -849,7 +868,7 @@ fun ChatScreen(
 }
 
 /** What copying a message puts on the clipboard: its words, or what it carried. */
-private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(refOf(m)) }
+private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(m) }
 
 /** The message text with every match of the search lit up. */
 private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnnotatedString {
@@ -901,6 +920,8 @@ private fun DaySeparator(day: String) {
 private fun Bubble(
     m: Message,
     quote: ReplyRef?,
+    /** The quote's line when the original is on the phone, counting all its files. */
+    quoteText: String? = null,
     flash: Boolean,
     selected: Boolean,
     selecting: Boolean,
@@ -986,8 +1007,10 @@ private fun Bubble(
                 .offset { IntOffset(slide.value.roundToInt(), 0) },
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         ) {
-            // A picture sits in a thin frame; its caption, quote and time keep the usual inset.
-            val picture = !m.deleted && m.file?.isImage == true
+            // Pictures sit in a thin frame; the caption, quote, files and time keep the usual inset.
+            val files = m.attachments
+            val photos = files.filter { it.isImage }
+            val picture = !m.deleted && photos.isNotEmpty()
             val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
             Box {
                 Column(
@@ -1028,22 +1051,38 @@ private fun Bubble(
                             Spacer(Modifier.height(2.dp))
                         }
                         quote?.let {
-                            Box(inset) { Quote(it, onDark = !mine) { onQuote(it.id) } }
+                            Box(inset) { Quote(it, quoteText ?: snippet(it), onDark = !mine) { onQuote(it.id) } }
                             Spacer(Modifier.height(4.dp))
                         }
                         m.groupInvite?.let { inv ->
                             val open = inv.status == "pending" && (inv.expiresAt == null || instant(inv.expiresAt).toEpochMilli() > System.currentTimeMillis())
                             InviteCard(inv, open = open, mine = mine, onDark = !mine, onAnswer = if (!mine && open && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
                         }
-                        val loc = locationIn(m.body)
-                        if (loc != null) {
-                            LocationCard(loc.first, loc.second, onDark = !mine)
-                        } else if (m.body.isNotBlank() && m.groupInvite == null) {
-                            Text(highlighted(m.body, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
+                        // While messages are being picked, a tap on a photo picks this one too instead of opening it.
+                        val view: (FileView) -> Unit = { if (selecting) onToggle() else onView(it) }
+                        PhotoGrid(
+                            m,
+                            photos,
+                            view,
+                            onLongPress = if (local) null else ({
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onToggle()
+                            }),
+                        )
+                        files.filterNot { it.isImage }.forEachIndexed { i, f ->
+                            if (i > 0 || photos.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                            Box(inset) { Attachment(f, view, onDark = !mine) }
                         }
-                        if (m.file != null) {
-                            if (m.body.isNotBlank()) Spacer(Modifier.height(6.dp))
-                            Attachment(m.file, onView, onDark = !mine)
+                        // The words, then the place they point to: a Maps link on the last line becomes a card.
+                        val loc = locationIn(m.body)
+                        val text = textOf(m.body)
+                        if (text.isNotBlank() && m.groupInvite == null) {
+                            if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                            Text(highlighted(text, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
+                        }
+                        if (loc != null) {
+                            if (files.isNotEmpty() || text.isNotBlank()) Spacer(Modifier.height(6.dp))
+                            Box(inset) { LocationCard(loc.first, loc.second, onDark = !mine) }
                         }
                     }
                     Spacer(Modifier.height(2.dp))
@@ -1096,7 +1135,7 @@ private fun InviteCard(inv: GroupInvite, open: Boolean, mine: Boolean, onDark: B
 
 /** The message a reply answers, inside its bubble. Tapping it goes there. */
 @Composable
-private fun Quote(r: ReplyRef, onDark: Boolean, onClick: () -> Unit) {
+private fun Quote(r: ReplyRef, text: String, onDark: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .widthIn(min = 120.dp)
@@ -1115,7 +1154,7 @@ private fun Quote(r: ReplyRef, onDark: Boolean, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                snippet(r),
+                text,
                 style = MaterialTheme.typography.bodySmall,
                 fontStyle = if (r.deleted) FontStyle.Italic else FontStyle.Normal,
                 color = if (onDark) SnowSoft else Night.copy(alpha = 0.7f),

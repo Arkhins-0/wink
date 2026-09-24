@@ -36,6 +36,8 @@ import com.arkhins.wink.data.ChannelResponse
 import com.arkhins.wink.data.Conversation
 import com.arkhins.wink.data.ConversationsResponse
 import com.arkhins.wink.data.Message
+import com.arkhins.wink.data.attachments
+import com.arkhins.wink.ui.components.filesLabel
 import com.arkhins.wink.data.MessagesResponse
 import com.arkhins.wink.data.NextRace
 import com.arkhins.wink.data.Ok
@@ -246,7 +248,9 @@ fun HomeScreen(
                                 buildString {
                                     append(if (m.mine) "You" else m.sender?.name ?: "Wink")
                                     append(": ")
-                                    append(m.body.ifBlank { m.file?.let { "Document: ${it.name}" } ?: "" })
+                                    // Several files are counted ("📷 3 photos"); one keeps its old wording.
+                                    val files = m.attachments
+                                    append(m.body.ifBlank { if (files.size > 1) filesLabel(files) else files.firstOrNull()?.let { "Document: ${it.name}" } ?: "" })
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (m.readAt == null && !m.mine) Snow else SnowSoft,

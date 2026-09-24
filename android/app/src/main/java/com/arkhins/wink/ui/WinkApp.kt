@@ -65,6 +65,7 @@ import com.arkhins.wink.ui.screens.EmailScreen
 import com.arkhins.wink.ui.screens.ForgotScreen
 import com.arkhins.wink.ui.screens.HomeScreen
 import com.arkhins.wink.ui.screens.ImageScreen
+import com.arkhins.wink.ui.screens.GalleryScreen
 import com.arkhins.wink.ui.screens.LoginScreen
 import com.arkhins.wink.ui.screens.NewChatScreen
 import com.arkhins.wink.ui.screens.NewPersonScreen
@@ -218,6 +219,9 @@ private fun MainNav(vm: AppViewModel) {
     val go: (String) -> Unit = { r -> if (r.startsWith("chat/")) openChat = r.removePrefix("chat/") else nav.navigate(r) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
+    // A message's photos, opened from its grid; while some are picked there the header is the selection bar.
+    var gallery by remember { mutableStateOf<FileView.Gallery?>(null) }
+    var gallerySelection by remember { mutableStateOf<SelectionBar?>(null) }
     val pending by Links.pending.collectAsStateWithLifecycle()
     // Opened by a notification or link: that decides the screen, not the last one seen.
     val openedByLink = remember { Links.pending.value != null }
@@ -262,6 +266,7 @@ private fun MainNav(vm: AppViewModel) {
         when (it) {
             is FileView.Pdf -> { pdf = it.doc; nav.navigate("pdf") }
             is FileView.Image -> { image = it.file; nav.navigate("image") }
+            is FileView.Gallery -> { gallery = it; gallerySelection = null; nav.navigate("gallery") }
         }
     }
     val isTab = tab in setOf("home", "schedule", "chats", "people", "account")
@@ -282,19 +287,22 @@ private fun MainNav(vm: AppViewModel) {
         "archive" -> if (route == "archive") "Archive" else title.ifBlank { "Season" }
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
+        // Who sent the photos and when, as WhatsApp heads them: "You · 8:16 pm".
+        "gallery" -> gallery?.message?.let { m -> "${if (m.mine) "You" else m.sender?.name ?: "Wink"} · ${localTime(m.createdAt)}" } ?: "Photos"
         "weekend" -> "Race weekend"
         else -> title
     }
     // Screens the chat opens on top of itself; while one is up the chat waits underneath, out of sight.
-    val chatCovered = tab in setOf("image", "pdf", "chatprofile", "group")
+    val chatCovered = tab in setOf("image", "pdf", "gallery", "chatprofile", "group")
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(
+        val galleryBar = gallerySelection
+        if (tab == "gallery" && galleryBar != null) SelectionTopBar(galleryBar) else TopBar(
             title = screenTitle,
             onBack = if (isTab) null else ({ nav.popBackStack() }),
             onOpenWeekend = openWeekend,
-            showCountdown = tab != "pdf" && tab != "image",
+            showCountdown = tab != "pdf" && tab != "image" && tab != "gallery",
             center = if (tab == "chats") ({ ChatsHeader(chatsPage) { chatsPage = it } }) else null,
         )
         Box(Modifier.weight(1f)) {
@@ -333,6 +341,19 @@ private fun MainNav(vm: AppViewModel) {
                 composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { openChat = it }) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
                 composable("image") { image?.let { ImageScreen(it) } }
+                composable("gallery") {
+                    gallery?.let { g ->
+                        GalleryScreen(
+                            g.message,
+                            g.start,
+                            onView = view,
+                            onSelection = { gallerySelection = it },
+                            onChanged = vm::changed,
+                            // Only if the gallery is still what is showing: the delete may finish after a back press.
+                            onDone = { if (nav.currentDestination?.route == "gallery") nav.popBackStack() },
+                        )
+                    }
+                }
             }
         }
         if (isTab) {

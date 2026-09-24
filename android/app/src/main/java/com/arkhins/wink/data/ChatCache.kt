@@ -103,13 +103,17 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                     .values
                     .sortedBy { instant(it.createdAt) }
             }
-            // Deleted for both: its picture or voice note goes from the phone too.
-            val deletedNow = d.messages.filter { it.deleted }.map { it.id }.toSet()
-            cached?.messages?.filter { it.id in deletedNow }?.mapNotNull { it.file }?.forEach { media.remove(it) }
+            // Deleted for both, or some of its photos taken out: those files go from the phone too.
+            val fresh = d.messages.associateBy { it.id }
+            cached?.messages?.forEach { old ->
+                val now = fresh[old.id] ?: return@forEach
+                val kept = if (now.deleted) emptySet() else now.attachments.map { it.id }.toSet()
+                old.attachments.filter { it.id !in kept }.forEach { media.remove(it) }
+            }
             val out = CachedChat(d.other ?: cached?.other, merged, d.group ?: cached?.group)
             keep(id, out)
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
-            merged.filter { it.id !in known }.mapNotNull { it.file }.filter { media.wanted(it) }.forEach { f ->
+            merged.filter { it.id !in known }.flatMap { it.attachments }.filter { media.wanted(it) }.forEach { f ->
                 scope.launch { runCatching { media.fetch(f) } }
             }
             out

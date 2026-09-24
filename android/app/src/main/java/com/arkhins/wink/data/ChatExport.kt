@@ -34,20 +34,21 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
             val safeName = other.name.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "chat" }
             val zipName = "Wink chat with $safeName ${fileStampNow()}.zip"
             val tmp = File(File(context.cacheDir, "exports").apply { mkdirs() }, zipName)
-            val paths = mutableMapOf<String, String>() // message id → path inside the zip
-            val locals = mutableMapOf<String, File>() // message id → the copy on the phone
+            val paths = mutableMapOf<String, String>() // file id → path inside the zip
+            val locals = mutableMapOf<String, File>() // file id → the copy on the phone
             val used = mutableSetOf<String>()
-            val withFiles = messages.filter { it.file != null && !it.deleted }
+            // Every attachment of every message, each with the message it came in.
+            val withFiles = messages.filter { !it.deleted }.flatMap { m -> m.attachments.map { m to it } }
 
-            withFiles.forEachIndexed { i, m ->
+            withFiles.forEachIndexed { i, (_, f) ->
                 onProgress("Fetching file ${i + 1} of ${withFiles.size}…")
-                runCatching { media.fetch(m.file!!) }
+                runCatching { media.fetch(f) }
             }
             try {
                 onProgress("Writing the zip…")
                 ZipOutputStream(BufferedOutputStream(tmp.outputStream())).use { zip ->
-                    withFiles.forEach { m ->
-                        val f = m.file!!
+                    withFiles.forEach { (m, f) ->
+                        if (f.id in paths) return@forEach
                         val local = media.local(f) ?: return@forEach
                         val folder = when {
                             f.mime.startsWith("image/") -> "images"
@@ -59,8 +60,8 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                         var path = "$folder/$name"
                         var n = 0
                         while (!used.add(path)) path = "$folder/${f.id.take(8)}${if (++n > 1) "-$n" else ""} $name"
-                        paths[m.id] = path
-                        locals[m.id] = local
+                        paths[f.id] = path
+                        locals[f.id] = local
                         zip.putNextEntry(ZipEntry(path))
                         local.inputStream().use { it.copyTo(zip) }
                         zip.closeEntry()
@@ -98,8 +99,10 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                 else -> {
                     val prefix = if (m.forwarded) "Forwarded: " else ""
                     if (m.body.isNotBlank()) appendLine("$stamp $prefix${m.body.trim().replace("\n", "\n    ")}")
-                    paths[m.id]?.let { appendLine("$stamp <attached: $it>") }
-                        ?: m.file?.let { appendLine("$stamp <attachment not on this phone: ${it.name}>") }
+                    m.attachments.forEach { f ->
+                        paths[f.id]?.let { appendLine("$stamp <attached: $it>") }
+                            ?: appendLine("$stamp <attachment not on this phone: ${f.name}>")
+                    }
                 }
             }
         }
@@ -167,19 +170,18 @@ a{color:inherit}.doc{display:block;padding:6px 0}
                     out.text("<div class=\"q\"><b>${esc(if (r.mine) myName else r.senderName)}</b><br>${esc(if (r.deleted) "This message was deleted" else r.body.ifBlank { r.fileName ?: "" })}</div>")
                 }
                 if (m.body.isNotBlank()) out.text(esc(m.body.trim()))
-                val path = paths[m.id]
-                val f = m.file
-                if (f != null) {
+                m.attachments.forEach { f ->
+                    val path = paths[f.id]
                     when {
                         path == null -> out.text("<span class=\"doc\">📄 ${esc(f.name)} (not on this phone)</span>")
                         f.mime.startsWith("image/") -> {
                             out.text("<a href=\"${esc(path)}\"><img src=\"")
-                            out.inline(locals[m.id], f.mime, path)
+                            out.inline(locals[f.id], f.mime, path)
                             out.text("\" alt=\"${esc(f.name)}\"></a>")
                         }
                         f.mime.startsWith("audio/") -> {
                             out.text("<audio controls src=\"")
-                            out.inline(locals[m.id], f.mime, path)
+                            out.inline(locals[f.id], f.mime, path)
                             out.text("\"></audio>")
                         }
                         else -> out.text("<a class=\"doc\" href=\"${esc(path)}\">📄 ${esc(f.name)}</a>")

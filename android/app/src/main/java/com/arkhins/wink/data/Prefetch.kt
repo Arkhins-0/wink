@@ -96,7 +96,7 @@ class Prefetch(private val app: WinkApplication) {
                     else keep("/api/conversations/${c.id}/profile", Verified.serializer())
                     chat?.messages?.forEach { m ->
                         photos += m.sender?.photoUrl
-                        m.file?.takeIf { app.chatMedia.local(it) == null }?.let { f -> runCatching { app.chatMedia.fetch(f) } }
+                        m.attachments.filter { app.chatMedia.local(it) == null }.forEach { f -> runCatching { app.chatMedia.fetch(f) } }
                     }
                 }
             }.awaitAll()

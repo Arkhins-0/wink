@@ -71,7 +71,10 @@ data class Message(
     val weekendId: String? = null,
     val sender: Sender? = null,
     val body: String = "",
+    /** The first attachment (all a server before multi-attachments sends). */
     val file: FileInfo? = null,
+    /** Every attachment, in the order they were picked: photos, documents, audio. */
+    val files: List<FileInfo> = emptyList(),
     val urgent: Boolean = false,
     val createdAt: String,
     val readAt: String? = null,
@@ -370,3 +373,6 @@ data class SeasonArchive(
 
 @Serializable
 data class Ok(val ok: Boolean = true)
+
+/** A message's attachments: all of them, or its one file from an older server. */
+val Message.attachments: List<FileInfo> get() = files.ifEmpty { listOfNotNull(file) }

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.Message
+import com.arkhins.wink.data.attachments
 import com.arkhins.wink.ui.whenLabel
 import com.arkhins.wink.ui.theme.Danger
 import com.arkhins.wink.ui.theme.Gold
@@ -72,17 +73,26 @@ fun MessageCard(m: Message, onView: (FileView) -> Unit, showSender: Boolean = tr
                     Spacer(Modifier.width(8.dp))
                     Text(whenLabel(m.createdAt), style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                 }
+                // The photos as one grid, then the other files, then the words, then the place, if any.
+                val files = m.attachments
+                val photos = files.filter { it.isImage }
+                if (photos.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    PhotoGrid(m, photos, onView)
+                }
+                files.filterNot { it.isImage }.forEach { f ->
+                    Spacer(Modifier.height(8.dp))
+                    Attachment(f, onView)
+                }
                 val loc = locationIn(m.body)
+                val text = textOf(m.body)
+                if (text.isNotBlank()) {
+                    Spacer(Modifier.height(if (files.isEmpty()) 4.dp else 8.dp))
+                    Text(text, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
+                }
                 if (loc != null) {
                     Spacer(Modifier.height(6.dp))
                     LocationCard(loc.first, loc.second)
-                } else if (m.body.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(m.body, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
-                }
-                if (m.file != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Attachment(m.file, onView)
                 }
             }
         }
