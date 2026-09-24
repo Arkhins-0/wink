@@ -105,6 +105,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                 val m = app.store.fetch("/api/me", Me.serializer())
                 // Someone else signed in on this phone: the last person's copy is not theirs to see.
                 if (app.chatCache.claim(m.user.id)) {
+                    app.outbox.wipe()
                     app.chatCache.wipe()
                     app.chatMedia.wipe()
                     app.store.wipe()
@@ -148,6 +149,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
         // Who was signed in is forgotten either way; what they saw stays unless the account was banned.
         app.store.remove("/api/me")
         if (wipe) {
+            app.outbox.wipe()
             app.chatCache.wipe()
             app.chatMedia.wipe()
             app.store.wipe()

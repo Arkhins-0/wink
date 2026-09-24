@@ -7,6 +7,7 @@ import android.app.Application
 import androidx.compose.runtime.staticCompositionLocalOf
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.arkhins.wink.data.Outbox
 import com.arkhins.wink.data.AppUpdater
 import com.arkhins.wink.data.ChatCache
 import com.arkhins.wink.data.ChatMedia
@@ -41,6 +42,9 @@ class WinkApplication : Application(), ImageLoaderFactory {
 
     /** The phone's own copy of every private chat. */
     val chatCache: ChatCache by lazy { ChatCache(this, api, chatMedia, appScope) }
+
+    /** Messages written offline (or not yet answered), sent the moment the network is back. */
+    val outbox: Outbox by lazy { Outbox(this, api, chatCache, appScope) }
 
     /** The phone's copy of every other page: announcements, channels, schedule, people, the account. */
     val store: LocalStore by lazy { LocalStore(this, api, chatMedia, appScope) }
@@ -79,6 +83,8 @@ class WinkApplication : Application(), ImageLoaderFactory {
                 }
             })
         }
+        // Whatever was left queued when the app last closed goes out as soon as it can.
+        appScope.launch { outbox }
     }
 
     /** Profile photos come from our API, so Coil's client must carry the session. */

@@ -36,6 +36,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import com.arkhins.wink.data.ChatExport
 import com.arkhins.wink.data.ConversationDetail
+import com.arkhins.wink.data.Queued
+import androidx.compose.runtime.collectAsState
 import com.arkhins.wink.data.GroupInvite
 import com.arkhins.wink.data.InviteAnswer
 import com.arkhins.wink.ui.components.GhostButton
@@ -458,29 +460,15 @@ fun ChatScreen(
     var exported by remember { mutableStateOf<SavedDocument?>(null) }
     var flash by remember { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    // Sent from here, not yet confirmed by the server: shown at once with a clock.
-    var pending by remember { mutableStateOf<List<Message>>(emptyList()) }
-    val list = rememberLazyListState()
-
-    /** Send a pending message; the server's answer takes its place, or it is marked not sent. */
-    fun deliver(local: Message, replyToId: String?) {
-        app.appScope.launch {
-            try {
-                val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
-                    put("body", local.body)
-                    put("urgent", local.urgent)
-                    if (replyToId != null) put("replyToId", replyToId)
-                }
-                val updated = r.message?.let { app.chatCache.add(conversationId, it) } ?: app.chatCache.sync(conversationId, markRead = true)
-                withContext(Dispatchers.Main) {
-                    detail = updated
-                    pending = pending.filterNot { it.id == local.id }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { pending = pending.map { if (it.id == local.id) it.copy(status = "failed") else it } }
-            }
-        }
+    // Written here, not yet taken by the server: shown at once with a clock, from the outbox, which
+    // keeps them through a lost connection (or a closed app) and sends them when the network is back.
+    val queued by app.outbox.items.collectAsState()
+    val pending = remember(queued) {
+        queued.filter { it.conversationId == conversationId }.map { if (it.failed) it.message.copy(status = "failed") else it.message }
     }
+    // One left the queue: the server's copy is in the phone's chat by now.
+    LaunchedEffect(pending.size) { app.chatCache.peek(conversationId)?.let { detail = it } }
+    val list = rememberLazyListState()
 
     // The phone's copy first: the chat is there at once, even offline.
     LaunchedEffect(conversationId) {
@@ -696,10 +684,7 @@ fun ChatScreen(
                                     replyTo = m
                                 },
                                 onQuote = ::jump,
-                                onRetry = if (m.status == "failed") ({
-                                    pending = pending.map { if (it.id == m.id) it.copy(status = "pending") else it }
-                                    deliver(m.copy(status = "pending"), m.replyTo?.id)
-                                }) else null,
+                                onRetry = if (m.status == "failed") ({ app.outbox.retry(m.id) }) else null,
                             )
                         }
                     }
@@ -748,9 +733,8 @@ fun ChatScreen(
                         replyTo = replyingTo?.let(::refOf),
                         status = "pending",
                     )
-                    pending = pending + local
+                    app.outbox.send(Queued(conversationId, local, replyingTo?.id))
                     replyTo = null
-                    deliver(local, replyingTo?.id)
                     return@Composer
                 } else {
                     val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
