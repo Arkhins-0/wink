@@ -40,7 +40,18 @@ class WinkMessagingService : FirebaseMessagingService() {
         link.removePrefix("/chats/").takeIf { link.startsWith("/chats/") && it.isNotBlank() }?.let { id ->
             app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
         }
-        Notifications.events.tryEmit(PushEvent(title, body, link))
+        Notifications.events.tryEmit(
+            PushEvent(
+                title, body, link,
+                kind = data["kind"].orEmpty(),
+                senderName = data["senderName"].orEmpty(),
+                senderRole = data["senderRole"].orEmpty(),
+                senderPhoto = data["senderPhoto"].orEmpty(),
+                text = data["text"].orEmpty(),
+                attach = data["attach"].orEmpty(),
+                place = data["place"].orEmpty(),
+            ),
+        )
     }
 
     /**

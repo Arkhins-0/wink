@@ -49,6 +49,8 @@ export type Push = {
   link: string;
   /** A stable tag so repeated posts in the same place collapse. */
   tag?: string;
+  /** Extra data for the app's in-app popup: who sent it, what kind, any attachment. */
+  popup?: Record<string, string>;
 };
 
 /** Send one notification to everyone in `userIds`. Fire and forget; never throws. */
@@ -67,7 +69,7 @@ export async function pushTo(userIds: string[], push: Push): Promise<void> {
       const result = await messaging.sendEachForMulticast({
         tokens: batch,
         notification: { title: push.title, body: push.body },
-        data: { link: push.link, title: push.title, body: push.body },
+        data: { ...push.popup, link: push.link, title: push.title, body: push.body },
         android: {
           priority: "high",
           notification: { channelId: "wink_alerts", tag: push.tag, clickAction: "OPEN_LINK", sound: "default" },

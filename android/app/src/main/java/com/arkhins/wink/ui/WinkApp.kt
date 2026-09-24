@@ -36,7 +36,7 @@ import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.BottomNav
-import com.arkhins.wink.ui.components.PopupCard
+import com.arkhins.wink.ui.components.PopupBubble
 import com.arkhins.wink.ui.components.TopBar
 import com.arkhins.wink.ui.components.UpdateAvailableDialog
 import com.arkhins.wink.ui.screens.AccountScreen
@@ -278,7 +278,7 @@ private fun MainNav(vm: AppViewModel) {
             }
             vm.popup?.let { event ->
                 Box(Modifier.align(Alignment.TopCenter)) {
-                    PopupCard(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let { nav.navigate(it) } }, onDismiss = vm::dismissPopup)
+                    PopupBubble(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let { nav.navigate(it) } }, onDismiss = vm::dismissPopup)
                 }
             }
         }

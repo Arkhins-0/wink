@@ -13,7 +13,22 @@ import com.arkhins.wink.R
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 /** A message that arrived while the app was open: the in-app popup shows it. */
-data class PushEvent(val title: String, val body: String, val link: String)
+data class PushEvent(
+    val title: String,
+    val body: String,
+    val link: String,
+    /** "chat", "channel" or "announcement"; blank from an older server. */
+    val kind: String = "",
+    val senderName: String = "",
+    val senderRole: String = "",
+    val senderPhoto: String = "",
+    /** The words typed with it, if any. */
+    val text: String = "",
+    /** "image", "audio", "document", "location" or blank. */
+    val attach: String = "",
+    /** The race weekend, for a channel message. */
+    val place: String = "",
+)
 
 /** The server's silent nudge: this chat, the announcements ("home") or this weekend's channel changed. */
 data class SyncSignal(val scope: String, val id: String)

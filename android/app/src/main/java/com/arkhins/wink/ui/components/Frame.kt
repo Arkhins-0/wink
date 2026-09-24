@@ -165,39 +165,6 @@ fun CountdownChip(onOpenWeekend: (String) -> Unit) {
     }
 }
 
-/** The in-app popup for a message that arrived while the app was open. */
-@Composable
-fun PopupCard(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(12.dp),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(NightPanel, RoundedCornerShape(16.dp))
-                .border(1.dp, Gold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                .padding(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Text(event.title, style = MaterialTheme.typography.labelMedium, color = Gold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(4.dp))
-                    Text(event.body, style = MaterialTheme.typography.bodyMedium, color = Snow, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                }
-                Text("✕", color = SnowFaint, modifier = Modifier.clickable(onClick = onDismiss).padding(4.dp))
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GoldButton("Open") { onOpen(event.link) }
-                GhostButton("Dismiss", onClick = onDismiss)
-            }
-        }
-    }
-}
-
 /**
  * The bottom bar: an icon per tab, the account tab being the person's own
  * photo. Unread counts sit on Home and Chats.

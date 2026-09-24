@@ -191,6 +191,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             }
             if (!first && r.messages.isNotEmpty() && me?.pushConfigured != true) {
                 val m = r.messages.first()
+                val location = m.file == null && m.body.contains("https://maps.google.com/?q=")
                 popup = PushEvent(
                     title = m.sender?.name ?: "Wink",
                     body = m.body.ifBlank { m.file?.let { "Document: ${it.name}" } ?: "New message" },
@@ -198,6 +199,22 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                         m.kind == "direct" && m.conversationId != null -> "/chats/${m.conversationId}"
                         m.kind == "channel" && m.weekendId != null -> "/w/${m.weekendId}"
                         else -> "/home?m=${m.id}"
+                    },
+                    kind = when (m.kind) {
+                        "direct" -> "chat"
+                        "channel" -> "channel"
+                        else -> "announcement"
+                    },
+                    senderName = m.sender?.name.orEmpty(),
+                    senderRole = m.sender?.roleLabel.orEmpty(),
+                    senderPhoto = m.sender?.photoUrl.orEmpty(),
+                    text = if (location) "" else m.body.trim(),
+                    attach = when {
+                        location -> "location"
+                        m.file == null -> ""
+                        m.file.mime.startsWith("image/") -> "image"
+                        m.file.mime.startsWith("audio/") -> "audio"
+                        else -> "document"
                     },
                 )
             }

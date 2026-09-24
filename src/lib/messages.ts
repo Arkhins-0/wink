@@ -166,6 +166,35 @@ async function checkFile(sender: SessionUser, fileId: string | null | undefined)
   return file;
 }
 
+/** What the app's popup shows: the sender, where it was said, the words, and what is attached. */
+function popupData(
+  kind: "chat" | "channel" | "announcement",
+  sender: SessionUser,
+  draft: Draft,
+  file: { mime: string } | null,
+  place = "",
+): Record<string, string> {
+  const location = /https:\/\/maps\.google\.com\/\?q=/.test(draft.body);
+  const attach = file
+    ? file.mime.startsWith("image/")
+      ? "image"
+      : file.mime.startsWith("audio/")
+        ? "audio"
+        : "document"
+    : location
+      ? "location"
+      : "";
+  return {
+    kind,
+    senderName: sender.name || sender.email,
+    senderRole: ROLE_LABEL[sender.role],
+    senderPhoto: sender.photo_key ? `/api/users/${sender.id}/photo` : "",
+    text: location ? "" : draft.body.trim().replace(/\s+/g, " ").slice(0, 300),
+    attach,
+    place,
+  };
+}
+
 function senderLabel(sender: SessionUser): string {
   return `${sender.name || sender.email} · ${ROLE_LABEL[sender.role]}`;
 }
@@ -200,7 +229,7 @@ export async function sendBroadcast(
   await deliver({
     messageId: id,
     recipientIds: recipients,
-    push: { title: senderLabel(sender), body: text, link: `/home?m=${id}`, tag: `m-${id}` },
+    push: { title: senderLabel(sender), body: text, link: `/home?m=${id}`, tag: `m-${id}`, popup: popupData("announcement", sender, draft, file) },
     sync: { scope: "home" },
     email: mail
       ? {
@@ -250,7 +279,13 @@ export async function postToChannel(sender: SessionUser, weekendId: string, draf
   await deliver({
     messageId: id,
     recipientIds: await activeUserIds(sender.id),
-    push: { title: `${channel.name} · ${sender.name || sender.email}`, body: text, link: `/w/${weekendId}`, tag: `w-${weekendId}` },
+    push: {
+      title: `${channel.name} · ${sender.name || sender.email}`,
+      body: text,
+      link: `/w/${weekendId}`,
+      tag: `w-${weekendId}`,
+      popup: popupData("channel", sender, draft, file, channel.name),
+    },
     sync: { scope: "weekend", id: weekendId },
     email:
       draft.urgent || file
@@ -341,7 +376,7 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   await deliver({
     messageId: id,
     recipientIds: [otherId],
-    push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}` },
+    push: { title: senderLabel(sender), body: text, link: `/chats/${conv.id}`, tag: `c-${conv.id}`, popup: popupData("chat", sender, draft, file) },
     sync: { scope: "chat", id: conv.id },
     // Private chats email only when the sender marks the message urgent.
     email:
