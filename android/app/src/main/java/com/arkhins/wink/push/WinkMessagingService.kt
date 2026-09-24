@@ -35,11 +35,14 @@ class WinkMessagingService : FirebaseMessagingService() {
         val title = message.notification?.title ?: data["title"] ?: "Wink"
         val body = message.notification?.body ?: data["body"] ?: ""
         val link = data["link"] ?: "/home"
-        Notifications.show(this, title, body, link, message.notification?.tag)
+        // The chat on screen shows the message itself: no notification, no popup, only the fetch.
+        val onScreen = Notifications.isOpenChat(link)
+        if (!onScreen) Notifications.show(this, title, body, link, message.notification?.tag)
         val app = application as WinkApplication
         link.removePrefix("/chats/").takeIf { link.startsWith("/chats/") && it.isNotBlank() }?.let { id ->
-            app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
+            app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = onScreen) } }
         }
+        if (onScreen) return
         Notifications.events.tryEmit(
             PushEvent(
                 title, body, link,

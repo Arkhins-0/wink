@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import android.widget.Toast
 import android.content.Intent
 import androidx.compose.material.icons.outlined.Close
+import com.arkhins.wink.push.Notifications as PushNotifications
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.runtime.LaunchedEffect as ComposeLaunchedEffect
@@ -508,6 +509,11 @@ fun ChatScreen(
     val context = LocalContext.current
     val myName = vm.me?.user?.displayName ?: "You"
     DisposableEffect(Unit) { onDispose { onSelection(null) } }
+    // While this chat is on screen its messages need no notification or popup.
+    DisposableEffect(conversationId) {
+        PushNotifications.openChat = conversationId
+        onDispose { if (PushNotifications.openChat == conversationId) PushNotifications.openChat = null }
+    }
     // Built in the same frame the selection changes, so the bar is there at once.
     val bar = remember(selected, d?.messages) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }

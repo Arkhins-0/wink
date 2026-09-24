@@ -32,6 +32,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        com.arkhins.wink.push.Notifications.foreground = true
+    }
+
+    override fun onPause() {
+        com.arkhins.wink.push.Notifications.foreground = false
+        super.onPause()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)

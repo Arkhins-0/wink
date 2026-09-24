@@ -36,6 +36,14 @@ data class SyncSignal(val scope: String, val id: String)
 /** One channel, high importance, so every message pops up over whatever is on screen. */
 object Notifications {
     const val CHANNEL_ID = "wink_alerts"
+
+    /** The app is on screen (MainActivity between onResume and onPause). */
+    @Volatile var foreground = false
+    /** The private chat open on screen, if any: its messages need no notification or popup. */
+    @Volatile var openChat: String? = null
+
+    /** A message for the chat the person is looking at right now. */
+    fun isOpenChat(link: String): Boolean = foreground && openChat != null && link == "/chats/$openChat"
     const val EXTRA_LINK = "link"
 
     /** Foreground pushes, for the in-app popup. */

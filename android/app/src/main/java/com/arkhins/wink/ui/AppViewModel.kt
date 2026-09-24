@@ -189,8 +189,9 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             r.messages.filter { it.kind == "direct" }.mapNotNull { it.conversationId }.distinct().forEach { id ->
                 app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
             }
-            if (!first && r.messages.isNotEmpty() && me?.pushConfigured != true) {
-                val m = r.messages.first()
+            val fresh = r.messages.filterNot { it.conversationId != null && it.conversationId == Notifications.openChat }
+            if (!first && fresh.isNotEmpty() && me?.pushConfigured != true) {
+                val m = fresh.first()
                 val location = m.file == null && m.body.contains("https://maps.google.com/?q=")
                 popup = PushEvent(
                     title = m.sender?.name ?: "Wink",
