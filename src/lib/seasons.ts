@@ -92,8 +92,8 @@ export async function makeCurrent(id: string): Promise<Season> {
       [id],
     );
     await c.query(
-      `UPDATE race_weekends SET channel_open = false
-       WHERE season_id IN (SELECT id FROM seasons WHERE status = 'archived' AND id <> $1)`,
+      `UPDATE race_weekends SET channel_open = false, channel_closed_reason = 'season'
+       WHERE channel_open AND season_id IN (SELECT id FROM seasons WHERE status = 'archived' AND id <> $1)`,
       [id],
     );
     await c.query("UPDATE seasons SET is_current = true WHERE id = $1", [id]);
@@ -126,7 +126,9 @@ export async function setArchived(id: string, archived: boolean): Promise<Season
     [id, archived ? "archived" : "active"],
   );
   if (n === 0) throw new AuthError(404, "No such season.");
-  if (archived) await run("UPDATE race_weekends SET channel_open = false WHERE season_id = $1", [id]);
+  // Archiving closes the season's open channels, marked as its doing; bringing it back reopens those, and only those.
+  if (archived) await run("UPDATE race_weekends SET channel_open = false, channel_closed_reason = 'season' WHERE season_id = $1 AND channel_open", [id]);
+  else await run("UPDATE race_weekends SET channel_open = true, channel_closed_reason = NULL WHERE season_id = $1 AND channel_closed_reason = 'season'", [id]);
   return (await seasonById(id))!;
 }
 

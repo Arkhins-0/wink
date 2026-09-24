@@ -341,6 +341,21 @@ fun WeekendCard(w: Weekend, isAdmin: Boolean, onOpen: () -> Unit, onChanged: () 
                                 onClick = { menu = false; adding = true },
                             )
                             DropdownMenuItem(
+                                text = { Text(if (w.channelOpen) "Close channel" else "Open channel", color = if (w.channelOpen) SnowSoft else Gold) },
+                                leadingIcon = { Icon(painterResource(if (w.channelOpen) R.drawable.ic_archive else R.drawable.ic_unarchive), contentDescription = null, tint = if (w.channelOpen) SnowSoft else Gold) },
+                                onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        try {
+                                            app.api.patch("/api/weekends/${w.id}/channel", WeekendResponse.serializer()) { put("open", !w.channelOpen) }
+                                            onChanged()
+                                        } catch (e: Exception) {
+                                            error = e.message ?: "Could not change the channel."
+                                        }
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Edit weekend", color = SnowSoft) },
                                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = SnowSoft) },
                                 onClick = { menu = false; editingWeekend = true },

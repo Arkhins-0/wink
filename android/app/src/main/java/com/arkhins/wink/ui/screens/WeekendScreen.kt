@@ -12,6 +12,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import com.arkhins.wink.ui.components.GhostButton
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -39,6 +44,7 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
     var channel by remember { mutableStateOf<ChannelResponse?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(weekendId, reload, vm.refreshTick) {
         try {
@@ -77,7 +83,32 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
                         }
                     }
                 }
-                if (c != null && !c.open) item { Text("This channel is closed.", style = MaterialTheme.typography.labelSmall, color = SnowFaint) }
+                if (c != null && !c.open) item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when (c.closedReason) {
+                                "archived" -> "This channel is closed: its season is archived."
+                                "season" -> "This channel was closed when its season was archived."
+                                else -> "This channel was closed by an admin."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SnowFaint,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (vm.me?.isAdmin == true && c.closedReason != "archived") {
+                            GhostButton("Open channel") {
+                                scope.launch {
+                                    try {
+                                        app.api.patch("/api/weekends/$weekendId/channel", WeekendResponse.serializer()) { put("open", true) }
+                                        reload++
+                                    } catch (e: Exception) {
+                                        error = e.message
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 when {
                     c == null -> item { Loading() }
                     c.messages.isEmpty() -> item { Empty("No posts yet.") }

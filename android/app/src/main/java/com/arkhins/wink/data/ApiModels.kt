@@ -216,7 +216,14 @@ data class ConversationDetail(
 )
 
 @Serializable
-data class ChannelResponse(val channelId: String, val open: Boolean, val canPost: Boolean, val messages: List<Message>)
+data class ChannelResponse(
+    val channelId: String,
+    val open: Boolean,
+    val canPost: Boolean,
+    val messages: List<Message>,
+    /** Why it is closed: "admin", "season" (closed when its season was archived) or "archived" (its season is archived now). */
+    val closedReason: String? = null,
+)
 
 @Serializable
 data class RaceSession(val id: String, val weekendId: String = "", val name: String, val startsAt: String, val endsAt: String)

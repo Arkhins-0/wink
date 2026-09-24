@@ -21,6 +21,8 @@ export type Weekend = {
   startsOn: string;
   endsOn: string;
   channelOpen: boolean;
+  /** Why the channel is closed: "admin" (by hand) or "season" (its season was archived); null when open. */
+  channelClosedReason: "admin" | "season" | null;
   seasonId: string | null;
   seasonName: string | null;
   seasonArchived: boolean;
@@ -39,6 +41,7 @@ type WRow = {
   starts_on: string;
   ends_on: string;
   channel_open: boolean;
+  channel_closed_reason: "admin" | "season" | null;
   season_id: string | null;
   season_name: string | null;
   season_status: string | null;
@@ -46,7 +49,7 @@ type WRow = {
 type SRow = { id: string; weekend_id: string; name: string; starts_at: string; ends_at: string };
 
 const W = `w.id, w.name, w.venue, w.city, w.country, w.timezone, w.starts_on::text AS starts_on, w.ends_on::text AS ends_on, w.channel_open,
-  w.season_id, s.name AS season_name, s.status AS season_status`;
+  w.channel_closed_reason, w.season_id, s.name AS season_name, s.status AS season_status`;
 const FROM = "FROM race_weekends w LEFT JOIN seasons s ON s.id = w.season_id";
 
 const session = (s: SRow): Session => ({
@@ -77,6 +80,7 @@ export async function listWeekends(seasonId?: string): Promise<Weekend[]> {
     startsOn: w.starts_on,
     endsOn: w.ends_on,
     channelOpen: w.channel_open,
+    channelClosedReason: w.channel_open ? null : (w.channel_closed_reason ?? "admin"),
     seasonId: w.season_id,
     seasonName: w.season_name,
     seasonArchived: w.season_status === "archived",
@@ -101,6 +105,7 @@ export async function weekendById(id: string): Promise<Weekend | null> {
     startsOn: w.starts_on,
     endsOn: w.ends_on,
     channelOpen: w.channel_open,
+    channelClosedReason: w.channel_open ? null : (w.channel_closed_reason ?? "admin"),
     seasonId: w.season_id,
     seasonName: w.season_name,
     seasonArchived: w.season_status === "archived",
@@ -164,10 +169,21 @@ export async function createWeekend(input: WeekendInput): Promise<string> {
   return row!.id;
 }
 
+/** Admin: open or close a weekend's channel by hand. */
+export async function setChannelOpen(id: string, open: boolean): Promise<void> {
+  const n = await run(
+    "UPDATE race_weekends SET channel_open = $2, channel_closed_reason = CASE WHEN $2 THEN NULL ELSE 'admin' END WHERE id = $1",
+    [id, open],
+  );
+  if (n === 0) throw new AuthError(404, "No such race weekend.");
+}
+
 export async function updateWeekend(id: string, input: WeekendInput): Promise<void> {
   const n = await run(
     `UPDATE race_weekends SET name = $2, venue = $3, city = $4, country = $5, timezone = $6,
-       starts_on = $7, ends_on = $8, channel_open = $9, season_id = COALESCE($10, season_id) WHERE id = $1`,
+       starts_on = $7, ends_on = $8, channel_open = $9,
+       channel_closed_reason = CASE WHEN $9 THEN NULL WHEN channel_open THEN 'admin' ELSE channel_closed_reason END,
+       season_id = COALESCE($10, season_id) WHERE id = $1`,
     [id, input.name, input.venue, input.city, input.country, input.timezone, input.startsOn, input.endsOn, input.channelOpen, input.seasonId || null],
   );
   if (n === 0) throw new AuthError(404, "No such race weekend.");
