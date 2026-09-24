@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arkhins.wink.LocalApp
+import com.arkhins.wink.WinkApplication
 import com.arkhins.wink.data.ChannelResponse
 import com.arkhins.wink.data.Conversation
 import com.arkhins.wink.data.ConversationsResponse
@@ -78,6 +79,22 @@ private data class HomeSnapshot(
 )
 
 private const val HOME_KEY = "snapshot:home"
+
+/**
+ * Home rebuilt in the background from what [com.arkhins.wink.data.Prefetch]
+ * has just kept, so Home opens current even with no signal. Marks nothing read.
+ */
+suspend fun refreshHomeSnapshot(app: WinkApplication) {
+    val next = app.store.read("/api/next-race", NextRace.serializer())
+    val chats = app.chatCache.loadList().orEmpty().sortedByDescending { it.lastMessageAt ?: "" }.take(3)
+    val today = LocalDate.now().toString()
+    val weekends = app.store.read("/api/weekends", WeekendsResponse.serializer())?.weekends.orEmpty()
+    val channels = weekends.filter { it.endsOn >= today }.sortedBy { it.startsOn }.map { w ->
+        ChannelSummary(w, app.store.read("/api/weekends/${w.id}/channel", ChannelResponse.serializer())?.messages?.lastOrNull())
+    }
+    val messages = app.store.read("/api/messages", MessagesResponse.serializer())?.messages ?: return
+    app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.filter { it.kind == "broadcast" }), HomeSnapshot.serializer())
+}
 
 /**
  * Home: the next race, the last three private chats, the latest post of

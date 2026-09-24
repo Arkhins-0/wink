@@ -72,7 +72,7 @@ class WinkMessagingService : FirebaseMessagingService() {
                     when (scope) {
                         "chat" -> if (id.isNotBlank()) app.chatCache.sync(id, markRead = false)
                         "home" -> app.store.fetch("/api/messages", MessagesResponse.serializer())
-                        "weekend" -> if (id.isNotBlank()) app.store.fetch("/api/weekends/$id/channel", ChannelResponse.serializer())
+                        "weekend" -> if (id.isNotBlank()) app.store.fetch("/api/weekends/$id/channel?read=0", ChannelResponse.serializer(), key = "/api/weekends/$id/channel")
                     }
                 }
             }

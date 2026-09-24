@@ -48,11 +48,14 @@ class LocalStore(context: Context, private val api: WinkApi, private val media: 
         file(key).delete()
     }
 
-    /** Ask the server, keep its answer, and start fetching the pictures and voice notes in it. */
-    suspend fun <T> fetch(path: String, serializer: KSerializer<T>): T = withContext(Dispatchers.IO) {
+    /**
+     * Ask the server, keep its answer (under [key], when the screen reads it
+     * by a different path), and start fetching the attachments in it.
+     */
+    suspend fun <T> fetch(path: String, serializer: KSerializer<T>, key: String = path): T = withContext(Dispatchers.IO) {
         val text = api.getText(path)
         val value = json.decodeFromString(serializer, text)
-        runCatching { write(file(path), text) }
+        runCatching { write(file(key), text) }
         keepMedia(value)
         value
     }
