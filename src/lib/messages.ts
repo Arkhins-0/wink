@@ -26,7 +26,7 @@ export type GroupInviteRef = {
   id: string;
   groupId: string;
   groupName: string;
-  status: "pending" | "accepted" | "declined" | "expired";
+  status: "pending" | "accepted" | "declined" | "expired" | "revoked";
   /** Sent to someone higher up: a join request. */
   upward: boolean;
   expiresAt: string;
@@ -97,7 +97,7 @@ type Row = {
   changed_at: string | null;
   forwarded: boolean;
   group_invite_id: string | null;
-  gi_status: "pending" | "accepted" | "declined" | "expired" | null;
+  gi_status: "pending" | "accepted" | "declined" | "expired" | "revoked" | null;
   gi_upward: boolean | null;
   gi_expires: string | null;
   event: string | null;

@@ -119,7 +119,7 @@ fun NewGroupScreen(onCreated: (String) -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         GoldButton(
-            if (busy) "Creating…" else if (picked.isEmpty()) "Create group" else "Create and invite ${picked.size}",
+            if (busy) "Creating…" else if (picked.isEmpty()) "Create group" else "Create with ${picked.size}",
             Modifier.fillMaxWidth(),
             enabled = !busy && name.trim().length >= 2,
         ) {
@@ -162,7 +162,7 @@ private fun PeoplePicker(people: List<PublicUser>, picked: Set<String>, filter: 
                     Text(u.displayName, style = MaterialTheme.typography.titleSmall, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(u.roleLabel + (u.teamName?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = SnowFaint)
                     // Someone higher up is asked, not invited.
-                    if (u.groupMode == "request") Text("Gets a join request", style = MaterialTheme.typography.labelSmall, color = Gold)
+                    if (u.groupMode == "request") Text("Higher up · gets a join request", style = MaterialTheme.typography.labelSmall, color = Gold)
                 }
                 Checkbox(
                     checked = on,
@@ -322,6 +322,16 @@ fun GroupScreen(vm: AppViewModel, groupId: String, onOpenChat: (String) -> Unit,
                                     Text(m.name, style = MaterialTheme.typography.titleSmall, color = Snow)
                                     Text("${m.roleLabel} · waiting for an answer", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
                                 }
+                                if (admin) {
+                                    Text(
+                                        "Revoke",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Danger,
+                                        modifier = Modifier
+                                            .clickable(enabled = !busy) { run { app.api.delete("/api/groups/$groupId/invites/${m.id}") } }
+                                            .padding(8.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -449,7 +459,7 @@ private fun AddPeopleSheet(exclude: Set<String>, onDismiss: () -> Unit, onAdd: (
                 }
             }
             Spacer(Modifier.height(12.dp))
-            GoldButton(if (picked.isEmpty()) "Invite" else "Invite ${picked.size}", Modifier.fillMaxWidth(), enabled = picked.isNotEmpty()) { onAdd(picked.toList()) }
+            GoldButton(if (picked.isEmpty()) "Add" else "Add ${picked.size}", Modifier.fillMaxWidth(), enabled = picked.isNotEmpty()) { onAdd(picked.toList()) }
         }
     }
 }

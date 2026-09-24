@@ -563,7 +563,8 @@ fun ChatScreen(
     }
 
     fun toggle(m: Message) {
-        if (m.deleted || m.id.startsWith("local-") || m.groupInvite != null || m.event != null) return
+        // An invitation can be selected by whoever sent it, to see who it reached.
+        if (m.deleted || m.id.startsWith("local-") || (m.groupInvite != null && !m.mine) || m.event != null) return
         selected = if (m.id in selected) selected - m.id else selected + m.id
     }
     val clipboard = LocalClipboardManager.current
@@ -579,6 +580,8 @@ fun ChatScreen(
         val chosen = d?.messages.orEmpty().filter { it.id in selected }
         if (chosen.isEmpty()) return@remember null
         val one = chosen.singleOrNull()
+        // An invitation card has only its info: it is not text to copy, forward, edit or reply to.
+        val invite = chosen.any { it.groupInvite != null }
         val allMine = chosen.all { it.mine }
         val allRecent = chosen.all { changeable(it) }
         fun copy() {
@@ -595,6 +598,7 @@ fun ChatScreen(
             actions = buildList {
                 // Your own message: who it reached, and when.
                 if (one != null && one.mine) add(SelectionAction("Info", vector = Icons.Outlined.Info) { infoFor = one; selected = emptySet() })
+                if (invite) return@buildList
                 if (one != null) add(SelectionAction("Reply", drawable = R.drawable.ic_reply) { editing = null; replyTo = one; selected = emptySet() })
                 if (one != null && one.mine) add(SelectionAction("Edit", enabled = allRecent, vector = Icons.Outlined.Edit) { replyTo = null; editing = one; selected = emptySet() })
                 add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
@@ -1099,6 +1103,7 @@ private fun InviteCard(inv: GroupInvite, open: Boolean, mine: Boolean, onDark: B
         when {
             inv.status == "accepted" -> Text("Joined", style = MaterialTheme.typography.labelMedium, color = note)
             inv.status == "declined" -> Text("Declined", style = MaterialTheme.typography.labelMedium, color = note)
+            inv.status == "revoked" -> Text("Revoked", style = MaterialTheme.typography.labelMedium, color = note)
             !open -> Text("Expired · good for 2 days", style = MaterialTheme.typography.labelMedium, color = note)
             onAnswer == null -> Text(if (mine) "Waiting for an answer" else "Open", style = MaterialTheme.typography.labelMedium, color = note)
             else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

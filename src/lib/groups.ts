@@ -6,16 +6,16 @@ import { one, q, run } from "./db";
 import { groupAddMode } from "./hierarchy";
 import { groupEvent, sendGroupInvite } from "./messages";
 import { storeImage } from "./profile";
-import { pushSync } from "./push";
+import { pushSync, pushTo } from "./push";
 import { ROLE_LABEL, type Role } from "./roles";
 import { userById, usersByIds } from "./users";
 
 /*
- * Groups. Anyone may make one and bring in people at their own level and
- * those their role looks after (hierarchy.groupAddMode); someone higher up
- * gets a join request instead. Either way it is a message in the private
+ * Groups. Anyone may make one and add people at their own level and those
+ * their role looks after (hierarchy.groupAddMode): they are in at once.
+ * Someone higher up gets a join request instead: a message in the private
  * chat between the two, with Join and Decline on it, good once and for two
- * days. The group's admins add and remove members, make other admins,
+ * days, and an admin can take it back while it is unanswered. The group's admins add and remove members, make other admins,
  * rename it and decide who may send. Everything said in a group stays, so
  * someone who joins later reads it all; joins, leaves and the like show as
  * lines in the chat.
@@ -114,22 +114,42 @@ export async function createGroup(user: SessionUser, name: string, memberIds: st
   return { id: row!.id, skipped: result.skipped };
 }
 
-export type InviteResult = { invited: number; requested: number; skipped: string[] };
+export type InviteResult = { added: number; requested: number; skipped: string[] };
 
 /**
- * Invite people (a group admin's doing): those at the admin's level or in
- * their care get an invitation, those higher up a join request, and
- * anyone else is skipped by name.
+ * Bring people in (a group admin's doing): those at the admin's level or
+ * in their care are added at once, those higher up get a join request,
+ * and anyone else is skipped by name.
  */
 export async function inviteMembers(actor: SessionUser, groupId: string, userIds: string[]): Promise<InviteResult> {
   const g = await requireAdmin(actor, groupId);
   const people = await usersByIds(Array.from(new Set(userIds)));
-  const result: InviteResult = { invited: 0, requested: 0, skipped: [] };
+  const result: InviteResult = { added: 0, requested: 0, skipped: [] };
+  // Everyone added in one go shares one line in the chat: "X added A, B, C".
+  const addedNames: string[] = [];
   for (const p of people) {
     if (p.id === actor.id || (await memberRole(groupId, p.id))) continue;
     const mode = p.status === "active" ? groupAddMode(actor, p) : null;
     if (!mode) {
       result.skipped.push(who(p));
+      continue;
+    }
+    if (mode === "direct") {
+      await run("INSERT INTO group_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [groupId, p.id]);
+      // Any invitation still open for them is spent.
+      await run("UPDATE group_invites SET status = 'accepted', answered_at = now() WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending'", [groupId, p.id]);
+      addedNames.push(who(p));
+      const name = g.name ?? "Group";
+      after(() =>
+        pushTo([p.id], {
+          title: name,
+          body: `${who(actor)} added you to the group`,
+          link: `/chats/${groupId}`,
+          tag: `c-${groupId}`,
+          popup: { kind: "group", senderName: who(actor), senderRole: ROLE_LABEL[actor.role], senderPhoto: actor.photo_key ? `/api/users/${actor.id}/photo` : "", text: "added you to the group", attach: "", place: name },
+        }).catch(() => null),
+      );
+      result.added++;
       continue;
     }
     // A lapsed invitation makes way for a new one.
@@ -143,11 +163,28 @@ export async function inviteMembers(actor: SessionUser, groupId: string, userIds
       [groupId, p.id, actor.id, mode === "request"],
     );
     if (!invite) continue;
-    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group", mode === "request");
-    if (mode === "request") result.requested++;
-    else result.invited++;
+    await sendGroupInvite(actor, p, invite.id, g.name ?? "Group", true);
+    result.requested++;
   }
+  if (addedNames.length > 0) await groupEvent(groupId, actor.id, `${who(actor)} added ${addedNames.join(", ")}`);
   return result;
+}
+
+/** Admin: take back an unanswered invitation. Its card in the private chat then reads "Revoked". */
+export async function revokeInvite(actor: SessionUser, groupId: string, userId: string): Promise<void> {
+  await requireAdmin(actor, groupId);
+  const rows = await q<{ id: string }>(
+    "UPDATE group_invites SET status = 'revoked', answered_at = now() WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending' RETURNING id",
+    [groupId, userId],
+  );
+  if (rows.length === 0) throw new AuthError(404, "There is no open invitation for this person.");
+  const carriers = await q<{ conversation_id: string }>(
+    "UPDATE messages SET changed_at = now() WHERE group_invite_id = ANY($1::uuid[]) RETURNING conversation_id",
+    [rows.map((r) => r.id)],
+  );
+  after(async () => {
+    for (const c of carriers) await pushSync([actor.id, userId], { scope: "chat", id: c.conversation_id });
+  });
 }
 
 /** Join or decline. The invitation message in the chat is bumped so both phones show the answer. */

@@ -98,7 +98,7 @@ data class GroupInvite(
     val id: String,
     val groupId: String,
     val groupName: String = "Group",
-    /** "pending", "accepted", "declined" or "expired". Good once, and for two days. */
+    /** "pending", "accepted", "declined", "expired" or "revoked". Good once, and for two days. */
     val status: String = "pending",
     /** Sent to someone higher up: a join request. */
     val upward: Boolean = false,
@@ -121,7 +121,7 @@ data class MessageRecipient(
 
 /** What creating a group or inviting to one answers: who could not be brought in. */
 @Serializable
-data class InviteResult(val id: String? = null, val invited: Int = 0, val requested: Int = 0, val skipped: List<String> = emptyList())
+data class InviteResult(val id: String? = null, val added: Int = 0, val requested: Int = 0, val skipped: List<String> = emptyList())
 
 @Serializable
 data class GroupMember(val id: String, val name: String, val roleLabel: String = "", val photoUrl: String? = null, val groupRole: String = "member")

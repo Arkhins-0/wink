@@ -62,11 +62,15 @@ fun MessageInfoSheet(messageId: String, preview: String, onDismiss: () -> Unit) 
             val read = i.recipients.filter { it.readAt != null }
             val delivered = i.recipients.filter { it.readAt == null && it.deliveredAt != null }
             val waiting = i.recipients.filter { it.deliveredAt == null }
+            // The way the message travels: sent, then waiting, then on their phone, then read.
             LazyColumn {
-                section("READ BY", read) { it.readAt }
+                item(key = "sent") {
+                    Text("SENT", style = MaterialTheme.typography.labelSmall, color = Gold, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
+                    Text(localDateTime(i.sentAt), style = MaterialTheme.typography.bodyMedium, color = Snow)
+                }
+                section("NOT DELIVERED", waiting) { null }
                 section("DELIVERED TO", delivered) { it.deliveredAt }
-                section("SENT TO · NOT DELIVERED YET", waiting) { null }
-                item { Text("Sent ${localDateTime(i.sentAt)}", style = MaterialTheme.typography.labelSmall, color = SnowFaint, modifier = Modifier.padding(top = 8.dp)) }
+                section("READ BY", read) { it.readAt }
             }
         }
     }
