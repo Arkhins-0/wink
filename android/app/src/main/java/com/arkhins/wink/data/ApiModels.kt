@@ -105,6 +105,20 @@ data class GroupInvite(
     val expiresAt: String? = null,
 )
 
+/** Who a message you sent has reached, and when. */
+@Serializable
+data class MessageInfo(val sentAt: String, val recipients: List<MessageRecipient> = emptyList())
+
+@Serializable
+data class MessageRecipient(
+    val id: String,
+    val name: String,
+    val roleLabel: String = "",
+    val photoUrl: String? = null,
+    val deliveredAt: String? = null,
+    val readAt: String? = null,
+)
+
 /** What creating a group or inviting to one answers: who could not be brought in. */
 @Serializable
 data class InviteResult(val id: String? = null, val invited: Int = 0, val requested: Int = 0, val skipped: List<String> = emptyList())

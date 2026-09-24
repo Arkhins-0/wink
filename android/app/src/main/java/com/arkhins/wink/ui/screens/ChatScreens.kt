@@ -51,6 +51,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.DisposableEffect
 import com.arkhins.wink.ui.components.ForwardSheet
+import com.arkhins.wink.ui.components.MessageInfoSheet
+import androidx.compose.material.icons.outlined.Info
 import com.arkhins.wink.ui.components.SelectionAction
 import com.arkhins.wink.ui.components.SelectionBar
 import androidx.compose.material3.AlertDialog
@@ -451,6 +453,8 @@ fun ChatScreen(
     // Long-pressed messages; while any are, the header is the selection bar.
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var forwarding by remember { mutableStateOf(false) }
+    // A message whose info (delivered, read, by whom) is open.
+    var infoFor by remember { mutableStateOf<Message?>(null) }
     // Search: the words looked for, and which of the matching messages is shown.
     var query by remember { mutableStateOf("") }
     var hitAt by remember { mutableStateOf(0) }
@@ -589,6 +593,8 @@ fun ChatScreen(
             count = chosen.size,
             onClose = { selected = emptySet() },
             actions = buildList {
+                // Your own message: who it reached, and when.
+                if (one != null && one.mine) add(SelectionAction("Info", vector = Icons.Outlined.Info) { infoFor = one; selected = emptySet() })
                 if (one != null) add(SelectionAction("Reply", drawable = R.drawable.ic_reply) { editing = null; replyTo = one; selected = emptySet() })
                 if (one != null && one.mine) add(SelectionAction("Edit", enabled = allRecent, vector = Icons.Outlined.Edit) { replyTo = null; editing = one; selected = emptySet() })
                 add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
@@ -816,6 +822,7 @@ fun ChatScreen(
             dismissButton = { TextButton(onClick = { exported = null }) { Text("Done", color = SnowFaint) } },
         )
     }
+    infoFor?.let { m -> MessageInfoSheet(m.id, snippet(refOf(m))) { infoFor = null } }
     if (forwarding) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
