@@ -27,6 +27,9 @@ import com.arkhins.wink.LocalApp
 import com.arkhins.wink.data.MessageInfo
 import com.arkhins.wink.data.MessageRecipient
 import com.arkhins.wink.ui.localDateTime
+import com.arkhins.wink.push.Notifications
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
@@ -36,17 +39,22 @@ import com.arkhins.wink.ui.theme.SnowSoft
 /**
  * Message info, as WhatsApp has it: who has read a message you sent, who
  * has it on their phone, and who it has not reached yet, with the times.
+ * It stays live while open: the server's nudge for the chat (a tick moved)
+ * reloads it at once, and a look every few seconds covers the rest.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessageInfoSheet(messageId: String, preview: String, onDismiss: () -> Unit) {
+fun MessageInfoSheet(messageId: String, conversationId: String, preview: String, onDismiss: () -> Unit) {
     val app = LocalApp.current
     var info by remember { mutableStateOf<MessageInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messageId) {
-        runCatching { app.api.get("/api/messages/$messageId/info", MessageInfo.serializer()) }
-            .onSuccess { info = it }
-            .onFailure { error = it.message ?: "Could not load the message info." }
+        while (true) {
+            runCatching { app.api.get("/api/messages/$messageId/info", MessageInfo.serializer()) }
+                .onSuccess { info = it; error = null }
+                .onFailure { if (info == null) error = it.message ?: "Could not load the message info." }
+            withTimeoutOrNull(4_000) { Notifications.syncs.first { it.scope == "chat" && it.id == conversationId } }
+        }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = NightPanel) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {

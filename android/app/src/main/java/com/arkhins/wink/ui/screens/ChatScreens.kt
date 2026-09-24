@@ -826,7 +826,7 @@ fun ChatScreen(
             dismissButton = { TextButton(onClick = { exported = null }) { Text("Done", color = SnowFaint) } },
         )
     }
-    infoFor?.let { m -> MessageInfoSheet(m.id, snippet(refOf(m))) { infoFor = null } }
+    infoFor?.let { m -> MessageInfoSheet(m.id, conversationId, snippet(refOf(m))) { infoFor = null } }
     if (forwarding) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }.sortedBy { it.createdAt }
         ForwardSheet(chosen.size, onDismiss = { forwarding = false }) { targets ->
