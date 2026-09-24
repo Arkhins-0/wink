@@ -14,6 +14,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -286,8 +290,9 @@ private fun MainNav(vm: AppViewModel) {
                 nav,
                 startDestination = "home",
                 enterTransition = { fadeIn(tween(120)) },
-                exitTransition = { fadeOut(tween(90)) },
-                popEnterTransition = { fadeIn(tween(120)) },
+                // A chat slides in over the screen beneath it, so that screen stays put underneath.
+                exitTransition = { if (targetState.destination.route == "chat/{id}") ExitTransition.KeepUntilTransitionsFinished else fadeOut(tween(90)) },
+                popEnterTransition = { if (initialState.destination.route == "chat/{id}") EnterTransition.None else fadeIn(tween(120)) },
                 popExitTransition = { fadeOut(tween(90)) },
             ) {
                 composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { nav.navigate("chat/$it") }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
@@ -298,7 +303,12 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("newgroup") { NewGroupScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
                 composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") { popUpTo("chats") } }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { title = it } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
+                // A chat flies in from the right, and back out to the right when closed.
+                composable(
+                    "chat/{id}",
+                    enterTransition = { slideInHorizontally(tween(220)) { it } },
+                    popExitTransition = { slideOutHorizontally(tween(200)) { it } },
+                ) { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
