@@ -7,15 +7,15 @@ import { audit } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
-/** The weekend's channel. Everyone reads; reading marks it read. */
-export const GET = handle<Params<"id">>(async (_request, { params }) => {
+/** The weekend's channel. Everyone reads; reading marks it read, except `?read=0` (the phone fetching in the background). */
+export const GET = handle<Params<"id">>(async (request, { params }) => {
   const user = await requireUser();
   const { id } = await params;
   if (!isUuid(id)) return fail("No such race weekend.", 404);
   const channel = await channelFor(id);
   if (!channel) return fail("No such race weekend.", 404);
   const [messages, weekend] = await Promise.all([conversationMessages(user, channel.id), weekendById(id)]);
-  await markConversationRead(user.id, channel.id);
+  if (new URL(request.url).searchParams.get("read") !== "0") await markConversationRead(user.id, channel.id);
   return json({
     channelId: channel.id,
     open: channel.open,
