@@ -84,7 +84,38 @@ data class Message(
     val status: String? = null,
     /** Passed on from another chat. */
     val forwarded: Boolean = false,
+    /** This message is a group invitation. */
+    val groupInvite: GroupInvite? = null,
 )
+
+/** An invitation to a group, carried by a message in a private chat. */
+@Serializable
+data class GroupInvite(val id: String, val groupId: String, val groupName: String = "Group", val status: String = "pending")
+
+@Serializable
+data class GroupMember(val id: String, val name: String, val roleLabel: String = "", val photoUrl: String? = null, val groupRole: String = "member")
+
+@Serializable
+data class GroupInfo(
+    val id: String,
+    val name: String,
+    val photoUrl: String? = null,
+    val sendPolicy: String = "everyone",
+    val members: List<GroupMember> = emptyList(),
+    val invited: List<GroupMember> = emptyList(),
+    val myRole: String? = null,
+    val canSend: Boolean = true,
+    val createdBy: String? = null,
+) {
+    /** The group where a chat's other side would be: name, photo, and "Group · n members" for the designation. */
+    fun asOther(): OtherUser = OtherUser(id, name, "group", "Group · ${members.size} member${if (members.size == 1) "" else "s"}", photoUrl)
+}
+
+@Serializable
+data class GroupResponse(val group: GroupInfo)
+
+@Serializable
+data class InviteAnswer(val groupId: String, val accepted: Boolean = false)
 
 /** The Privacy Policy or the Terms, as /api/legal/<doc> gives them. */
 @Serializable
@@ -134,7 +165,15 @@ data class Conversation(val id: String, val kind: String = "direct", val other: 
 data class ConversationsResponse(val conversations: List<Conversation>)
 
 @Serializable
-data class ConversationDetail(val id: String, val iOpened: Boolean = false, val other: OtherUser? = null, val messages: List<Message>, val liveIds: List<String>? = null)
+data class ConversationDetail(
+    val id: String,
+    val iOpened: Boolean = false,
+    val other: OtherUser? = null,
+    /** Set for a group chat. */
+    val group: GroupInfo? = null,
+    val messages: List<Message>,
+    val liveIds: List<String>? = null,
+)
 
 @Serializable
 data class ChannelResponse(val channelId: String, val open: Boolean, val canPost: Boolean, val messages: List<Message>)

@@ -19,7 +19,10 @@ import { currentSeason, LIVE_SEASON } from "./seasons";
  * land in the recipients' inbox the same way.
  */
 
-export type Kind = "broadcast" | "channel" | "direct";
+export type Kind = "broadcast" | "channel" | "direct" | "group";
+
+/** An invitation to a group, carried by a message in a private chat. */
+export type GroupInviteRef = { id: string; groupId: string; groupName: string; status: "pending" | "accepted" | "declined" };
 
 export type MessageOut = {
   id: string;
@@ -41,6 +44,8 @@ export type MessageOut = {
   changedAt: string | null;
   /** Passed on from another chat. */
   forwarded: boolean;
+  /** This message is a group invitation. */
+  groupInvite: GroupInviteRef | null;
   /** Your own private message: sent (one tick), delivered (two), read (three). Null otherwise. */
   status: "sent" | "delivered" | "read" | null;
 };
@@ -81,6 +86,10 @@ type Row = {
   deleted_at: string | null;
   changed_at: string | null;
   forwarded: boolean;
+  group_invite_id: string | null;
+  gi_status: "pending" | "accepted" | "declined" | null;
+  gi_group: string | null;
+  gi_name: string | null;
   rm_sender_id: string | null;
   rm_sender_name: string | null;
   rm_body: string | null;
@@ -98,7 +107,8 @@ const SELECT = `
          m.urgent, m.created_at, r.read_at, m.reply_to_id, m.edited_at, m.deleted_at, m.changed_at, m.forwarded,
          rm.sender_id AS rm_sender_id, COALESCE(NULLIF(rs.name, ''), rs.email) AS rm_sender_name, rm.body AS rm_body,
          rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
-         rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at
+         rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
+         m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name
   FROM messages m
   LEFT JOIN conversations c ON c.id = m.conversation_id
   LEFT JOIN users s ON s.id = m.sender_id
@@ -107,7 +117,9 @@ const SELECT = `
   LEFT JOIN messages rm ON rm.id = m.reply_to_id
   LEFT JOIN users rs ON rs.id = rm.sender_id
   LEFT JOIN files rf ON rf.id = rm.file_id
-  LEFT JOIN message_recipients rr ON rr.message_id = m.id AND c.kind = 'direct' AND m.sender_id = $1 AND rr.user_id <> $1`;
+  LEFT JOIN message_recipients rr ON rr.message_id = m.id AND c.kind = 'direct' AND m.sender_id = $1 AND rr.user_id <> $1
+  LEFT JOIN group_invites gi ON gi.id = m.group_invite_id
+  LEFT JOIN conversations gc ON gc.id = gi.conversation_id`;
 
 const iso = (v: string | null) => (v ? new Date(v).toISOString() : null);
 
@@ -149,6 +161,9 @@ function out(row: Row, viewerId: string): MessageOut {
     deleted: Boolean(row.deleted_at),
     changedAt: iso(row.changed_at),
     forwarded: row.forwarded,
+    groupInvite: row.group_invite_id
+      ? { id: row.group_invite_id, groupId: row.gi_group ?? "", groupName: row.gi_name ?? "Group", status: row.gi_status ?? "pending" }
+      : null,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -179,7 +194,7 @@ async function checkFile(sender: SessionUser, fileId: string | null | undefined)
 
 /** What the app's popup shows: the sender, where it was said, the words, and what is attached. */
 function popupData(
-  kind: "chat" | "channel" | "announcement",
+  kind: "chat" | "channel" | "announcement" | "group",
   sender: SessionUser,
   draft: Draft,
   file: { mime: string } | null,
@@ -316,7 +331,8 @@ export type ConversationOut = {
   id: string;
   /** "direct" for a private chat; "group" for a group. */
   kind: "direct" | "group";
-  other: { id: string; name: string; role: Role; roleLabel: string; photoUrl: string | null; status: string };
+  /** The person on the other side — or, for a group, the group itself (role "group"). */
+  other: { id: string; name: string; role: Role | "group"; roleLabel: string; photoUrl: string | null; status: string };
   iOpened: boolean;
   lastMessageAt: string | null;
   lastMessage: string | null;
@@ -353,50 +369,131 @@ export async function openDirect(user: SessionUser, otherId: string): Promise<st
   return created?.id ?? (await find())!.id;
 }
 
-type ConvRow = {
+export type ConvRow = {
   id: string;
   kind: Kind;
   weekend_id: string | null;
   owner_id: string | null;
   member_id: string | null;
   last_message_at: string | null;
+  name: string | null;
+  photo_key: string | null;
+  send_policy: "everyone" | "admins";
 };
 
 export async function conversationById(id: string): Promise<ConvRow | undefined> {
-  return one<ConvRow>("SELECT id, kind, weekend_id, owner_id, member_id, last_message_at FROM conversations WHERE id = $1", [id]);
+  return one<ConvRow>(
+    "SELECT id, kind, weekend_id, owner_id, member_id, last_message_at, name, photo_key, send_policy FROM conversations WHERE id = $1",
+    [id],
+  );
 }
 
-/** May this person read the conversation? */
+/** May this person read the conversation? (Groups need a lookup: see canAccess.) */
 export function canRead(user: SessionUser, conv: ConvRow): boolean {
   if (conv.kind === "channel") return true;
   return conv.owner_id === user.id || conv.member_id === user.id;
+}
+
+/** May this person read the conversation, groups included? */
+export async function canAccess(user: SessionUser, conv: ConvRow): Promise<boolean> {
+  if (conv.kind === "group") {
+    return Boolean(await one("SELECT 1 FROM group_members WHERE conversation_id = $1 AND user_id = $2", [conv.id, user.id]));
+  }
+  return canRead(user, conv);
+}
+
+/** A forward copies a message this person sent or received, as it reads now. */
+async function resolveForward(sender: SessionUser, draft: Draft): Promise<{ draft: Draft; forwarded: boolean }> {
+  if (!draft.forwardOf) return { draft, forwarded: false };
+  const source = await one<{ body: string; file_id: string | null }>(
+    `SELECT m.body, m.file_id FROM messages m
+     WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL
+       AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
+    [draft.forwardOf, sender.id],
+  );
+  if (!source) throw new AuthError(404, "That message is not here to forward.");
+  return { draft: { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null }, forwarded: true };
+}
+
+async function checkReply(conversationId: string, replyToId: string | null | undefined): Promise<void> {
+  if (!replyToId) return;
+  const target = await one<{ id: string }>(
+    `SELECT id FROM messages m WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL AND ${LIVE_SEASON("m")}`,
+    [replyToId, conversationId],
+  );
+  if (!target) throw new AuthError(400, "That message is no longer here to reply to.");
+}
+
+/* ───────────────────────────── Groups ────────────────────────────── */
+
+/** Say something in a group. Members only; when the group says so, admins only. */
+export async function postGroup(sender: SessionUser, conversationId: string, draft: Draft): Promise<string> {
+  const conv = await conversationById(conversationId);
+  if (!conv || conv.kind !== "group") throw new AuthError(404, "No such group.");
+  const me = await one<{ role: string }>("SELECT role FROM group_members WHERE conversation_id = $1 AND user_id = $2", [conv.id, sender.id]);
+  if (!me) throw new AuthError(403, "You are not in this group.");
+  if (conv.send_policy === "admins" && me.role !== "admin") throw new AuthError(403, "Only the group's admins can send here.");
+  const fwd = await resolveForward(sender, draft);
+  draft = fwd.draft;
+  if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
+  await checkReply(conv.id, draft.replyToId);
+  const file = fwd.forwarded ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
+  const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
+  const members = await q<{ user_id: string }>("SELECT user_id FROM group_members WHERE conversation_id = $1 AND user_id <> $2", [conv.id, sender.id]);
+  const text = preview(draft.body, file?.name);
+  const name = conv.name ?? "Group";
+  await deliver({
+    messageId: id,
+    recipientIds: members.map((m) => m.user_id),
+    push: {
+      title: `${name} · ${sender.name || sender.email}`,
+      body: text,
+      link: `/chats/${conv.id}`,
+      tag: `c-${conv.id}`,
+      popup: popupData("group", sender, draft, file, name),
+    },
+    sync: { scope: "chat", id: conv.id },
+    email: draft.urgent
+      ? {
+          subject: `Urgent: ${name} — ${file ? `Document: ${file.name}` : text.slice(0, 80)}`,
+          title: `${name}: message from ${sender.name || sender.email}`,
+          body: draft.body.trim() || `A document was shared: ${file?.name ?? ""}`,
+        }
+      : undefined,
+  });
+  return id;
+}
+
+/** The invitation, as a message in the private chat between the inviter and the invited (nothing when no such chat is allowed). */
+export async function sendGroupInvite(actor: SessionUser, invitee: SessionUser, inviteId: string, groupName: string): Promise<void> {
+  if (!canChat(actor, invitee)) return;
+  const convId = await openDirect(actor, invitee.id);
+  const body = `Invitation to join the group "${groupName}"`;
+  const season = await currentSeason();
+  const row = await one<{ id: string; created_at: string }>(
+    `INSERT INTO messages (conversation_id, sender_id, body, season_id, group_invite_id)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+    [convId, actor.id, body, season.id, inviteId],
+  );
+  await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [convId, row!.created_at]);
+  await deliver({
+    messageId: row!.id,
+    recipientIds: [invitee.id],
+    push: { title: senderLabel(actor), body, link: `/chats/${convId}`, tag: `c-${convId}`, popup: popupData("chat", actor, { body }, null) },
+    sync: { scope: "chat", id: convId },
+  });
 }
 
 export async function postDirect(sender: SessionUser, conversationId: string, draft: Draft): Promise<string> {
   const conv = await conversationById(conversationId);
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
-  // A forward copies a message this person sent or received, as it reads now.
-  const source = draft.forwardOf
-    ? await one<{ body: string; file_id: string | null }>(
-        `SELECT m.body, m.file_id FROM messages m
-         WHERE m.id = $1 AND m.deleted_at IS NULL
-           AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
-        [draft.forwardOf, sender.id],
-      )
-    : null;
-  if (draft.forwardOf && !source) throw new AuthError(404, "That message is not here to forward.");
-  if (source) draft = { ...draft, body: source.body, fileId: source.file_id, urgent: false, replyToId: null };
+  const fwd = await resolveForward(sender, draft);
+  draft = fwd.draft;
   if (!draft.body.trim() && !draft.fileId) throw new AuthError(400, "Write something or attach a document.");
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
-  if (draft.replyToId) {
-    const target = await one<{ id: string }>(
-      `SELECT id FROM messages m WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL AND ${LIVE_SEASON("m")}`,
-      [draft.replyToId, conv.id],
-    );
-    if (!target) throw new AuthError(400, "That message is no longer here to reply to.");
-  }
-  const file = source ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
+  await checkReply(conv.id, draft.replyToId);
+  const file = fwd.forwarded ? (draft.fileId ? (await fileById(draft.fileId)) ?? null : null) : await checkFile(sender, draft.fileId);
   const id = await insertMessage(conv.id, sender, draft, file?.id ?? null);
   const text = preview(draft.body, file?.name);
   await deliver({
@@ -438,7 +535,7 @@ async function ownRecent(user: SessionUser, messageId: string) {
      WHERE m.id = $1 AND ${LIVE_SEASON("m")}`,
     [messageId],
   );
-  if (!m || m.kind !== "direct") throw new AuthError(404, "No such message.");
+  if (!m || (m.kind !== "direct" && m.kind !== "group")) throw new AuthError(404, "No such message.");
   if (m.sender_id !== user.id) throw new AuthError(403, "Only the sender can change a message.");
   if (m.deleted_at) throw new AuthError(400, "This message was deleted.");
   if (Date.now() - new Date(m.created_at).getTime() > EDIT_WINDOW_MS)
@@ -450,14 +547,22 @@ export async function editDirect(user: SessionUser, messageId: string, body: str
   const m = await ownRecent(user, messageId);
   if (!body.trim() && !m.file_id) throw new AuthError(400, "Write something, or delete the message instead.");
   await run("UPDATE messages SET body = $2, edited_at = now(), changed_at = now() WHERE id = $1", [m.id, body]);
-  after(() => pushSync([m.owner_id, m.member_id], { scope: "chat", id: m.conversation_id }));
+  after(async () => pushSync(await partyIds(m), { scope: "chat", id: m.conversation_id }));
 }
 
 /** Gone for both people: the text and the file go, a "deleted" placeholder stays. */
 export async function deleteDirect(user: SessionUser, messageId: string): Promise<void> {
   const m = await ownRecent(user, messageId);
   await run("UPDATE messages SET body = '', file_id = NULL, deleted_at = now(), changed_at = now() WHERE id = $1", [m.id]);
-  after(() => pushSync([m.owner_id, m.member_id], { scope: "chat", id: m.conversation_id }));
+  after(async () => pushSync(await partyIds(m), { scope: "chat", id: m.conversation_id }));
+}
+
+/** Everyone in a private chat or a group, for the nudge that follows a change. */
+async function partyIds(m: { kind: Kind | null; conversation_id: string; owner_id: string | null; member_id: string | null }): Promise<string[]> {
+  if (m.kind === "group") {
+    return (await q<{ user_id: string }>("SELECT user_id FROM group_members WHERE conversation_id = $1", [m.conversation_id])).map((r) => r.user_id);
+  }
+  return [m.owner_id, m.member_id].filter((x): x is string => Boolean(x));
 }
 
 export async function myConversations(user: SessionUser): Promise<ConversationOut[]> {
@@ -500,24 +605,78 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
      ORDER BY live_last_at DESC NULLS LAST, c.created_at DESC`,
     [user.id],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    kind: "direct" as const,
-    other: {
-      id: r.o_id,
-      name: r.o_name || r.o_email,
-      role: r.o_role,
-      roleLabel: ROLE_LABEL[r.o_role],
-      photoUrl: r.o_photo ? `/api/users/${r.o_id}/photo` : null,
-      status: r.o_status,
-    },
-    iOpened: r.owner_id === user.id,
-    lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
-    lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
-    lastStatus: r.last_status,
-    messages: Number(r.total),
-    unread: Number(r.unread),
-  }));
+  const groups = await q<{
+    id: string;
+    name: string | null;
+    photo_key: string | null;
+    members: string;
+    unread: string;
+    last_body: string | null;
+    last_file: string | null;
+    last_sender: string | null;
+    last_mine: boolean | null;
+    live_last_at: string | null;
+    total: string;
+  }>(
+    `SELECT c.id, c.name, c.photo_key,
+            (SELECT count(*) FROM group_members x WHERE x.conversation_id = c.id)::text AS members,
+            (SELECT count(*) FROM messages m JOIN message_recipients r ON r.message_id = m.id AND r.user_id = $1
+              WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
+            (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
+               FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+            (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
+            (SELECT COALESCE(NULLIF(u.name, ''), u.email) FROM messages m JOIN users u ON u.id = m.sender_id
+               WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_sender,
+            (SELECT m.sender_id = $1 FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_mine,
+            (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at,
+            (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")})::text AS total
+     FROM conversations c JOIN group_members gm ON gm.conversation_id = c.id AND gm.user_id = $1
+     WHERE c.kind = 'group'`,
+    [user.id],
+  );
+  const out: ConversationOut[] = [
+    ...rows.map((r) => ({
+      id: r.id,
+      kind: "direct" as const,
+      other: {
+        id: r.o_id,
+        name: r.o_name || r.o_email,
+        role: r.o_role as Role | "group",
+        roleLabel: ROLE_LABEL[r.o_role],
+        photoUrl: r.o_photo ? `/api/users/${r.o_id}/photo` : null,
+        status: r.o_status,
+      },
+      iOpened: r.owner_id === user.id,
+      lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
+      lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
+      lastStatus: r.last_status,
+      messages: Number(r.total),
+      unread: Number(r.unread),
+    })),
+    ...groups.map((g) => {
+      const n = Number(g.members);
+      const last = g.last_body?.trim() || (g.last_file ? `Document: ${g.last_file}` : null);
+      return {
+        id: g.id,
+        kind: "group" as const,
+        other: {
+          id: g.id,
+          name: g.name ?? "Group",
+          role: "group" as const,
+          roleLabel: `Group · ${n} member${n === 1 ? "" : "s"}`,
+          photoUrl: g.photo_key ? `/api/groups/${g.id}/photo` : null,
+          status: "active",
+        },
+        iOpened: false,
+        lastMessageAt: g.live_last_at ? new Date(g.live_last_at).toISOString() : null,
+        lastMessage: last ? `${g.last_mine ? "You" : g.last_sender ?? "Someone"}: ${last}` : null,
+        lastStatus: null,
+        messages: Number(g.total),
+        unread: Number(g.unread),
+      };
+    }),
+  ];
+  return out.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
 }
 
 /* ───────────────────────────── Reading ───────────────────────────── */
@@ -560,7 +719,7 @@ export async function inbox(user: SessionUser, limit = 60, before?: string): Pro
   const rows = await q<Row>(
     `${SELECT}
      WHERE (r.user_id = $1 OR m.sender_id = $1)
-       AND (c.kind IS NULL OR c.kind <> 'direct')
+       AND (c.kind IS NULL OR c.kind NOT IN ('direct', 'group'))
        AND ${LIVE_SEASON("m")}
        AND ($2::timestamptz IS NULL OR m.created_at < $2)
      ORDER BY m.created_at DESC LIMIT $3`,
@@ -629,8 +788,8 @@ export type Unread = { total: number; chats: number; home: number };
 /** What is unread, split the way the tabs are: private chats, and everything else (Home). */
 export async function unread(userId: string): Promise<Unread> {
   const row = await one<{ chats: string; home: string }>(
-    `SELECT count(*) FILTER (WHERE c.kind = 'direct')::text AS chats,
-            count(*) FILTER (WHERE c.kind IS NULL OR c.kind <> 'direct')::text AS home
+    `SELECT count(*) FILTER (WHERE c.kind IN ('direct', 'group'))::text AS chats,
+            count(*) FILTER (WHERE c.kind IS NULL OR c.kind NOT IN ('direct', 'group'))::text AS home
      FROM message_recipients r
      JOIN messages m ON m.id = r.message_id
      LEFT JOIN conversations c ON c.id = m.conversation_id

@@ -25,9 +25,14 @@ export function profileFromForm(form: FormData): ProfileFields | { error: string
 
 /** Save a profile photo; null when it is not an image we accept. */
 export async function storePhoto(userId: string, photo: File): Promise<string | null> {
+  return storeImage(`photos/${userId}`, photo);
+}
+
+/** Save an image under `<prefix>.<ext>`; null when it is not an image we accept. */
+export async function storeImage(prefix: string, photo: File): Promise<string | null> {
   const ext = PHOTO_EXT[photo.type];
   if (!ext || photo.size > MAX_PHOTO_BYTES) return null;
-  const key = `photos/${userId}.${ext}`;
+  const key = `${prefix}.${ext}`;
   await storage().put(key, Buffer.from(await photo.arrayBuffer()), photo.type);
   return key;
 }

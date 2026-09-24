@@ -50,6 +50,8 @@ import com.arkhins.wink.ui.screens.ArchiveScreen
 import com.arkhins.wink.ui.screens.SeasonArchiveScreen
 import com.arkhins.wink.ui.screens.ChatScreen
 import com.arkhins.wink.ui.screens.ChatProfileScreen
+import com.arkhins.wink.ui.screens.GroupScreen
+import com.arkhins.wink.ui.screens.NewGroupScreen
 import com.arkhins.wink.ui.screens.ChatsScreen
 import com.arkhins.wink.ui.screens.ComposeScreen
 import com.arkhins.wink.ui.screens.EmailScreen
@@ -242,6 +244,7 @@ private fun MainNav(vm: AppViewModel) {
         "account" -> "Account"
         "compose" -> "New message"
         "newchat" -> "New chat"
+        "newgroup" -> "New group"
         "newperson" -> "Add person"
         "email" -> "Email"
         "scanner", "verify" -> "Verify"
@@ -261,7 +264,7 @@ private fun MainNav(vm: AppViewModel) {
             onOpenWeekend = openWeekend,
             showCountdown = tab != "pdf" && tab != "image",
             photo = chatWith?.takeIf { tab == "chat" }?.let { who -> { Avatar(app.api.absolute(who.photoUrl), who.name, 36) } },
-            onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { nav.navigate("chatprofile/$it") } }) else null,
+            onTitleClick = if (tab == "chat") ({ entry?.arguments?.getString("id")?.let { id -> nav.navigate(if (chatWith?.role == "group") "group/$id" else "chatprofile/$id") } }) else null,
             menu = if (tab == "chat") listOf("Search messages" to { chatSearch = true }, "Export chat" to { chatExport++ }) else emptyList(),
         )
         Box(Modifier.weight(1f)) {
@@ -279,8 +282,10 @@ private fun MainNav(vm: AppViewModel) {
                 composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
                 composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
                 composable("chats") { ChatsScreen(vm, onOpen = { nav.navigate("chat/$it") }, onNewChat = { nav.navigate("newchat") }) }
-                composable("newchat") { NewChatScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
-                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport) { title = it.name; chatWith = it } }
+                composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
+                composable("newgroup") { NewGroupScreen { id -> nav.navigate("chat/$id") { popUpTo("chats") } } }
+                composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.navigate("chat/$it") { popUpTo("chats") } }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { title = it } }
+                composable("chat/{id}") { e -> ChatScreen(vm, e.arguments?.getString("id") ?: "", view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onOpenChat = { nav.navigate("chat/$it") }) { title = it.name; chatWith = it } }
                 composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
                 composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
                 composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }

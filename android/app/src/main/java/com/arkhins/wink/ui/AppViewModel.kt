@@ -186,7 +186,7 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
             unreadHome = r.unreadHome
             unreadChats = r.unreadChats
             // New private messages: bring those chats up to date now, pictures and voice notes included.
-            r.messages.filter { it.kind == "direct" }.mapNotNull { it.conversationId }.distinct().forEach { id ->
+            r.messages.filter { it.kind == "direct" || it.kind == "group" }.mapNotNull { it.conversationId }.distinct().forEach { id ->
                 app.appScope.launch { runCatching { app.chatCache.sync(id, markRead = false) } }
             }
             val fresh = r.messages.filterNot { it.conversationId != null && it.conversationId == Notifications.openChat }
@@ -197,12 +197,13 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                     title = m.sender?.name ?: "Wink",
                     body = m.body.ifBlank { m.file?.let { "Document: ${it.name}" } ?: "New message" },
                     link = when {
-                        m.kind == "direct" && m.conversationId != null -> "/chats/${m.conversationId}"
+                        (m.kind == "direct" || m.kind == "group") && m.conversationId != null -> "/chats/${m.conversationId}"
                         m.kind == "channel" && m.weekendId != null -> "/w/${m.weekendId}"
                         else -> "/home?m=${m.id}"
                     },
                     kind = when (m.kind) {
                         "direct" -> "chat"
+                        "group" -> "group"
                         "channel" -> "channel"
                         else -> "announcement"
                     },

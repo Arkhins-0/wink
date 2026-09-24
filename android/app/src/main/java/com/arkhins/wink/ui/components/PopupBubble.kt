@@ -77,7 +77,7 @@ fun PopupBubble(event: PushEvent, onOpen: (String) -> Unit, onDismiss: () -> Uni
     val name = event.senderName.ifBlank { event.title }
     val (lead, trail) = when (event.kind) {
         "announcement" -> "Announcement" to name
-        "channel" -> name to event.place
+        "channel", "group" -> name to event.place
         else -> name to event.senderRole
     }
     val words = event.text.ifBlank { if (event.attach.isBlank()) event.body else "" }

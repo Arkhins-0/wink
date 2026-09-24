@@ -38,6 +38,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import com.arkhins.wink.data.ChatExport
 import com.arkhins.wink.data.ConversationDetail
+import com.arkhins.wink.data.GroupInvite
+import com.arkhins.wink.data.InviteAnswer
+import com.arkhins.wink.ui.components.GhostButton
+import com.arkhins.wink.ui.components.GoldButton
+import androidx.compose.ui.text.style.TextAlign
 import com.arkhins.wink.data.SavedDocument
 import com.arkhins.wink.ui.components.IconAction
 import com.arkhins.wink.ui.logStamp
@@ -295,7 +300,7 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
 
 /** Pick someone below you to chat with. */
 @Composable
-fun NewChatScreen(onOpened: (String) -> Unit) {
+fun NewChatScreen(onNewGroup: () -> Unit = {}, onOpened: (String) -> Unit) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var people by remember { mutableStateOf<List<PublicUser>?>(null) }
@@ -313,6 +318,23 @@ fun NewChatScreen(onOpened: (String) -> Unit) {
 
     val p = people
     Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(NightPanel)
+                .border(1.dp, NightLine, RoundedCornerShape(14.dp))
+                .clickable(onClick = onNewGroup)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(40.dp).background(Gold, RoundedCornerShape(999.dp)), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_tab_people), contentDescription = null, tint = Night, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Text("New group", style = MaterialTheme.typography.titleSmall, color = Snow)
+        }
+        Spacer(Modifier.height(12.dp))
         Field(filter, { filter = it }, "Search by name, team or role")
         Spacer(Modifier.height(10.dp))
         ErrorText(error)
@@ -400,6 +422,7 @@ fun ChatScreen(
     onSearchClose: () -> Unit = {},
     /** Bumped by the header menu: export this chat. */
     exportTick: Int = 0,
+    onOpenChat: (String) -> Unit = {},
     onOther: (OtherUser) -> Unit,
 ) {
     val app = LocalApp.current
@@ -450,7 +473,7 @@ fun ChatScreen(
         app.chatCache.load(conversationId)?.let { cached ->
             if (detail == null) {
                 detail = cached
-                cached.other?.let(onOther)
+                (cached.other ?: cached.group?.asOther())?.let(onOther)
             }
         }
     }
@@ -460,7 +483,7 @@ fun ChatScreen(
             val d = app.chatCache.sync(conversationId, markRead = true)
             detail = d
             error = null
-            d.other?.let(onOther)
+            (d.other ?: d.group?.asOther())?.let(onOther)
         } catch (e: Exception) {
             if (detail == null) error = e.message
         }
@@ -502,12 +525,28 @@ fun ChatScreen(
         if (first) list.scrollToItem(rows.size - 1) else if (grew) list.animateScrollToItem(rows.size - 1)
     }
 
+    val context = LocalContext.current
+    /** Join or decline a group from its invitation; joining opens the group. */
+    fun answerInvite(inv: GroupInvite, accept: Boolean) {
+        scope.launch {
+            try {
+                app.api.post("/api/groups/invites/${inv.id}", InviteAnswer.serializer()) { put("accept", accept) }
+                reload++
+                if (accept) {
+                    Toast.makeText(context, "You joined ${inv.groupName}", Toast.LENGTH_SHORT).show()
+                    onOpenChat(inv.groupId)
+                }
+            } catch (e: Exception) {
+                actionError = e.message ?: "Could not answer the invitation."
+            }
+        }
+    }
+
     fun toggle(m: Message) {
-        if (m.deleted || m.id.startsWith("local-")) return
+        if (m.deleted || m.id.startsWith("local-") || m.groupInvite != null) return
         selected = if (m.id in selected) selected - m.id else selected + m.id
     }
     val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
     val myName = vm.me?.user?.displayName ?: "You"
     DisposableEffect(Unit) { onDispose { onSelection(null) } }
     // While this chat is on screen its messages need no notification or popup.
@@ -622,6 +661,8 @@ fun ChatScreen(
                                 selected = m.id in selected,
                                 selecting = selected.isNotEmpty(),
                                 highlight = query.trim().takeIf { it.isNotBlank() && m.id in hits },
+                                senderName = if (d.group != null && !m.mine) m.sender?.name else null,
+                                onInvite = ::answerInvite,
                                 onToggle = { toggle(m) },
                                 onView = onView,
                                 onReply = {
@@ -640,7 +681,16 @@ fun ChatScreen(
             }
         }
         actionError?.let { ErrorText(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
-        Box(Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp)) {
+        val groupNow = d?.group
+        if (groupNow != null && !groupNow.canSend) {
+            Text(
+                "Only the group's admins can send here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SnowFaint,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            )
+        } else Box(Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp)) {
             val editingNow = editing
             val replyingTo = replyTo
             Composer(
@@ -834,6 +884,9 @@ private fun Bubble(
     selected: Boolean,
     selecting: Boolean,
     highlight: String? = null,
+    /** In a group: who said it (not shown for your own). */
+    senderName: String? = null,
+    onInvite: ((GroupInvite, Boolean) -> Unit)? = null,
     onToggle: () -> Unit,
     onView: (FileView) -> Unit,
     onReply: () -> Unit,
@@ -941,6 +994,10 @@ private fun Bubble(
                             color = if (mine) Night.copy(alpha = 0.7f) else SnowFaint,
                         )
                     } else {
+                        if (senderName != null) {
+                            Text(senderName, style = MaterialTheme.typography.labelMedium, color = Gold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = inset)
+                            Spacer(Modifier.height(2.dp))
+                        }
                         if (m.forwarded) {
                             Row(inset, verticalAlignment = Alignment.CenterVertically) {
                                 Icon(painterResource(R.drawable.ic_forward), contentDescription = null, tint = if (mine) Night.copy(alpha = 0.6f) else SnowFaint, modifier = Modifier.size(13.dp))
@@ -953,10 +1010,13 @@ private fun Bubble(
                             Box(inset) { Quote(it, onDark = !mine) { onQuote(it.id) } }
                             Spacer(Modifier.height(4.dp))
                         }
+                        m.groupInvite?.let { inv ->
+                            InviteCard(inv, mine = mine, onDark = !mine, onAnswer = if (!mine && inv.status == "pending" && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
+                        }
                         val loc = locationIn(m.body)
                         if (loc != null) {
                             LocationCard(loc.first, loc.second, onDark = !mine)
-                        } else if (m.body.isNotBlank()) {
+                        } else if (m.body.isNotBlank() && m.groupInvite == null) {
                             Text(highlighted(m.body, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
                         }
                         if (m.file != null) {
@@ -979,6 +1039,32 @@ private fun Bubble(
                         if (m.urgent && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
                     }
                 }
+            }
+        }
+    }
+}
+
+/** A group invitation inside its bubble: the group's name, and Join / Decline for the person invited. */
+@Composable
+private fun InviteCard(inv: GroupInvite, mine: Boolean, onDark: Boolean, onAnswer: ((Boolean) -> Unit)?) {
+    Column(
+        Modifier
+            .widthIn(min = 200.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (onDark) Night else Night.copy(alpha = 0.1f))
+            .padding(10.dp),
+    ) {
+        Text("GROUP INVITATION", style = MaterialTheme.typography.labelSmall, color = if (onDark) Gold else Night.copy(alpha = 0.6f))
+        Text(inv.groupName, style = MaterialTheme.typography.titleMedium, color = if (onDark) Snow else Night)
+        Spacer(Modifier.height(6.dp))
+        val note = if (onDark) SnowSoft else Night.copy(alpha = 0.7f)
+        when {
+            inv.status == "accepted" -> Text("Joined", style = MaterialTheme.typography.labelMedium, color = note)
+            inv.status == "declined" -> Text("Declined", style = MaterialTheme.typography.labelMedium, color = note)
+            onAnswer == null -> Text(if (mine) "Waiting for an answer" else "Open", style = MaterialTheme.typography.labelMedium, color = note)
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GoldButton("Join") { onAnswer(true) }
+                GhostButton("Decline") { onAnswer(false) }
             }
         }
     }

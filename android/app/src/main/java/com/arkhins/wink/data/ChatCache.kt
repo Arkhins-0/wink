@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** A private chat as the phone keeps it. */
 @Serializable
-data class CachedChat(val other: OtherUser? = null, val messages: List<Message> = emptyList())
+data class CachedChat(val other: OtherUser? = null, val messages: List<Message> = emptyList(), val group: GroupInfo? = null)
 
 /**
  * The phone's own copy of every private chat, like a messaging app: a chat
@@ -85,7 +85,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             // Deleted for both: its picture or voice note goes from the phone too.
             val deletedNow = d.messages.filter { it.deleted }.map { it.id }.toSet()
             cached?.messages?.filter { it.id in deletedNow }?.mapNotNull { it.file }?.forEach { media.remove(it) }
-            val out = CachedChat(d.other ?: cached?.other, merged)
+            val out = CachedChat(d.other ?: cached?.other, merged, d.group ?: cached?.group)
             write(file(id), json.encodeToString(CachedChat.serializer(), out))
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
             merged.filter { it.id !in known }.mapNotNull { it.file }.filter { media.wanted(it) }.forEach { f ->

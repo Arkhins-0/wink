@@ -2,7 +2,8 @@ import { after } from "next/server";
 import { body, bool, handle, isUuid, str, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { canRead, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, postDirect } from "@/lib/messages";
+import { canAccess, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, postDirect, postGroup } from "@/lib/messages";
+import { groupInfo } from "@/lib/groups";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
 import { userById } from "@/lib/users";
 
@@ -20,14 +21,15 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   const { id } = await params;
   if (!isUuid(id)) return fail("No such chat.", 404);
   const conv = await conversationById(id);
-  if (!conv || conv.kind !== "direct" || !canRead(user, conv)) return fail("No such chat.", 404);
-  const otherId = conv.owner_id === user.id ? conv.member_id! : conv.owner_id!;
+  if (!conv || (conv.kind !== "direct" && conv.kind !== "group") || !(await canAccess(user, conv))) return fail("No such chat.", 404);
+  const otherId = conv.kind === "direct" ? (conv.owner_id === user.id ? conv.member_id! : conv.owner_id!) : null;
   const query = new URL(request.url).searchParams;
   const since = query.get("after");
-  const [other, delta, full] = await Promise.all([
-    userById(otherId),
+  const [other, delta, full, group] = await Promise.all([
+    otherId ? userById(otherId) : null,
     since && !Number.isNaN(Date.parse(since)) ? conversationDelta(user, id, new Date(since).toISOString()) : null,
     since && !Number.isNaN(Date.parse(since)) ? null : conversationMessages(user, id, Math.min(5000, Number(query.get("limit")) || 100)),
+    conv.kind === "group" ? groupInfo(user, id) : null,
   ]);
   const messages = delta ? delta.messages : full!;
   // Ticks move after the answer has gone: reading it (or, from a background sync, just receiving it).
@@ -46,6 +48,7 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
           status: other.status,
         }
       : null,
+    group,
     messages,
     ...(delta ? { liveIds: delta.liveIds } : {}),
   });
@@ -57,7 +60,9 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const { id } = await params;
   if (!isUuid(id)) return fail("No such chat.", 404);
   const b = await body(request);
-  const messageId = await postDirect(user, id, {
+  const conv = await conversationById(id);
+  const post = conv?.kind === "group" ? postGroup : postDirect;
+  const messageId = await post(user, id, {
     body: str(b.body, 5000),
     fileId: str(b.fileId, 64) || null,
     urgent: bool(b.urgent),
