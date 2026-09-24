@@ -7,6 +7,7 @@ import { formatBytes, timeAgo } from "@/lib/client";
 import { Avatar } from "./Avatar";
 import { DocumentDialog } from "./DocumentDialog";
 import { Icon } from "./Icon";
+import { InviteCard } from "./chat/InviteCard";
 
 const MAPS = /https:\/\/maps\.google\.com\/\?q=(-?\d+\.\d+),(-?\d+\.\d+)/;
 
@@ -180,46 +181,97 @@ function Quote({ r, onDark, onClick }: { r: ReplyRef; onDark: boolean; onClick?:
   );
 }
 
+/** Message text with every match of the search lit up. */
+function Highlighted({ text, needle, mine }: { text: string; needle: string | null; mine: boolean }) {
+  if (!needle) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const n = needle.toLowerCase();
+  let from = 0;
+  for (let at = lower.indexOf(n); at >= 0; at = lower.indexOf(n, from)) {
+    parts.push(text.slice(from, at));
+    parts.push(
+      <mark key={at} className={`rounded-sm ${mine ? "bg-night/25 text-night" : "bg-gold/45 text-snow"}`}>
+        {text.slice(at, at + n.length)}
+      </mark>,
+    );
+    from = at + n.length;
+  }
+  parts.push(text.slice(from));
+  return <>{parts}</>;
+}
+
 /**
  * A chat bubble: gold on the right for what you sent, dark on the left for
- * what came in. In a private chat a tap selects it (its actions show under
- * it), a quoted reply jumps to the original, and a jumped-to bubble flashes.
+ * what came in. The row around it takes the selection gestures (`press`),
+ * a quoted reply jumps to the original, and a jumped-to bubble flashes.
+ * In a group, what others said carries their name in gold.
  */
 export function Bubble({
   m,
   quote = m.replyTo,
-  onSelect,
   onQuote,
   flash = false,
+  selected = false,
+  senderName = null,
+  highlight = null,
+  onInvite,
+  press,
   children,
 }: {
   m: MessageOut;
   quote?: ReplyRef | null;
-  onSelect?: () => void;
   onQuote?: (id: string) => void;
   flash?: boolean;
+  selected?: boolean;
+  senderName?: string | null;
+  /** The search, when this message matches it. */
+  highlight?: string | null;
+  /** Answer the group invitation this message carries. */
+  onInvite?: (accept: boolean) => Promise<void>;
+  press?: React.HTMLAttributes<HTMLDivElement>;
   children?: React.ReactNode;
 }) {
   const loc = locationIn(m.body);
   return (
-    <div id={`m-${m.id}`} className={`-mx-2 rounded-xl px-2 py-0.5 transition-colors duration-700 ${flash ? "bg-gold/20" : "bg-transparent"}`}>
+    <div
+      id={`m-${m.id}`}
+      {...press}
+      className={`-mx-2 rounded-xl px-2 py-0.5 transition-colors duration-700 [-webkit-touch-callout:none] ${selected ? "bg-gold/15 duration-150" : flash ? "bg-gold/20" : "bg-transparent"}`}
+    >
       <div className={`flex ${m.mine ? "justify-end" : "justify-start"}`}>
-        <div className={`${m.mine ? "bubble-mine" : "bubble-theirs"} ${onSelect && !m.deleted ? "cursor-pointer" : ""}`} onClick={m.deleted ? undefined : onSelect}>
+        <div className={m.mine ? "bubble-mine" : "bubble-theirs"}>
           {m.deleted ? (
             <p className={`italic ${m.mine ? "text-night/70" : "text-snow-faint"}`}>This message was deleted</p>
           ) : (
             <>
-              {quote && <Quote r={quote} onDark={!m.mine} onClick={() => onQuote?.(quote.id)} />}
+              {senderName && <p className="mb-0.5 truncate text-xs font-semibold text-gold">{senderName}</p>}
               {m.forwarded && <span className={`mb-1 block text-[11px] italic ${m.mine ? "text-night/60" : "text-snow-faint"}`}>↪ Forwarded</span>}
-              {m.urgent && <span className={`chip mb-1 px-2 py-0 text-[10px] ${m.mine ? "border-night/30 bg-night/10 text-night" : "border-danger/40 bg-danger/10 text-danger"}`}>Urgent</span>}
-              {loc ? <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} /> : m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+              {quote && <Quote r={quote} onDark={!m.mine} onClick={() => onQuote?.(quote.id)} />}
+              {m.groupInvite ? (
+                <InviteCard inv={m.groupInvite} mine={m.mine} onAnswer={onInvite} />
+              ) : loc ? (
+                <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} />
+              ) : (
+                m.body && (
+                  <p className="whitespace-pre-wrap break-words">
+                    <Highlighted text={m.body} needle={highlight} mine={m.mine} />
+                  </p>
+                )
+              )}
               {m.file && <Attachment file={m.file} onDark={!m.mine} />}
             </>
           )}
-          <p className={`mt-1 text-right text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>
+          <p className={`mt-1 flex items-center justify-end text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>
             {m.editedAt && !m.deleted ? "edited · " : ""}
             {timeOnly(m.createdAt)}
             {m.status && !m.deleted && <Ticks status={m.status} />}
+            {/* Marked urgent: it also went out by email. */}
+            {m.urgent && !m.deleted && (
+              <span title="Urgent · also sent by email" className="ml-1 text-danger">
+                <Icon name="mail" className="h-3 w-3" />
+              </span>
+            )}
           </p>
         </div>
       </div>

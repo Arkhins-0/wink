@@ -1,41 +1,36 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Avatar } from "@/components/Avatar";
 import { ChatView } from "@/components/ChatView";
-import { Icon } from "@/components/Icon";
-import { canRead, conversationById, conversationMessages, markConversationRead } from "@/lib/messages";
-import { ROLE_LABEL } from "@/lib/roles";
+import { groupInfo } from "@/lib/groups";
+import { canAccess, conversationById, conversationMessages, markConversationRead, personCard } from "@/lib/messages";
 import { requireProfile } from "@/lib/session";
 import { userById } from "@/lib/users";
 
 export const metadata = { title: "Chat" };
 
+/** A private chat or a group: the header, the messages and the composer all live in ChatView. */
 export default async function Chat({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireProfile();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const conv = await conversationById(id);
-  if (!conv || conv.kind !== "direct" || !canRead(user, conv)) notFound();
-  const other = await userById(conv.owner_id === user.id ? conv.member_id! : conv.owner_id!);
-  if (!other) notFound();
+  if (!conv || (conv.kind !== "direct" && conv.kind !== "group") || !(await canAccess(user, conv))) notFound();
+  const [other, group] = await Promise.all([
+    conv.kind === "direct" ? userById(conv.owner_id === user.id ? conv.member_id! : conv.owner_id!) : null,
+    conv.kind === "group" ? groupInfo(user, id) : null,
+  ]);
+  if (conv.kind === "direct" ? !other : !group) notFound();
   const messages = await conversationMessages(user, id);
   await markConversationRead(user.id, id);
 
   return (
-    <div className="card flex h-full min-h-0 flex-1 flex-col p-0">
-      <div className="flex shrink-0 items-center gap-3 border-b border-night-line px-3 py-2.5">
-        <Link href="/chats" className="btn-icon lg:hidden" aria-label="Back to chats">
-          <Icon name="back" className="h-5 w-5" />
-        </Link>
-        <Link href={`/people/${other.id}`} className="flex min-w-0 items-center gap-3">
-          <Avatar src={other.photo_key ? `/api/users/${other.id}/photo` : null} name={other.name || other.email} size={38} />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">{other.name || other.email}</span>
-            <span className="block text-xs text-snow-faint">{ROLE_LABEL[other.role]}</span>
-          </span>
-        </Link>
-      </div>
-      <ChatView conversationId={id} initial={messages} />
+    <div className="card relative flex h-full min-h-0 flex-1 flex-col overflow-hidden p-0">
+      <ChatView
+        conversationId={id}
+        initial={messages}
+        other={other ? personCard(other) : null}
+        group={group}
+        myName={user.name || user.email}
+      />
     </div>
   );
 }
