@@ -49,6 +49,9 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         }
     }
 
+    /** Whether the phone keeps a copy of this chat at all. */
+    fun has(id: String): Boolean = file(id).exists()
+
     /** What the phone has for a chat, without asking the server. */
     suspend fun load(id: String): CachedChat? = withContext(Dispatchers.IO) {
         runCatching { json.decodeFromString(CachedChat.serializer(), file(id).readText()) }.getOrNull()
@@ -157,8 +160,9 @@ class ChatMedia(context: Context, private val api: WinkApi) {
     /** Bumps whenever a file lands, so screens can swap the network copy for the local one. */
     val version: StateFlow<Int> = _version
 
-    /** Pictures and audio are fetched as soon as they arrive; documents wait for a tap. */
-    fun wanted(file: FileInfo): Boolean = file.mime.startsWith("image/") || file.mime.startsWith("audio/")
+    /** Every attachment — pictures, audio and documents — is fetched in the background as soon as it arrives. */
+    @Suppress("UNUSED_PARAMETER")
+    fun wanted(file: FileInfo): Boolean = true
 
     private fun target(file: FileInfo): File {
         val ext = file.name.substringAfterLast('.', "").take(8).filter { it.isLetterOrDigit() }

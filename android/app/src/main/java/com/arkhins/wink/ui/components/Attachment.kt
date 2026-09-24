@@ -265,7 +265,7 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
                     error = null
                     scope.launch {
                         try {
-                            val d = app.documents.download(file) { progress = it }
+                            val d = app.documents.download(file, app.chatMedia.local(file)) { progress = it }
                             saved = d
                             open(d)
                         } catch (e: Exception) {

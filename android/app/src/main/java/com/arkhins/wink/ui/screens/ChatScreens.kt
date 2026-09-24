@@ -52,6 +52,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.DisposableEffect
 import com.arkhins.wink.ui.components.ForwardSheet
 import com.arkhins.wink.ui.components.MessageInfoSheet
+import com.arkhins.wink.ui.components.prefetchMessageInfo
 import androidx.compose.material.icons.outlined.Info
 import com.arkhins.wink.ui.components.SelectionAction
 import com.arkhins.wink.ui.components.SelectionBar
@@ -206,8 +207,13 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
         try {
             // A chat with nothing said in it yet is not worth a row.
             val fresh = app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations.filter { it.lastMessageAt != null }
+            val before = chats.orEmpty().associateBy { it.id }
             chats = fresh
             app.chatCache.saveList(fresh)
+            // Every chat that moved (or that the phone has no copy of yet) syncs now, in the background,
+            // so opening it shows everything at once. Nothing is marked read by this.
+            fresh.filter { c -> before[c.id]?.let { it.lastMessageAt != c.lastMessageAt || it.unread != c.unread } ?: true || !app.chatCache.has(c.id) }
+                .forEach { c -> app.appScope.launch { runCatching { app.chatCache.sync(c.id, markRead = false) } } }
             error = null
         } catch (e: Exception) {
             if (chats == null) error = e.message
@@ -608,6 +614,10 @@ fun ChatScreen(
         )
     }
     SideEffect { onSelection(bar) }
+    LaunchedEffect(selected) {
+        val one = d?.messages?.singleOrNull { it.id in selected }
+        if (one != null && one.mine) prefetchMessageInfo(app, one.id)
+    }
     LaunchedEffect(bar, selected) { if (bar == null && selected.isNotEmpty()) selected = emptySet() }
 
     /** Scroll to a quoted message and light it up for a second. */

@@ -55,8 +55,10 @@ class Documents(private val context: Context, private val api: WinkApi) {
         return found
     }
 
-    suspend fun download(file: FileInfo, onProgress: (Float) -> Unit): SavedDocument = withContext(Dispatchers.IO) {
+    suspend fun download(file: FileInfo, local: File? = null, onProgress: (Float) -> Unit): SavedDocument = withContext(Dispatchers.IO) {
         find(file)?.let { return@withContext it }
+        // Fetched in the background already: copy it over, no waiting on the network.
+        if (local != null && local.exists() && local.length() > 0) return@withContext store(file) { out -> local.inputStream().use { it.copyTo(out) } }
         store(file) { out -> api.download(file.id, out, onProgress) }
     }
 

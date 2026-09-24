@@ -504,7 +504,8 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
         }
         api.post("/api/files/${slot.id}/ready", com.arkhins.wink.data.Ok.serializer())
         val info = FileInfo(slot.id, p.name, p.mime, temp.length())
-        if (media.wanted(info)) runCatching { media.put(info, temp) } else runCatching { documents.keepSent(info, temp) }
+        runCatching { media.put(info, temp) }
+        if (!info.mime.startsWith("image/") && !info.mime.startsWith("audio/")) runCatching { documents.keepSent(info, temp) }
         slot.id
     } finally {
         temp.delete()

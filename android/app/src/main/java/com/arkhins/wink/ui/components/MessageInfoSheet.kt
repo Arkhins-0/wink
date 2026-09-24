@@ -30,11 +30,20 @@ import com.arkhins.wink.ui.localDateTime
 import com.arkhins.wink.push.Notifications
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
 import com.arkhins.wink.ui.theme.Gold
 import com.arkhins.wink.ui.theme.NightPanel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
+
+/** Message info fetched ahead of time (as soon as a message is selected), so the sheet opens full. */
+private val infoCache = java.util.concurrent.ConcurrentHashMap<String, MessageInfo>()
+
+/** Fetch a message's info in the background, ready for when its sheet opens. */
+fun prefetchMessageInfo(app: com.arkhins.wink.WinkApplication, messageId: String) {
+    app.appScope.launch { runCatching { app.api.get("/api/messages/$messageId/info", MessageInfo.serializer()) }.onSuccess { infoCache[messageId] = it } }
+}
 
 /**
  * Message info, as WhatsApp has it: who has read a message you sent, who
@@ -46,12 +55,12 @@ import com.arkhins.wink.ui.theme.SnowSoft
 @Composable
 fun MessageInfoSheet(messageId: String, conversationId: String, preview: String, onDismiss: () -> Unit) {
     val app = LocalApp.current
-    var info by remember { mutableStateOf<MessageInfo?>(null) }
+    var info by remember { mutableStateOf(infoCache[messageId]) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messageId) {
         while (true) {
             runCatching { app.api.get("/api/messages/$messageId/info", MessageInfo.serializer()) }
-                .onSuccess { info = it; error = null }
+                .onSuccess { info = it; error = null; infoCache[messageId] = it }
                 .onFailure { if (info == null) error = it.message ?: "Could not load the message info." }
             withTimeoutOrNull(4_000) { Notifications.syncs.first { it.scope == "chat" && it.id == conversationId } }
         }
