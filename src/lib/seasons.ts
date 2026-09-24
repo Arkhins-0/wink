@@ -1,14 +1,15 @@
 import "server-only";
 
-import { one, q, run } from "./db";
+import { one, q, run, tx } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { ROLE_LABEL, type Role } from "./roles";
 
 /*
- * Seasons. One is current — the newest active one — and everything that
+ * Seasons. One is current — chosen by an admin — and everything that
  * happens (weekends, channel posts, announcements, chats) is stamped with
- * it. Archiving a season makes all of that read-only and moves it out of
- * the live views; deleting a season removes it all.
+ * it. Making another season current archives the one before it. Archiving
+ * a season makes all of that read-only and moves it out of the live
+ * views; deleting a season removes it all.
  */
 
 export type Season = {
@@ -29,11 +30,12 @@ type Row = {
   ends_on: string | null;
   status: "active" | "archived";
   archived_at: string | null;
+  is_current: boolean;
   weekends: string;
 };
 
 const SELECT = `
-  SELECT s.id, s.name, s.starts_on::text AS starts_on, s.ends_on::text AS ends_on, s.status, s.archived_at,
+  SELECT s.id, s.name, s.starts_on::text AS starts_on, s.ends_on::text AS ends_on, s.status, s.archived_at, s.is_current,
          (SELECT count(*) FROM race_weekends w WHERE w.season_id = s.id)::text AS weekends
   FROM seasons s`;
 
@@ -42,7 +44,6 @@ export const LIVE_SEASON = (alias: string) =>
   `(${alias}.season_id IS NULL OR EXISTS (SELECT 1 FROM seasons ls WHERE ls.id = ${alias}.season_id AND ls.status = 'active'))`;
 
 function out(rows: Row[]): Season[] {
-  const current = rows.filter((r) => r.status === "active").sort((a, b) => b.starts_on.localeCompare(a.starts_on))[0];
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -50,7 +51,7 @@ function out(rows: Row[]): Season[] {
     endsOn: r.ends_on,
     status: r.status,
     archivedAt: r.archived_at ? new Date(r.archived_at).toISOString() : null,
-    current: r.id === current?.id,
+    current: r.is_current && r.status === "active",
     weekends: Number(r.weekends),
   }));
 }
@@ -64,13 +65,40 @@ export async function seasonById(id: string): Promise<Season | null> {
   return all.find((s) => s.id === id) ?? null;
 }
 
-/** The current season, made on the spot if there is none. */
+/** The current season. With none chosen, the newest active one is made current; with no season at all, one is made. */
 export async function currentSeason(): Promise<Season> {
-  const existing = (await listSeasons()).find((s) => s.current);
+  const all = await listSeasons();
+  const existing = all.find((s) => s.current);
   if (existing) return existing;
+  const newest = all.find((s) => s.status === "active");
+  if (newest) return makeCurrent(newest.id);
   const year = new Date().getFullYear();
-  await run("INSERT INTO seasons (name, starts_on) VALUES ($1, $2)", [`${year} Season`, `${year}-01-01`]);
+  await run("INSERT INTO seasons (name, starts_on, is_current) VALUES ($1, $2, true)", [`${year} Season`, `${year}-01-01`]);
   return (await listSeasons()).find((s) => s.current)!;
+}
+
+/**
+ * Make this season the one everything new goes into. The season that was
+ * current is archived in the same step: read-only under Archive, out of
+ * the live views, its channels closed — until it is brought back.
+ */
+export async function makeCurrent(id: string): Promise<Season> {
+  await tx(async (c) => {
+    const { rows } = await c.query<{ id: string; status: string }>("SELECT id, status FROM seasons WHERE id = $1 FOR UPDATE", [id]);
+    if (rows.length === 0) throw new AuthError(404, "No such season.");
+    if (rows[0].status !== "active") throw new AuthError(400, "Bring the season back from the archive first.");
+    await c.query(
+      "UPDATE seasons SET is_current = false, status = 'archived', archived_at = now() WHERE is_current AND id <> $1",
+      [id],
+    );
+    await c.query(
+      `UPDATE race_weekends SET channel_open = false
+       WHERE season_id IN (SELECT id FROM seasons WHERE status = 'archived' AND id <> $1)`,
+      [id],
+    );
+    await c.query("UPDATE seasons SET is_current = true WHERE id = $1", [id]);
+  });
+  return (await seasonById(id))!;
 }
 
 export type SeasonInput = { name: string; startsOn: string; endsOn: string | null };
@@ -90,12 +118,13 @@ export async function updateSeason(id: string, input: SeasonInput): Promise<Seas
   return (await seasonById(id))!;
 }
 
-/** Archive: read-only, out of the live views. Its channels close too. */
+/** Archive: read-only, out of the live views. Its channels close too. An archived season is never current. */
 export async function setArchived(id: string, archived: boolean): Promise<Season> {
-  const n = await run("UPDATE seasons SET status = $2, archived_at = CASE WHEN $2 = 'archived' THEN now() ELSE NULL END WHERE id = $1", [
-    id,
-    archived ? "archived" : "active",
-  ]);
+  const n = await run(
+    `UPDATE seasons SET status = $2, archived_at = CASE WHEN $2 = 'archived' THEN now() ELSE NULL END,
+       is_current = CASE WHEN $2 = 'archived' THEN false ELSE is_current END WHERE id = $1`,
+    [id, archived ? "archived" : "active"],
+  );
   if (n === 0) throw new AuthError(404, "No such season.");
   if (archived) await run("UPDATE race_weekends SET channel_open = false WHERE season_id = $1", [id]);
   return (await seasonById(id))!;

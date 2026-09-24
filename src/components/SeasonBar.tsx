@@ -68,6 +68,19 @@ export function SeasonBar({ seasons, isAdmin }: { seasons: Season[]; isAdmin: bo
                   {s.endsOn ? ` → ${s.endsOn}` : ""} · {s.weekends} weekend{s.weekends === 1 ? "" : "s"}
                 </span>
               </span>
+              {!s.current && (
+                <button
+                  className="btn-ghost px-3 py-1 text-xs text-gold"
+                  disabled={busy}
+                  onClick={() =>
+                    confirm(
+                      `Make ${s.name} the current season? New weekends, announcements and messages go into it from now on. The season that is current now is archived: its announcements, channels and calendar leave everyone's live pages and become read-only under Archive, until it is brought back.`,
+                    ) && act(() => api(`/api/seasons/${s.id}`, { method: "PATCH", json: { current: true } }))
+                  }
+                >
+                  Make current
+                </button>
+              )}
               <button className="btn-ghost px-3 py-1 text-xs" disabled={busy} onClick={() => setEditing(s)}>
                 Edit
               </button>
@@ -151,7 +164,7 @@ function SeasonForm({ season, onDone, onCancel }: { season: Season | null; onDon
           <input className="input" type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
         </label>
       </div>
-      <p className="text-xs text-snow-faint">The season with the latest first day is the current one; new weekends and messages go into it.</p>
+      <p className="text-xs text-snow-faint">New weekends and messages go into the current season. Making another season current archives this one.</p>
       <div className="flex justify-end gap-2">
         <button type="button" className="btn-ghost px-4 py-1.5 text-xs" onClick={onCancel} disabled={busy}>
           Cancel

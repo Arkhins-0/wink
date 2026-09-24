@@ -1,7 +1,7 @@
 import { body, bool, handle, isUuid, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { deleteSeason, seasonArchive, seasonById, setArchived, updateSeason } from "@/lib/seasons";
+import { deleteSeason, makeCurrent, seasonArchive, seasonById, setArchived, updateSeason } from "@/lib/seasons";
 import { audit } from "@/lib/users";
 import { seasonInput } from "@/lib/seasonInput";
 
@@ -22,12 +22,17 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   return json({ season });
 });
 
-/** Admin: rename or re-date, or archive / bring back (`archived: true|false`). */
+/** Admin: rename or re-date, archive / bring back (`archived: true|false`), or make current (`current: true`, archives the old one). */
 export const PATCH = handle<Params<"id">>(async (request, { params }) => {
   const admin = await requireUser(["admin"]);
   const { id } = await params;
   if (!isUuid(id)) return fail("No such season.", 404);
   const b = await body(request);
+  if (b.current === true) {
+    const season = await makeCurrent(id);
+    await audit(admin.id, id, "season.made_current");
+    return json({ season });
+  }
   if (b.archived !== undefined) {
     const season = await setArchived(id, bool(b.archived));
     await audit(admin.id, id, bool(b.archived) ? "season.archived" : "season.unarchived");

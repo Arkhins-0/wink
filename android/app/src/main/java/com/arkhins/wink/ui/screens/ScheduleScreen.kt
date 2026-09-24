@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -181,6 +182,7 @@ private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () 
                             }
                             Text(s.startsOn + (s.endsOn?.let { " → $it" } ?: "") + " · ${s.weekends} weekend" + if (s.weekends == 1) "" else "s", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                if (!s.current) IconAction(Icons.Outlined.CheckCircle, "Make current", Gold) { confirm = s to "current" }
                                 IconAction(Icons.Outlined.Edit, "Edit season", SnowSoft) { editing = s }
                                 IconAction(painterResource(R.drawable.ic_archive), "Archive season", SnowSoft) { confirm = s to "archive" }
                                 IconAction(Icons.Outlined.Delete, "Delete season", Danger) { confirm = s to "delete" }
@@ -195,30 +197,51 @@ private fun SeasonHeader(seasons: List<Season>, isAdmin: Boolean, onArchive: () 
         SeasonDialog(editing, onDismiss = { creating = false; editing = null }, onSaved = { creating = false; editing = null; onChanged() })
     }
     confirm?.let { (s, what) ->
+        // A season is a big switch, so each of these says what it means before it happens.
+        val old = seasons.firstOrNull { it.current && it.id != s.id }
+        val title = when (what) {
+            "delete" -> "Delete ${s.name}?"
+            "current" -> "Make ${s.name} the current season?"
+            else -> "Archive ${s.name}?"
+        }
+        val risk = when (what) {
+            "delete" -> "Everything in it — its race weekends, sessions, channel posts, announcements and the private chat messages sent in it — is removed from the database. There is no way to bring it back."
+            "current" -> "New race weekends, announcements and messages go into ${s.name} from now on." +
+                (old?.let { " ${it.name} is archived: its announcements, race weekend channels and calendar leave everyone's live pages and become read-only under Archive, until it is brought back." } ?: "")
+            else -> "Its announcements, race weekend channels and calendar leave everyone's live pages and become read-only under Archive, until it is brought back."
+        }
+        val action = when (what) {
+            "delete" -> "Delete for good"
+            "current" -> "Continue"
+            else -> "Archive"
+        }
         AlertDialog(
             onDismissRequest = { confirm = null },
             containerColor = NightPanel,
-            title = { Text(if (what == "delete") "Delete ${s.name}?" else "Archive ${s.name}?", style = MaterialTheme.typography.headlineSmall) },
+            title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
             text = {
-                Text(
-                    if (what == "delete") "Its weekends, sessions and every message sent in it go with it. This cannot be undone."
-                    else "Its weekends, channels, announcements and chats become read-only under Archive.",
-                    color = SnowSoft,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (what == "delete") "This cannot be undone." else "Everyone is affected.", style = MaterialTheme.typography.labelLarge, color = if (what == "delete") Danger else Gold)
+                    Text(risk, color = SnowSoft)
+                    if (what != "delete") Text("Private chats are not touched.", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
                     confirm = null
                     scope.launch {
                         try {
-                            if (what == "delete") app.api.delete("/api/seasons/${s.id}")
-                            else app.api.patch("/api/seasons/${s.id}", SeasonResponse.serializer()) { put("archived", true) }
+                            when (what) {
+                                "delete" -> app.api.delete("/api/seasons/${s.id}")
+                                "current" -> app.api.patch("/api/seasons/${s.id}", SeasonResponse.serializer()) { put("current", true) }
+                                else -> app.api.patch("/api/seasons/${s.id}", SeasonResponse.serializer()) { put("archived", true) }
+                            }
                             onChanged()
                         } catch (e: Exception) {
                             error = e.message ?: "Could not do that."
                         }
                     }
-                }) { Text(if (what == "delete") "Delete" else "Archive", color = if (what == "delete") Danger else Gold) }
+                }) { Text(action, color = if (what == "delete") Danger else Gold) }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )

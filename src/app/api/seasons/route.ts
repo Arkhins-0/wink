@@ -13,7 +13,7 @@ export const GET = handle(async () => {
   return json({ seasons: await listSeasons() });
 });
 
-/** Admin: a new season. If it starts later than the others it becomes current. */
+/** Admin: a new season. It is not current until an admin makes it so. */
 export const POST = handle(async (request) => {
   const admin = await requireUser(["admin"]);
   const input = seasonInput(await body(request));
