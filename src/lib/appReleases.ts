@@ -1,10 +1,17 @@
 import "server-only";
 
+import { SITE_URL } from "./config";
 import { env } from "./env";
 
 /**
  * The latest GitHub release of the Android app: what GET /api/app-version
  * returns and what the app compares its own version against.
+ *
+ * The repository may be private. GitHub is then asked with GITHUB_TOKEN (a
+ * read-only token that stays on the server), and the APK is handed out
+ * through this site — /api/app-version/apk sends the phone on to a
+ * short-lived download link — so neither the app nor a browser needs
+ * access to GitHub.
  */
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -21,6 +28,14 @@ export type ReleaseInfo = {
 };
 
 let cache: { at: number; info: ReleaseInfo | null } | null = null;
+/** Where GitHub keeps the latest release's APK (the API address and the public one), for /api/app-version/apk. */
+let asset: { version: string; apiUrl: string; publicUrl: string } | null = null;
+
+const headers = (accept = "application/vnd.github+json"): Record<string, string> => ({
+  Accept: accept,
+  "User-Agent": "wink-server",
+  ...(env.githubToken ? { Authorization: `Bearer ${env.githubToken}` } : {}),
+});
 
 /** The release body reduced to the list of changes: no headings, no link footer. */
 function changesOnly(body: string): string {
@@ -28,6 +43,7 @@ function changesOnly(body: string): string {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#") && !line.includes("Full Changelog"))
+    .map((line) => line.replace(/;\s*v\d+(\.\d+)+\s*$/i, ""))
     .join("\n")
     .slice(0, 600);
 }
@@ -35,20 +51,13 @@ function changesOnly(body: string): string {
 async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
   if (!env.githubRepo) return null;
   try {
-    const response = await fetch(`https://api.github.com/repos/${env.githubRepo}/releases/latest`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "wink-server",
-        ...(env.githubToken ? { Authorization: `Bearer ${env.githubToken}` } : {}),
-      },
-      cache: "no-store",
-    });
+    const response = await fetch(`https://api.github.com/repos/${env.githubRepo}/releases/latest`, { headers: headers(), cache: "no-store" });
     if (!response.ok) return null;
     const data = (await response.json()) as {
       tag_name?: string;
       html_url?: string;
       body?: string;
-      assets?: { name: string; browser_download_url: string }[];
+      assets?: { name: string; url: string; browser_download_url: string }[];
     };
     if (!data.tag_name || !data.html_url) return null;
     // A release carries both a signed release APK and a debug one. The debug
@@ -56,10 +65,12 @@ async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
     // rather than update it — prefer the one that isn't debug.
     const apks = (data.assets ?? []).filter((a) => a.name.toLowerCase().endsWith(".apk"));
     const apk = apks.find((a) => !/debug/i.test(a.name)) ?? apks[0];
+    const version = data.tag_name.replace(/^v/i, "");
+    asset = apk ? { version, apiUrl: apk.url, publicUrl: apk.browser_download_url } : null;
     return {
-      version: data.tag_name.replace(/^v/i, ""),
+      version,
       releaseUrl: data.html_url,
-      apkUrl: apk?.browser_download_url ?? null,
+      apkUrl: apk ? `${SITE_URL}/api/app-version/apk?v=${encodeURIComponent(version)}` : null,
       notes: changesOnly(data.body ?? ""),
     };
   } catch {
@@ -103,14 +114,7 @@ export async function allReleases(): Promise<ChangelogEntry[]> {
   if (listCache && Date.now() - listCache.at < CHECK_INTERVAL_MS) return listCache.list;
   if (!env.githubRepo) return [];
   try {
-    const response = await fetch(`https://api.github.com/repos/${env.githubRepo}/releases?per_page=50`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "wink-server",
-        ...(env.githubToken ? { Authorization: `Bearer ${env.githubToken}` } : {}),
-      },
-      cache: "no-store",
-    });
+    const response = await fetch(`https://api.github.com/repos/${env.githubRepo}/releases?per_page=50`, { headers: headers(), cache: "no-store" });
     if (!response.ok) return listCache?.list ?? [];
     const data = (await response.json()) as { tag_name?: string; published_at?: string; body?: string; draft?: boolean; prerelease?: boolean }[];
     const list = data
@@ -121,6 +125,24 @@ export async function allReleases(): Promise<ChangelogEntry[]> {
   } catch {
     return listCache?.list ?? [];
   }
+}
+
+/**
+ * Where to fetch the latest APK right now: GitHub's short-lived signed
+ * link (asked for with the token, so it works for a private repository),
+ * or the plain public link when that fails. Null when there is no APK.
+ */
+export async function apkDownloadUrl(): Promise<string | null> {
+  if (!asset) await latestRelease();
+  if (!asset) return null;
+  try {
+    const response = await fetch(asset.apiUrl, { headers: headers("application/octet-stream"), redirect: "manual", cache: "no-store" });
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location) return location;
+  } catch {
+    // Fall through to the public link.
+  }
+  return asset.publicUrl;
 }
 
 /** The GitHub releases page, for when there is no release yet. */
