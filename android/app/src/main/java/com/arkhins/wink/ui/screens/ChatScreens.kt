@@ -54,6 +54,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.tween
@@ -430,13 +432,10 @@ fun ChatScreen(
     val context = LocalContext.current
     val myName = vm.me?.user?.displayName ?: "You"
     DisposableEffect(Unit) { onDispose { onSelection(null) } }
-    LaunchedEffect(selected, d?.messages) {
+    // Built in the same frame the selection changes, so the bar is there at once.
+    val bar = remember(selected, d?.messages) {
         val chosen = d?.messages.orEmpty().filter { it.id in selected }
-        if (chosen.isEmpty()) {
-            if (selected.isNotEmpty()) selected = emptySet()
-            onSelection(null)
-            return@LaunchedEffect
-        }
+        if (chosen.isEmpty()) return@remember null
         val one = chosen.singleOrNull()
         val allMine = chosen.all { it.mine }
         val allRecent = chosen.all { changeable(it) }
@@ -448,20 +447,20 @@ fun ChatScreen(
             Toast.makeText(context, if (one != null) "Copied" else "${chosen.size} messages copied", Toast.LENGTH_SHORT).show()
             selected = emptySet()
         }
-        onSelection(
-            SelectionBar(
-                count = chosen.size,
-                onClose = { selected = emptySet() },
-                actions = buildList {
-                    if (one != null) add(SelectionAction("Reply", drawable = R.drawable.ic_reply) { editing = null; replyTo = one; selected = emptySet() })
-                    if (one != null && one.mine) add(SelectionAction("Edit", enabled = allRecent, vector = Icons.Outlined.Edit) { replyTo = null; editing = one; selected = emptySet() })
-                    add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
-                    if (allMine) add(SelectionAction("Delete", enabled = allRecent, vector = Icons.Outlined.Delete) { deleting = chosen })
-                    add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
-                },
-            ),
+        SelectionBar(
+            count = chosen.size,
+            onClose = { selected = emptySet() },
+            actions = buildList {
+                if (one != null) add(SelectionAction("Reply", drawable = R.drawable.ic_reply) { editing = null; replyTo = one; selected = emptySet() })
+                if (one != null && one.mine) add(SelectionAction("Edit", enabled = allRecent, vector = Icons.Outlined.Edit) { replyTo = null; editing = one; selected = emptySet() })
+                add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
+                if (allMine) add(SelectionAction("Delete", enabled = allRecent, vector = Icons.Outlined.Delete) { deleting = chosen })
+                add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
+            },
         )
     }
+    SideEffect { onSelection(bar) }
+    LaunchedEffect(bar, selected) { if (bar == null && selected.isNotEmpty()) selected = emptySet() }
     LaunchedEffect(pending.size) {
         if (pending.isNotEmpty()) list.animateScrollToItem(rows.size)
     }
@@ -770,6 +769,17 @@ private fun Bubble(
         Modifier
             .fillMaxWidth()
             .background(if (selected) Gold.copy(alpha = 0.18f) else glow, RoundedCornerShape(12.dp))
+            // The whole row, not only the bubble: a long press anywhere beside it selects it too.
+            .combinedClickable(
+                enabled = !m.deleted && !local,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { if (selecting) onToggle() },
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggle()
+                },
+            )
             .pointerInput(m.id, m.deleted, selecting) {
                 if (m.deleted || local || selecting) return@pointerInput
                 detectHorizontalDragGestures(
