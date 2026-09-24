@@ -272,6 +272,8 @@ export type ConversationOut = {
   iOpened: boolean;
   lastMessageAt: string | null;
   lastMessage: string | null;
+  /** Ticks on the last message when you sent it; null when it is theirs or deleted. */
+  lastStatus: "sent" | "delivered" | "read" | null;
   unread: number;
 };
 
@@ -413,6 +415,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     last_body: string | null;
     last_file: string | null;
     live_last_at: string | null;
+    last_status: "sent" | "delivered" | "read" | null;
   }>(
     `SELECT c.id, c.owner_id, c.member_id, c.last_message_at,
             o.id AS o_id, o.name AS o_name, o.email AS o_email, o.role AS o_role, o.photo_key AS o_photo, o.status AS o_status,
@@ -421,7 +424,13 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
             (SELECT f.name FROM messages m JOIN files f ON f.id = m.file_id WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_file,
-            (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at
+            (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at,
+            (SELECT CASE WHEN m.sender_id <> $1 OR m.deleted_at IS NOT NULL THEN NULL
+                         WHEN rr.read_at IS NOT NULL THEN 'read'
+                         WHEN rr.delivered_at IS NOT NULL THEN 'delivered'
+                         ELSE 'sent' END
+               FROM messages m LEFT JOIN message_recipients rr ON rr.message_id = m.id AND rr.user_id <> $1
+               WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_status
      FROM conversations c
      JOIN users o ON o.id = CASE WHEN c.owner_id = $1 THEN c.member_id ELSE c.owner_id END
      WHERE c.kind = 'direct' AND (c.owner_id = $1 OR c.member_id = $1)
@@ -441,6 +450,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     iOpened: r.owner_id === user.id,
     lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
     lastMessage: r.last_body?.trim() || (r.last_file ? `Document: ${r.last_file}` : null),
+    lastStatus: r.last_status,
     unread: Number(r.unread),
   }));
 }

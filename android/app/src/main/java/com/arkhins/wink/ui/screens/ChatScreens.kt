@@ -164,6 +164,7 @@ fun ChatsScreen(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: () -> Uni
                         Column(Modifier.weight(1f)) {
                             Text(chat.other.name, style = MaterialTheme.typography.titleMedium, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                chat.lastStatus?.let { Ticks(it, tint = SnowFaint, modifier = Modifier.padding(end = 4.dp)) }
                                 Text(
                                     chat.lastMessage ?: chat.other.roleLabel,
                                     style = MaterialTheme.typography.bodySmall,
@@ -735,15 +736,15 @@ private fun Quote(r: ReplyRef, onDark: Boolean, onClick: () -> Unit) {
 
 /** One tick sent, two delivered, three read (the read ones in blue). */
 @Composable
-private fun Ticks(status: String) {
+private fun Ticks(status: String, tint: Color = Night.copy(alpha = 0.6f), modifier: Modifier = Modifier.padding(start = 4.dp)) {
     val n = when (status) {
         "read" -> 3
         "delivered" -> 2
         else -> 1
     }
-    val color = if (status == "read") ReadBlue else Night.copy(alpha = 0.6f)
+    val color = if (status == "read") ReadBlue else tint
     if (status == "pending") {
-        Canvas(Modifier.padding(start = 4.dp).size(11.dp)) {
+        Canvas(modifier.size(11.dp)) {
             val stroke = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
             val c = center
             drawCircle(color, radius = size.width * 0.44f, style = stroke)
@@ -752,7 +753,7 @@ private fun Ticks(status: String) {
         }
         return
     }
-    Canvas(Modifier.padding(start = 4.dp).size(width = ((10 + (n - 1) * 5) * 1.1f).dp, height = 11.dp)) {
+    Canvas(modifier.size(width = ((10 + (n - 1) * 5) * 1.1f).dp, height = 11.dp)) {
         val unit = size.height / 10f
         repeat(n) { i ->
             val x = i * 5f
