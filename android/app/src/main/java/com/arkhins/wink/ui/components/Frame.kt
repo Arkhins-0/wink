@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -72,7 +73,10 @@ fun TopBar(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+            // One height on every screen, whatever is in it (as the selection bar): the countdown or the
+            // offline icon turning up never moves the page below.
+            .height(48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onBack != null) {
@@ -158,22 +162,38 @@ private fun OfflineIcon() {
     )
 }
 
+/**
+ * The next session, shared by every header's countdown: a screen that opens
+ * (or comes back) shows it from its first frame instead of loading its own.
+ */
+private object RaceClock {
+    val next = mutableStateOf<NextRace?>(null)
+    var fetchedAt = 0L
+}
+
+/** Milliseconds until the session boundary (its start, or its end while live); MAX when there is none. */
+private fun untilBoundary(n: NextRace?): Long = n?.session?.let { s ->
+    (if (n.state == "live") instant(s.endsAt) else instant(s.startsAt)).toEpochMilli() - System.currentTimeMillis()
+} ?: Long.MAX_VALUE
+
 /** Time until the next session, or LIVE. Tapping opens the weekend. */
 @Composable
 fun CountdownChip(onOpenWeekend: (String) -> Unit) {
     val app = LocalApp.current
-    var next by remember { mutableStateOf<NextRace?>(null) }
+    val next by RaceClock.next
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(Unit) {
         while (true) {
-            next = runCatching { app.store.get("/api/next-race", NextRace.serializer()) { if (next == null) next = it } }.getOrNull() ?: next
-            // Two minutes, or until the session boundary, whichever is sooner.
-            val boundary = next?.session?.let { s ->
-                (if (next?.state == "live") instant(s.endsAt) else instant(s.startsAt)).toEpochMilli() - System.currentTimeMillis()
-            } ?: Long.MAX_VALUE
-            val wait = minOf(120_000L, maxOf(1_000L, boundary + 500))
-            val end = System.currentTimeMillis() + wait
+            // Asked again every two minutes, or once the session boundary passes; any header may do it for all.
+            val stale = System.currentTimeMillis() - RaceClock.fetchedAt >= 120_000L || untilBoundary(RaceClock.next.value) <= 0
+            if (stale) {
+                RaceClock.fetchedAt = System.currentTimeMillis()
+                runCatching { app.store.get("/api/next-race", NextRace.serializer()) { if (RaceClock.next.value == null) RaceClock.next.value = it } }
+                    .getOrNull()?.let { RaceClock.next.value = it }
+            }
+            val wait = minOf(RaceClock.fetchedAt + 120_000L - System.currentTimeMillis(), untilBoundary(RaceClock.next.value) + 500)
+            val end = System.currentTimeMillis() + maxOf(1_000L, wait)
             while (System.currentTimeMillis() < end) {
                 now = System.currentTimeMillis()
                 delay(1000)
