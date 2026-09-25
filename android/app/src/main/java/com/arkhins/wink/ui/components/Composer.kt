@@ -59,6 +59,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -258,6 +259,20 @@ fun Composer(
     var filesOpen by remember { mutableStateOf(false) }
     var pollOpen by remember { mutableStateOf(false) }
     var eventOpen by remember { mutableStateOf(false) }
+    // Debug builds: a screen asked for over adb (see DebugHooks).
+    if (com.arkhins.wink.BuildConfig.DEBUG) {
+        val asked by com.arkhins.wink.ui.DebugHooks.sheet.collectAsState()
+        LaunchedEffect(asked) {
+            when (asked) {
+                "attach" -> sheet = true
+                "poll" -> pollOpen = true
+                "event" -> eventOpen = true
+                "files" -> filesOpen = true
+                else -> return@LaunchedEffect
+            }
+            com.arkhins.wink.ui.DebugHooks.sheet.value = null
+        }
+    }
     var editorCaption by remember { mutableStateOf("") }
     var editorHd by remember { mutableStateOf(false) }
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->

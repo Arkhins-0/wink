@@ -12,6 +12,8 @@ object Links {
 
     /** A site path as a navigation route, or null for paths the app has no screen for. */
     fun route(path: String): String? {
+        // A debug build's raw route (see MainActivity), taken as it is.
+        if (com.arkhins.wink.BuildConfig.DEBUG && path.startsWith("route:")) return path.removePrefix("route:")
         val (p, query) = path.split("?", limit = 2).let { it[0] to it.getOrNull(1) }
         val parts = p.trim('/').split('/').filter { it.isNotBlank() }
         val head = parts.firstOrNull() ?: return null

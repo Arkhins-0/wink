@@ -181,6 +181,8 @@ fun PollCard(poll: Poll, onDark: Boolean, vote: suspend (List<String>) -> Poll?)
     val scope = rememberCoroutineScope()
     var shown by remember(poll) { mutableStateOf(poll) }
     var votesOpen by remember { mutableStateOf(false) }
+    // Only the answer to the latest tap counts: taps close together can come back out of order.
+    var taps by remember { mutableStateOf(0) }
     val ink = if (onDark) Snow else Night
     val soft = if (onDark) SnowFaint else Night.copy(alpha = 0.6f)
     val accent = if (onDark) Gold else Night
@@ -202,7 +204,11 @@ fun PollCard(poll: Poll, onDark: Boolean, vote: suspend (List<String>) -> Poll?)
                 o.copy(mine = now, votes = o.votes + (if (now && !o.mine) 1 else if (!now && o.mine) -1 else 0))
             },
         )
-        scope.launch { shown = runCatching { vote(next.toList()) }.getOrNull() ?: before }
+        val tap = ++taps
+        scope.launch {
+            val answer = runCatching { vote(next.toList()) }.getOrNull()
+            if (tap == taps) shown = answer ?: before
+        }
     }
 
     Column(Modifier.widthIn(min = 240.dp).padding(vertical = 2.dp)) {

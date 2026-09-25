@@ -538,7 +538,7 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, color = if (onDark) Snow else Night, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, color = if (onDark) Snow else Night, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             Text(
                 when {
                     error != null -> error!!

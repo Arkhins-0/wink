@@ -51,8 +51,13 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         val fromNotification = intent?.getStringExtra(Notifications.EXTRA_LINK)
         val fromUrl = intent?.data?.let { uri -> uri.path?.let { p -> p + (uri.query?.let { "?$it" } ?: "") } }
-        val link = fromNotification ?: fromUrl ?: return
+        // Debug builds only: `adb shell am start -n com.arkhins.wink/.MainActivity --es route settings` opens any screen
+        // by its navigation route (Settings, Storage, a group's info…), for testing on a phone that refuses adb taps.
+        if (BuildConfig.DEBUG) intent?.getStringExtra("sheet")?.let { com.arkhins.wink.ui.DebugHooks.sheet.value = it; intent.removeExtra("sheet") }
+        val debugRoute = if (BuildConfig.DEBUG) intent?.getStringExtra("route")?.let { "route:$it" } else null
+        val link = debugRoute ?: fromNotification ?: fromUrl ?: return
         Links.pending.value = link
         intent?.removeExtra(Notifications.EXTRA_LINK)
+        intent?.removeExtra("route")
     }
 }

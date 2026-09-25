@@ -229,6 +229,8 @@ fun EventCard(event: CalendarEvent, onDark: Boolean, reply: suspend (String?) ->
     val scope = rememberCoroutineScope()
     var shown by remember(event) { mutableStateOf(event) }
     var repliesOpen by remember { mutableStateOf(false) }
+    // Only the answer to the latest tap counts: taps close together can come back out of order.
+    var taps by remember { mutableStateOf(0) }
     val ink = if (onDark) Snow else Night
     val soft = if (onDark) SnowFaint else Night.copy(alpha = 0.6f)
     val accent = if (onDark) Gold else Night
@@ -238,7 +240,11 @@ fun EventCard(event: CalendarEvent, onDark: Boolean, reply: suspend (String?) ->
         val before = shown
         fun delta(k: String) = (if (shown.myAnswer == k) -1 else 0) + (if (next == k) 1 else 0)
         shown = shown.copy(myAnswer = next, going = shown.going + delta("going"), notGoing = shown.notGoing + delta("not_going"))
-        scope.launch { shown = runCatching { reply(next) }.getOrNull() ?: before }
+        val tap = ++taps
+        scope.launch {
+            val answer = runCatching { reply(next) }.getOrNull()
+            if (tap == taps) shown = answer ?: before
+        }
     }
 
     Column(Modifier.widthIn(min = 240.dp).padding(vertical = 2.dp)) {
