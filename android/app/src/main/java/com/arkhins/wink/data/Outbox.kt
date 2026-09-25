@@ -12,6 +12,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -197,39 +203,57 @@ class Outbox(
         }
     }
 
-    private suspend fun sendGroup(group: List<Queued>) {
-        val fileIds = mutableMapOf<String, String>()
-        for (item in group) {
-            val f = item.file ?: continue
-            val id = item.message.id
-            if (item.fileId != null) {
-                fileIds[id] = item.fileId
-                continue
+    /**
+     * A batch goes up three files at a time, then its messages go: a batch of photos all at once (each knows its
+     * place in the grid, so the order they land in doesn't matter), anything else one after another, in order.
+     */
+    private suspend fun sendGroup(group: List<Queued>) = coroutineScope {
+        val fileIds = ConcurrentHashMap<String, String>()
+        val gate = Semaphore(3)
+        group.map { item ->
+            async {
+                val f = item.file ?: return@async
+                val id = item.message.id
+                if (item.fileId != null) {
+                    fileIds[id] = item.fileId
+                    return@async
+                }
+                val info = gate.withPermit {
+                    step(item) {
+                        uploadFile(api, documents, media, File(f.path), f.name, f.mime) { p -> _progress.update { it + (id to p) } }
+                    }
+                } ?: return@async
+                fileIds[id] = info.id
+                change { list -> list.map { if (it.message.id == id) it.copy(fileId = info.id) else it } }
             }
-            val info = step(item) {
-                uploadFile(api, documents, media, File(f.path), f.name, f.mime) { p -> _progress.update { it + (id to p) } }
-            } ?: continue
-            fileIds[id] = info.id
-            change { list -> list.map { if (it.message.id == id) it.copy(fileId = info.id) else it } }
-        }
-        for (item in group) {
+        }.awaitAll()
+        suspend fun post(item: Queued) {
             val id = item.message.id
             // Its file was turned down above: the message waits with it.
-            if (item.file != null && id !in fileIds) continue
+            if (item.file != null && !fileIds.containsKey(id)) return
             val sent = step(item) {
                 api.post("/api/conversations/${item.conversationId}", ChatSent.serializer()) {
                     put("body", item.message.body)
                     put("urgent", item.message.urgent)
+                    // The phone's id for it: a resend after a lost answer is the same message, and the chat swaps in place.
+                    put("clientId", id)
+                    item.message.batchId?.let { put("batchId", it) }
+                    item.message.batchPos?.let { put("batchPos", it) }
                     if (item.replyToId != null) put("replyToId", item.replyToId)
                     fileIds[id]?.let { f -> putJsonArray("fileIds") { add(f) } }
                 }
-            } ?: continue
+            } ?: return
             // The server's copy goes into the chat before the queued one leaves, so the bubble never blinks.
             runCatching { sent.message?.let { chats.add(item.conversationId, it) } ?: chats.sync(item.conversationId, markRead = true) }
             change { list -> list.filterNot { it.message.id == id } }
             _progress.update { it - id }
             // Its bytes are kept under the server's id by now; the copy made for sending goes.
             item.message.attachments.forEach { media.remove(it) }
+        }
+        if (group.size > 1 && group.all { it.message.batchPos != null }) {
+            group.map { item -> async { gate.withPermit { post(item) } } }.awaitAll()
+        } else {
+            group.forEach { post(it) }
         }
     }
 
