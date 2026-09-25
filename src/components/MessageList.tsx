@@ -87,6 +87,87 @@ export function Attachment({ file, onDark = true }: { file: NonNullable<MessageO
   );
 }
 
+type FileRef = NonNullable<MessageOut["file"]>;
+const isPhoto = (f: FileRef) => !f.document && f.mime.startsWith("image/") && f.mime !== "image/svg+xml";
+
+/** Every file of a message (the older single `file` when there is no list). */
+export const filesOf = (m: MessageOut): FileRef[] => (m.files?.length ? m.files : m.file ? [m.file] : []);
+
+/**
+ * A message's files, the way WhatsApp lays them out: one photo on its own, several in a grid of up to four
+ * (the fourth saying "+n" for the rest, which a click opens out), then the documents and audio each as a card.
+ */
+export function Files({ files, onDark = true }: { files: FileRef[]; onDark?: boolean }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const photos = files.filter(isPhoto);
+  const others = files.filter((f) => !isPhoto(f));
+  if (photos.length <= 1) return <>{files.map((f) => <Attachment key={f.id} file={f} onDark={onDark} />)}</>;
+  const shown = all ? photos : photos.slice(0, 4);
+  const rest = photos.length - 4;
+  return (
+    <>
+      <div className={`mt-2 grid max-w-sm gap-1 ${shown.length === 3 ? "grid-cols-2 [&>*:first-child]:col-span-2" : "grid-cols-2"}`}>
+        {shown.map((f, i) => (
+          <button
+            key={f.id}
+            type="button"
+            className="relative aspect-square overflow-hidden rounded-lg border border-night-line"
+            onClick={() => (!all && i === 3 && rest > 0 ? setAll(true) : setOpenId(f.id))}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/files/${f.id}/content?inline=1`} alt={f.name} loading="lazy" className="h-full w-full object-cover" />
+            {!all && i === 3 && rest > 0 && (
+              <span className="absolute inset-0 flex items-center justify-center bg-night/60 text-2xl font-semibold text-snow">+{rest}</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {others.map((f) => <Attachment key={f.id} file={f} onDark={onDark} />)}
+      {openId && <DocumentDialog fileId={openId} onClose={() => setOpenId(null)} />}
+    </>
+  );
+}
+
+/**
+ * A chat's messages with each batch (photos sent or forwarded together, as separate messages) made one: the files
+ * of all of them in the order picked, the first caption, the last one's time and ticks. Each item keeps the
+ * messages it stands for, so selecting it selects them all.
+ */
+export function batched(messages: MessageOut[]): { shown: MessageOut; run: MessageOut[] }[] {
+  const out: { shown: MessageOut; run: MessageOut[] }[] = [];
+  for (const m of messages) {
+    const prev = out[out.length - 1];
+    const joins =
+      prev &&
+      m.batchId &&
+      !m.deleted &&
+      !m.event &&
+      prev.run[0].batchId === m.batchId &&
+      !prev.run[0].deleted &&
+      prev.run[0].sender?.id === m.sender?.id &&
+      prev.run[0].mine === m.mine;
+    if (joins) prev.run.push(m);
+    else out.push({ shown: m, run: [m] });
+  }
+  return out.map(({ run }) => {
+    if (run.length === 1) return { shown: run[0], run };
+    const ordered = [...run].sort((a, b) => (a.batchPos ?? 0) - (b.batchPos ?? 0));
+    const last = run[run.length - 1];
+    return {
+      run,
+      shown: {
+        ...ordered[0],
+        body: ordered.find((x) => x.body.trim())?.body ?? "",
+        files: ordered.flatMap(filesOf),
+        file: null,
+        createdAt: last.createdAt,
+        status: last.status,
+      },
+    };
+  });
+}
+
 /** One message as it appears in the inbox or a channel. */
 export function MessageItem({ m, showSender = true, highlight = false }: { m: MessageOut; showSender?: boolean; highlight?: boolean }) {
   const unread = !m.readAt && !m.mine;
@@ -112,7 +193,7 @@ export function MessageItem({ m, showSender = true, highlight = false }: { m: Me
             </span>
           </div>
           {m.poll ? <PollCard poll={m.poll} /> : m.calendarEvent ? <EventCard event={m.calendarEvent} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
-          {m.file && <Attachment file={m.file} />}
+          <Files files={filesOf(m)} />
           {m.kind !== "broadcast" && (
             <p className="mt-2 text-xs text-snow-faint">
               {m.kind === "direct" && m.conversationId && (
@@ -160,12 +241,12 @@ export function Ticks({ status }: { status: NonNullable<MessageOut["status"]> })
 }
 
 /** One line saying what a message was: its text, or what it carried. */
-export function snippet(r: { body: string; fileName: string | null; fileMime: string | null; deleted: boolean }): string {
+export function snippet(r: { body: string; fileName: string | null; fileMime: string | null; fileDocument?: boolean; deleted: boolean }): string {
   if (r.deleted) return "This message was deleted";
   if (locationIn(r.body)) return "📍 Location";
   if (r.body.trim()) return r.body.trim();
-  if (r.fileMime?.startsWith("image/")) return "📷 Photo";
-  if (r.fileMime?.startsWith("audio/")) return "🎤 Voice note";
+  if (!r.fileDocument && r.fileMime?.startsWith("image/")) return "📷 Photo";
+  if (!r.fileDocument && r.fileMime?.startsWith("audio/")) return "🎤 Voice note";
   return r.fileName ? `📄 ${r.fileName}` : "";
 }
 
@@ -270,7 +351,7 @@ export function Bubble({
                   </p>
                 )
               )}
-              {m.file && <Attachment file={m.file} onDark={!m.mine} />}
+              <Files files={filesOf(m)} onDark={!m.mine} />
             </>
           )}
           <p className={`mt-1 flex items-center justify-end text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>

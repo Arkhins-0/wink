@@ -9,7 +9,7 @@ import { saveEvent, type EventDraft } from "./events";
 import { filesByIds, messageFileIds, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
-import { activeUserIds, deliver, describeFiles, preview } from "./notify";
+import { activeUserIds, deliver, describeFiles, fileKind, preview } from "./notify";
 import { pushSync } from "./push";
 import { CHANNEL_POSTERS, ROLE_LABEL, type Role } from "./roles";
 import { APP_NAME } from "./config";
@@ -96,6 +96,8 @@ export type ReplyRef = {
   body: string;
   fileName: string | null;
   fileMime: string | null;
+  /** The quoted file went through "Document": named as a document, not a photo or audio. */
+  fileDocument?: boolean;
   deleted: boolean;
 };
 
@@ -139,6 +141,7 @@ type Row = {
   rm_body: string | null;
   rm_file_name: string | null;
   rm_file_mime: string | null;
+  rm_file_document: boolean | null;
   rm_deleted_at: string | null;
   to_delivered_at: string | null;
   to_read_at: string | null;
@@ -230,7 +233,7 @@ const SELECT = `
          m.body, m.file_id, f.name AS file_name, f.mime AS file_mime, f.size::text AS file_size, f.as_document AS file_document,
          m.urgent, m.created_at, r.read_at, m.reply_to_id, m.edited_at, m.deleted_at, m.changed_at, m.forwarded,
          rm.sender_id AS rm_sender_id, COALESCE(NULLIF(rs.name, ''), rs.email) AS rm_sender_name, rm.body AS rm_body,
-         rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
+         rf.name AS rm_file_name, rf.mime AS rm_file_mime, rf.as_document AS rm_file_document, rm.deleted_at AS rm_deleted_at,
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
          m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name,
          gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event, m.client_id, m.batch_id, m.batch_pos,
@@ -297,6 +300,7 @@ function out(row: Row, viewerId: string): MessageOut {
           body: row.rm_deleted_at ? "" : (row.rm_body ?? "").slice(0, 300),
           fileName: row.rm_deleted_at ? null : row.rm_file_name,
           fileMime: row.rm_deleted_at ? null : row.rm_file_mime,
+          fileDocument: Boolean(row.rm_file_document),
           deleted: Boolean(row.rm_deleted_at),
         }
       : null,
@@ -381,16 +385,12 @@ export function popupData(
   kind: "chat" | "channel" | "announcement" | "group",
   sender: SessionUser,
   draft: Draft,
-  file: { mime: string } | null,
+  file: { mime: string; as_document?: boolean } | null,
   place = "",
 ): Record<string, string> {
   const location = /https:\/\/maps\.google\.com\/\?q=/.test(draft.body);
   const attach = file
-    ? file.mime.startsWith("image/")
-      ? "image"
-      : file.mime.startsWith("audio/")
-        ? "audio"
-        : "document"
+    ? fileKind(file)
     : location
       ? "location"
       : "";
@@ -883,7 +883,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     o_status: string;
     unread: string;
     last_body: string | null;
-    last_files: { name: string; mime: string }[] | null;
+    last_files: { name: string; mime: string; document: boolean | null }[] | null;
     live_last_at: string | null;
     last_status: "sent" | "delivered" | "read" | null;
     total: string;
@@ -894,7 +894,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
               WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
+            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime, 'document', xf.as_document) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
             (SELECT max(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")}) AS live_last_at,
             (SELECT CASE WHEN m.sender_id <> $1 OR m.deleted_at IS NOT NULL THEN NULL
                          WHEN rr.read_at IS NOT NULL THEN 'read'
@@ -916,7 +916,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
     members: string;
     unread: string;
     last_body: string | null;
-    last_files: { name: string; mime: string }[] | null;
+    last_files: { name: string; mime: string; document: boolean | null }[] | null;
     last_sender: string | null;
     last_mine: boolean | null;
     live_last_at: string | null;
@@ -928,7 +928,7 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
               WHERE m.conversation_id = c.id AND r.read_at IS NULL AND ${LIVE_SEASON("m")})::text AS unread,
             (SELECT CASE WHEN m.deleted_at IS NOT NULL THEN 'This message was deleted' ELSE m.body END
                FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
+            (SELECT json_agg(json_build_object('name', xf.name, 'mime', xf.mime, 'document', xf.as_document) ORDER BY mf.position) FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = (SELECT m.id FROM messages m WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1)) AS last_files,
             (SELECT CASE WHEN m.event IS NULL THEN COALESCE(NULLIF(u.name, ''), u.email, 'Someone') END
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.conversation_id = c.id AND ${LIVE_SEASON("m")} ORDER BY m.created_at DESC LIMIT 1) AS last_sender,

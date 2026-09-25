@@ -74,22 +74,31 @@ export async function activeUserIds(except?: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/** A file as a message names it: sent through "Document", a photo or audio still counts as a document. */
+export type Described = { name: string; mime: string; document?: boolean | null; as_document?: boolean | null };
+
+export function fileKind(f: { mime: string; document?: boolean | null; as_document?: boolean | null }): "image" | "audio" | "document" {
+  if (f.document || f.as_document) return "document";
+  return f.mime.startsWith("image/") ? "image" : f.mime.startsWith("audio/") ? "audio" : "document";
+}
+
 /** A short preview for a push body: the words, or what is attached. */
-export function preview(body: string, files: { name: string; mime: string }[] = []): string {
+export function preview(body: string, files: Described[] = []): string {
   const text = body.trim().replace(/\s+/g, " ");
   if (text) return text.length > 140 ? `${text.slice(0, 137)}…` : text;
   return describeFiles(files) || "New message";
 }
 
 /** What a message carries, in a few words: "📷 Photo", "Document: x.pdf", "📷 3 photos · 📄 2 documents". */
-export function describeFiles(files: { name: string; mime: string }[]): string {
+export function describeFiles(files: Described[]): string {
   if (files.length === 0) return "";
   if (files.length === 1) {
     const f = files[0];
-    return f.mime.startsWith("image/") ? "📷 Photo" : f.mime.startsWith("audio/") ? "🎤 Audio" : `Document: ${f.name}`;
+    const kind = fileKind(f);
+    return kind === "image" ? "📷 Photo" : kind === "audio" ? "🎤 Audio" : `Document: ${f.name}`;
   }
-  const photos = files.filter((f) => f.mime.startsWith("image/")).length;
-  const audio = files.filter((f) => f.mime.startsWith("audio/")).length;
+  const photos = files.filter((f) => fileKind(f) === "image").length;
+  const audio = files.filter((f) => fileKind(f) === "audio").length;
   const docs = files.length - photos - audio;
   return [
     photos ? `📷 ${photos} photo${photos === 1 ? "" : "s"}` : "",

@@ -15,7 +15,7 @@ import { MessageInfoDialog } from "./chat/MessageInfoDialog";
 import { Modal } from "./chat/Modal";
 import { Icon } from "./Icon";
 import { MessageComposer, post, type Banner } from "./MessageComposer";
-import { Bubble, snippet } from "./MessageList";
+import { Bubble, batched, snippet } from "./MessageList";
 
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
 
@@ -37,6 +37,7 @@ const asRef = (m: MessageOut): ReplyRef => ({
   body: m.body,
   fileName: m.file?.name ?? null,
   fileMime: m.file?.mime ?? null,
+  fileDocument: Boolean(m.file?.document),
   deleted: m.deleted,
 });
 
@@ -175,10 +176,12 @@ export function ChatView({
     return () => window.removeEventListener("keydown", onKey);
   }, [selected.length, searchOpen]);
 
-  const toggle = (m: MessageOut) => {
-    if (!selectable(m)) return;
+  /** Select or unselect a bubble: a batch of photos goes as one, all its messages together. */
+  const toggle = (run: MessageOut[]) => {
+    const ids = run.filter(selectable).map((m) => m.id);
+    if (ids.length === 0) return;
     setActionError(null);
-    setSelected((s) => (s.includes(m.id) ? s.filter((id) => id !== m.id) : [...s, m.id]));
+    setSelected((s) => (ids.every((id) => s.includes(id)) ? s.filter((id) => !ids.includes(id)) : [...s, ...ids.filter((id) => !s.includes(id))]));
   };
 
   /** Scroll to a message and light it up for a second. */
@@ -197,8 +200,8 @@ export function ChatView({
     press.current = null;
   };
 
-  const pressOn = (m: MessageOut): React.HTMLAttributes<HTMLDivElement> =>
-    selectable(m)
+  const pressOn = (run: MessageOut[]): React.HTMLAttributes<HTMLDivElement> =>
+    run.some(selectable)
       ? {
           onPointerDown: (e) => {
             longPressed.current = false;
@@ -208,7 +211,7 @@ export function ChatView({
               press.current = null;
               longPressed.current = true;
               navigator.vibrate?.(15);
-              toggle(m);
+              toggle(run);
             }, LONG_PRESS_MS);
             press.current = { timer, x: e.clientX, y: e.clientY };
           },
@@ -222,14 +225,14 @@ export function ChatView({
           onContextMenu: (e) => {
             e.preventDefault();
             // A phone fires this at the end of a hold that has already selected it.
-            if (!longPressed.current) toggle(m);
+            if (!longPressed.current) toggle(run);
           },
           onClickCapture: (e) => {
             // The click that ends a hold, and any click while selecting, is about selection, not the picture or link under it.
             if (longPressed.current || selecting) {
               e.preventDefault();
               e.stopPropagation();
-              if (!longPressed.current) toggle(m);
+              if (!longPressed.current) toggle(run);
               longPressed.current = false;
             }
           },
@@ -358,8 +361,9 @@ export function ChatView({
 
   const rows: React.ReactNode[] = [];
   let lastDay = "";
-  for (const m of messages) {
-    const day = dayOf(m.createdAt);
+  // A batch of photos (sent or forwarded together) is one bubble with a grid.
+  for (const { shown: m, run } of batched(messages)) {
+    const day = dayOf(run[0].createdAt);
     if (day !== lastDay) {
       lastDay = day;
       rows.push(
@@ -386,13 +390,16 @@ export function ChatView({
         m={m}
         quote={original ? asRef(original) : m.replyTo}
         onQuote={jump}
-        flash={flash === m.id}
-        selected={selected.includes(m.id)}
+        flash={run.some((x) => x.id === flash)}
+        selected={run.some((x) => selected.includes(x.id))}
         senderName={group && !m.mine ? m.sender?.name ?? null : null}
-        highlight={needle && hits.includes(m.id) ? needle : null}
+        highlight={needle && run.some((x) => hits.includes(x.id)) ? needle : null}
         onInvite={inv && !m.mine && inviteOpen(inv) ? (accept) => answerInvite(inv, accept) : undefined}
-        press={pressOn(m)}
-      />,
+        press={pressOn(run)}
+      >
+        {/* The batch's other messages, so a quote of any of them still finds this bubble. */}
+        {run.filter((x) => x.id !== m.id).map((x) => <span key={x.id} id={`m-${x.id}`} />)}
+      </Bubble>,
     );
   }
 

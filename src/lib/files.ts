@@ -22,6 +22,8 @@ export type FileRow = {
   uploaded_by: string | null;
   ready: boolean;
   created_at: string;
+  /** Sent through "Document": a document, whatever its type (migration 015). */
+  as_document?: boolean;
 };
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
