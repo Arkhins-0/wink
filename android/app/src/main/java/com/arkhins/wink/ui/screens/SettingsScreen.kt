@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.data.MediaLibrary
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -168,6 +169,16 @@ private fun accessList(context: Context): List<Access> = buildList {
             "You can't share your location in chats.",
             granted(context, Manifest.permission.ACCESS_FINE_LOCATION) || granted(context, Manifest.permission.ACCESS_COARSE_LOCATION),
             permissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            page = details,
+        ),
+    )
+    add(
+        Access(
+            "Photos",
+            "Your recent photos in the attach sheet",
+            "The attach sheet can't show your photos; Gallery opens the system picker instead.",
+            MediaLibrary.granted(context),
+            permissions = MediaLibrary.permissions.toList(),
             page = details,
         ),
     )

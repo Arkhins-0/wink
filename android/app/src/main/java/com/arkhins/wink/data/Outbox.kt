@@ -29,7 +29,8 @@ import java.io.IOException
 
 /** A file on its way out: the phone's own copy of it, made the moment it was sent. */
 @Serializable
-data class OutgoingFile(val path: String, val name: String, val mime: String, val size: Long = 0)
+/** [hd]: sent in HD from the attach sheet, so not made smaller first. */
+data class OutgoingFile(val path: String, val name: String, val mime: String, val size: Long = 0, val hd: Boolean = false)
 
 /** A message written on this phone, waiting to reach the server. */
 @Serializable
@@ -130,7 +131,7 @@ class Outbox(
                 // A photo goes as a smaller JPEG (see PhotoShrink); anything else, or a photo that can't be, as it is.
                 // Sent as a document: the file as it is.
                 val asDocument = q.message.files.firstOrNull()?.document == true
-                val shrunk = if (asDocument || !PhotoShrink.applies(out.mime)) null else withContext(Dispatchers.IO) {
+                val shrunk = if (asDocument || out.hd || !PhotoShrink.applies(out.mime)) null else withContext(Dispatchers.IO) {
                     val info = q.message.files.firstOrNull()?.let { FileInfo(it.id, PhotoShrink.jpegName(out.name), "image/jpeg") }
                     val target = info?.let { media.pathFor(it) }
                     target?.let { t -> PhotoShrink.shrink(context, uri, t)?.let { size -> OutgoingFile(t.path, info.name, info.mime, size) } }

@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.components
 
+import androidx.core.content.FileProvider
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.runtime.CompositionLocalProvider
@@ -113,7 +114,7 @@ data class ComposerBanner(val title: String, val text: String, val onCancel: () 
 
 /** A file picked for the tray. */
 /** [document]: picked through "Document": it goes as a document, as it is, whatever its type. */
-data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long, val document: Boolean = false)
+data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long, val document: Boolean = false, val hd: Boolean = false)
 
 /** What the server takes in one message. */
 private const val MAX_PHOTOS = 30
@@ -237,6 +238,25 @@ fun Composer(
         if (uris.isNotEmpty()) { makeRoomFor("photos"); images = added(images, uris, MAX_PHOTOS) }
     }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // The camera: the photo is written to cache/camera and lands in the tray like a picked one.
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val u = cameraUri
+        if (ok && u != null) {
+            makeRoomFor("photos")
+            images = added(images, listOf(u), MAX_PHOTOS)
+        }
+    }
+    fun openCamera() {
+        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+        val shot = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
+        val u = FileProvider.getUriForFile(context, "${context.packageName}.updates", shot)
+        cameraUri = u
+        runCatching { takePicture.launch(u) }.onFailure { error = "No camera app on this phone." }
+    }
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) openCamera() else error = "Allow the camera to take a photo."
+    }
     /**
      * Finds where the phone is. In a chat it goes out at once, on its own (the words being typed and anything in the
      * tray stay put); elsewhere it waits in the tray to go with the text.
@@ -540,40 +560,45 @@ fun Composer(
     }
 
     if (sheet) {
-        ModalBottomSheet(onDismissRequest = { sheet = false }, containerColor = NightPanel) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                SheetTile("Gallery", { Icon(painterResource(R.drawable.ic_gallery), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
-                    sheet = false
-                    if (images.size >= MAX_PHOTOS) error = "Up to $MAX_PHOTOS photos at a time."
-                    else pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
-                SheetTile("Document", { Icon(painterResource(R.drawable.ic_document), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
-                    sheet = false
-                    // Any kind of file, as in WhatsApp.
-                    pickDocuments.launch(arrayOf("*/*"))
-                }
-                SheetTile("Audio", { Icon(painterResource(R.drawable.ic_audio), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
-                    sheet = false
-                    pickAudio.launch(arrayOf("audio/*"))
-                }
-                SheetTile("Location", { Icon(Icons.Outlined.Place, contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }, busy = locating) {
-                    sheet = false
-                    val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                    if (!fine && !coarse) {
-                        askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                    } else {
-                        shareLocation()
-                    }
-                }
-            }
-        }
+        AttachSheet(
+            onDismiss = { sheet = false },
+            maxPhotos = MAX_PHOTOS - images.size,
+            locating = locating,
+            onCamera = {
+                sheet = false
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) openCamera()
+                else askCamera.launch(Manifest.permission.CAMERA)
+            },
+            onLocation = {
+                sheet = false
+                val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!fine && !coarse) askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                else shareLocation()
+            },
+            onDocument = {
+                sheet = false
+                // Any kind of file, as in WhatsApp.
+                pickDocuments.launch(arrayOf("*/*"))
+            },
+            onAudio = {
+                sheet = false
+                pickAudio.launch(arrayOf("audio/*"))
+            },
+            onSystemGallery = {
+                sheet = false
+                if (images.size >= MAX_PHOTOS) error = "Up to $MAX_PHOTOS photos at a time."
+                else pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onSend = { uris, caption, hd ->
+                // Picked in the sheet with a caption: they go now, the caption with the first, as from the tray.
+                sheet = false
+                makeRoomFor("photos")
+                images = images + uris.filter { u -> images.none { it.uri == u } }.map { describe(context, it).copy(hd = hd) }
+                if (caption.isNotBlank()) body = TextFieldValue(caption)
+                doSend(false)
+            },
+        )
     }
 }
 

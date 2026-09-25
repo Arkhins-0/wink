@@ -856,7 +856,7 @@ fun ChatScreen(
                                 batchPos = if (files.size > 1) i else null,
                             ),
                             replyToId = if (i == 0) replyingTo?.id else null,
-                            file = OutgoingFile(app.chatMedia.pathFor(file).path, p.name, p.mime, p.size),
+                            file = OutgoingFile(app.chatMedia.pathFor(file).path, p.name, p.mime, p.size, hd = p.hd),
                             batch = batch,
                             ready = false,
                         )

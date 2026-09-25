@@ -4,6 +4,8 @@
      Wink_Documents) so another app can open a document or a share can carry it. -->
 <paths>
     <cache-path name="updates" path="updates/" />
+    <!-- A photo taken from the attach sheet, before it is sent. -->
+    <cache-path name="camera" path="camera/" />
     <external-files-path name="wink" path="." />
     <!-- Only when the phone has no external storage and the folders fell back inside the app. -->
     <files-path name="wink-internal" path="." />
