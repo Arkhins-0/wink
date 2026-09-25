@@ -88,6 +88,32 @@ export async function fileById(id: string): Promise<FileRow | undefined> {
   return one<FileRow>("SELECT * FROM files WHERE id = $1", [id]);
 }
 
+/**
+ * The file, if this person may have it. Its uploader always may (it's theirs, even after deleting the message). Anyone
+ * else only through a message that still carries it and that they can see: one they sent or received, a channel
+ * post, their private chat, or a group they're in. A file forwarded on is the same file, so the forward keeps it
+ * readable for its own chat while "delete for everyone" takes it away from the first one.
+ */
+export async function fileForUser(userId: string, fileId: string): Promise<FileRow | undefined> {
+  return one<FileRow>(
+    `SELECT f.* FROM files f
+     WHERE f.id = $1 AND (
+       f.uploaded_by = $2 OR EXISTS (
+         SELECT 1 FROM messages m
+         LEFT JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.deleted_at IS NULL
+           AND m.id IN (SELECT message_id FROM message_files WHERE file_id = $1
+                        UNION SELECT id FROM messages WHERE file_id = $1)
+           AND (m.sender_id = $2
+             OR c.kind = 'channel'
+             OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2)
+             OR (c.kind = 'direct' AND $2 IN (c.owner_id, c.member_id))
+             OR (c.kind = 'group' AND EXISTS (SELECT 1 FROM group_members g WHERE g.conversation_id = c.id AND g.user_id = $2)))
+       ))`,
+    [fileId, userId],
+  );
+}
+
 /** Several files, in the order asked for; unknown ids are left out. */
 export async function filesByIds(ids: string[]): Promise<FileRow[]> {
   if (ids.length === 0) return [];

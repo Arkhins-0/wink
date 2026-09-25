@@ -1,6 +1,6 @@
 import { handle, isUuid, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { downloadUrl, fileById, isOfficeMime } from "@/lib/files";
+import { downloadUrl, fileForUser, isOfficeMime } from "@/lib/files";
 import { fail, json } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
  * is what a link in the page and the app's downloader use.
  */
 export const GET = handle<Params<"id">>(async (request, { params }) => {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
   if (!isUuid(id)) return fail("No such file.", 404);
-  const file = await fileById(id);
+  // Not theirs to see (or deleted for everyone): the same answer as a file that isn't there.
+  const file = await fileForUser(user.id, id);
   if (!file || !file.ready) return fail("No such file.", 404);
 
   const go = new URL(request.url).searchParams.get("go");

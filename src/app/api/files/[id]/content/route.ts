@@ -1,6 +1,6 @@
 import { handle, isUuid, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { fileById, MAX_PROXY_BYTES, safeName } from "@/lib/files";
+import { fileById, fileForUser, MAX_PROXY_BYTES, safeName } from "@/lib/files";
 import { fail } from "@/lib/http";
 import { storage } from "@/lib/storage";
 import { run } from "@/lib/db";
@@ -13,10 +13,11 @@ export const dynamic = "force-dynamic";
  * development fallback for uploads.
  */
 export const GET = handle<Params<"id">>(async (request, { params }) => {
-  await requireUser();
+  const user = await requireUser();
   const { id } = await params;
   if (!isUuid(id)) return fail("No such file.", 404);
-  const file = await fileById(id);
+  const file = await fileForUser(user.id, id);
+  // Not theirs to see (or deleted for everyone): the same answer as a file that isn't there.
   if (!file || !file.ready) return fail("No such file.", 404);
   const stored = await storage().get(file.key);
   if (!stored) return fail("The file is missing from storage.", 404);
