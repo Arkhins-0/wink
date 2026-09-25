@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.components
 
+import com.arkhins.wink.data.DeviceFiles
 import androidx.core.content.FileProvider
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalTextToolbar
@@ -230,13 +231,29 @@ fun Composer(
     }
 
     val pickDocuments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            DeviceFiles.remember(context, uris)
+            makeRoomFor("documents")
+            docs = added(docs, uris, document = true)
+        }
+    }
+    // The Files page's other two ways in: photos at original quality, and audio, both as documents.
+    val pickPhotosAsDocuments = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
         if (uris.isNotEmpty()) { makeRoomFor("documents"); docs = added(docs, uris, document = true) }
+    }
+    val pickAudioAsDocuments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            DeviceFiles.remember(context, uris)
+            makeRoomFor("documents")
+            docs = added(docs, uris, document = true)
+        }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { makeRoomFor("audio"); audios = added(audios, uris) }
     }
     // Photos picked or taken open the editor first (see PhotoEditor), as in WhatsApp.
     var editorPhotos by remember { mutableStateOf<List<Uri>?>(null) }
+    var filesOpen by remember { mutableStateOf(false) }
     var editorCaption by remember { mutableStateOf("") }
     var editorHd by remember { mutableStateOf(false) }
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
@@ -581,8 +598,7 @@ fun Composer(
             },
             onDocument = {
                 sheet = false
-                // Any kind of file, as in WhatsApp.
-                pickDocuments.launch(arrayOf("*/*"))
+                filesOpen = true
             },
             onAudio = {
                 sheet = false
@@ -599,6 +615,31 @@ fun Composer(
                 editorCaption = caption
                 editorHd = hd
                 editorPhotos = uris
+            },
+        )
+    }
+    if (filesOpen) {
+        FilesPage(
+            onClose = { filesOpen = false },
+            onBrowseDocuments = {
+                filesOpen = false
+                // Any kind of file, as in WhatsApp.
+                pickDocuments.launch(arrayOf("*/*"))
+            },
+            onGallery = {
+                filesOpen = false
+                pickPhotosAsDocuments.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onBrowseAudio = {
+                filesOpen = false
+                pickAudioAsDocuments.launch(arrayOf("audio/*"))
+            },
+            onSendFile = { f ->
+                // Tapped in Recents and confirmed: it goes now, as a document, on its own.
+                filesOpen = false
+                makeRoomFor("documents")
+                docs = added(docs, listOf(f.uri), document = true)
+                doSend(false, withText = false)
             },
         )
     }
