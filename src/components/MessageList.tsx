@@ -1,6 +1,7 @@
 "use client";
 
 import { PollCard } from "@/components/PollCard";
+import { EventCard } from "@/components/EventCard";
 import { Formatted } from "@/components/Formatted";
 import { plainText } from "@/lib/formatting";
 import Link from "next/link";
@@ -110,7 +111,7 @@ export function MessageItem({ m, showSender = true, highlight = false }: { m: Me
               {timeAgo(m.createdAt)}
             </span>
           </div>
-          {m.poll ? <PollCard poll={m.poll} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
+          {m.poll ? <PollCard poll={m.poll} /> : m.calendarEvent ? <EventCard event={m.calendarEvent} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
           {m.file && <Attachment file={m.file} />}
           {m.kind !== "broadcast" && (
             <p className="mt-2 text-xs text-snow-faint">
@@ -258,6 +259,8 @@ export function Bubble({
                 <InviteCard inv={m.groupInvite} mine={m.mine} onAnswer={onInvite} />
               ) : m.poll ? (
                 <PollCard poll={m.poll} onDark={!m.mine} />
+              ) : m.calendarEvent ? (
+                <EventCard event={m.calendarEvent} onDark={!m.mine} />
               ) : loc ? (
                 <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} />
               ) : (
