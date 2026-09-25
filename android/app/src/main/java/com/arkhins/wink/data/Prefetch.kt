@@ -63,6 +63,8 @@ class Prefetch(private val app: WinkApplication) {
             async { keep("/api/legal/terms", LegalDoc.serializer()) },
             async { keep("/api/users?chat=1", UsersResponse.serializer())?.users?.forEach { photos += it.photoUrl } },
             async { keep("/api/users?group=1", UsersResponse.serializer()) },
+            // Upcoming events, and their reminders set again (alarms don't outlive a restart of the phone).
+            async { keep("/api/events/upcoming", UpcomingEventsResponse.serializer())?.let { EventReminders.sync(app, it.events) } },
         ).awaitAll()
 
         // Seasons, and each archived one's read-only record.

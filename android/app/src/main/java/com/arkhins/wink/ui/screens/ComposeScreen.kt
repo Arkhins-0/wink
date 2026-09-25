@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.putEvent
 import kotlinx.serialization.json.putJsonObject
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -199,7 +200,9 @@ fun ComposeScreen(onSent: () -> Unit) {
                                 put("multiple", p.multiple)
                             }
                         }
+                        d.event?.let { putEvent(it) }
                     }
+                    if (d.event != null) app.refreshEventReminders()
                     sent = r.delivered
                 }
             }

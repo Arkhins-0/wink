@@ -94,6 +94,14 @@ class WinkApplication : Application(), ImageLoaderFactory {
         appScope.launch { api.online.collect { if (it) prefetch.run() } }
     }
 
+    /** Event reminders set again from the upcoming list (after an answer, or on Home). */
+    fun refreshEventReminders() {
+        appScope.launch {
+            runCatching { store.fetch("/api/events/upcoming", com.arkhins.wink.data.UpcomingEventsResponse.serializer()) }
+                .getOrNull()?.let { com.arkhins.wink.data.EventReminders.sync(this@WinkApplication, it.events) }
+        }
+    }
+
     /** Profile photos come from our API, so Coil's client must carry the session. */
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this).okHttpClient { api.http }.respectCacheHeaders(false).crossfade(true).build()

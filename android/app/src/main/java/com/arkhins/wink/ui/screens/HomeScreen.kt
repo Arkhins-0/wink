@@ -1,5 +1,11 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.data.UpcomingEvent
+import com.arkhins.wink.data.UpcomingEventsResponse
+import com.arkhins.wink.data.EventReminders
+import com.arkhins.wink.ui.components.UpcomingEventsCard
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,6 +86,7 @@ private data class HomeSnapshot(
     val chats: List<Conversation> = emptyList(),
     val channels: List<ChannelSummary> = emptyList(),
     val messages: List<Message> = emptyList(),
+    val events: List<UpcomingEvent> = emptyList(),
 )
 
 private const val HOME_KEY = "snapshot:home"
@@ -96,8 +103,9 @@ suspend fun refreshHomeSnapshot(app: WinkApplication) {
     val channels = weekends.filter { it.endsOn >= today }.sortedBy { it.startsOn }.map { w ->
         ChannelSummary(w, app.store.read("/api/weekends/${w.id}/channel", ChannelResponse.serializer())?.messages?.lastOrNull())
     }
+    val events = app.store.read("/api/events/upcoming", UpcomingEventsResponse.serializer())?.events.orEmpty()
     val messages = app.store.read("/api/messages", MessagesResponse.serializer())?.messages ?: return
-    app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.filter { it.kind == "broadcast" }), HomeSnapshot.serializer())
+    app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.filter { it.kind == "broadcast" }, events), HomeSnapshot.serializer())
 }
 
 /**
@@ -119,6 +127,8 @@ fun HomeScreen(
     var chats by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var channels by remember { mutableStateOf<List<ChannelSummary>>(emptyList()) }
     var next by remember { mutableStateOf<NextRace?>(null) }
+    var events by remember { mutableStateOf<List<UpcomingEvent>>(emptyList()) }
+    val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     val list = rememberLazyListState()
     // Last lines from the phone's own copy, as in the chats list: a send or a delete shows here at once.
@@ -132,6 +142,7 @@ fun HomeScreen(
                     chats = s.chats
                     channels = s.channels
                     messages = s.messages
+                    events = s.events
                 }
             }
         }
@@ -143,8 +154,13 @@ fun HomeScreen(
                 val chatsJob = async { runCatching { app.api.get("/api/conversations", ConversationsResponse.serializer()).conversations }.getOrDefault(emptyList()) }
                 val weekendsJob = async { runCatching { app.api.get("/api/weekends", WeekendsResponse.serializer()).weekends }.getOrDefault(emptyList()) }
                 val inboxJob = async { app.store.fetch("/api/messages", MessagesResponse.serializer()) }
+                val eventsJob = async { runCatching { app.store.fetch("/api/events/upcoming", UpcomingEventsResponse.serializer()).events }.getOrNull() }
 
                 next = nextJob.await()
+                eventsJob.await()?.let {
+                    events = it
+                    EventReminders.sync(app, it)
+                }
                 // Only chats something has been said in, newest first.
                 chats = chatsJob.await().filter { it.lastMessageAt != null }.take(3)
                 val today = LocalDate.now().toString()
@@ -157,7 +173,7 @@ fun HomeScreen(
                 // Announcements only: chats and channels have their own sections above.
                 messages = r.messages.filter { it.kind == "broadcast" }
                 error = null
-                app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.orEmpty()), HomeSnapshot.serializer())
+                app.store.put(HOME_KEY, HomeSnapshot(next, chats, channels, messages.orEmpty(), events), HomeSnapshot.serializer())
                 val unread = r.messages.filter { it.readAt == null && !it.mine && it.kind != "direct" }.map { it.id }
                 if (unread.isNotEmpty()) {
                     runCatching { app.api.post("/api/messages/read", Ok.serializer()) { putJsonArray("ids") { unread.forEach { add(it) } } } }
@@ -188,6 +204,20 @@ fun HomeScreen(
                         Text("${n.session.name} · ${localDateTime(n.session.startsAt)}", style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
                         Text("${trackDateTime(n.session.startsAt, n.weekend.timezone)} track time", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                         if (n.weekend.place.isNotBlank()) Text(n.weekend.place, style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                    }
+                }
+            }
+        }
+
+        if (events.isNotEmpty()) {
+            item { SectionHeader("Upcoming events") }
+            item {
+                UpcomingEventsCard(events) { e ->
+                    if (e.conversationId != null) onOpenChat(e.conversationId)
+                    else scope.launch {
+                        // An announcement: down to its card below.
+                        val idx = messages?.let { ms -> photoRuns(ms.asReversed()).asReversed().indexOfFirst { run -> run.any { it.id == e.messageId } } } ?: -1
+                        if (idx >= 0) list.animateScrollToItem(idx + 5 + (if (chats.isNotEmpty()) 2 else 0) + (if (channels.isNotEmpty()) 1 + channels.size else 0))
                     }
                 }
             }

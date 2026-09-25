@@ -113,6 +113,11 @@
             android:name=".data.UpdateInstallReceiver"
             android:exported="false" />
 
+        <!-- An event's reminder, set on the phone (EventReminders). -->
+        <receiver
+            android:name=".data.EventReminderReceiver"
+            android:exported="false" />
+
         <!-- After the app has updated itself, a notification brings it back. -->
         <receiver
             android:name=".data.AppUpdatedReceiver"

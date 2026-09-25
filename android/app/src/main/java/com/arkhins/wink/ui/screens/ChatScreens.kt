@@ -1,5 +1,7 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.MessageEvent
+import com.arkhins.wink.ui.components.putEvent
 import com.arkhins.wink.ui.components.MessagePoll
 import kotlinx.serialization.json.putJsonObject
 import com.arkhins.wink.ui.components.TextWithMeta
@@ -869,17 +871,21 @@ fun ChatScreen(
                 },
             ) { draft ->
                 actionError = null
-                // A poll goes straight to the server (it needs its answer to show its options).
-                if (draft.poll != null) {
+                // A poll or an event goes straight to the server (it needs its answer to show its card).
+                if (draft.poll != null || draft.event != null) {
                     val r = app.api.post("/api/conversations/$conversationId", ChatSent.serializer()) {
-                        putJsonObject("poll") {
-                            put("question", draft.poll.question)
-                            putJsonArray("options") { draft.poll.options.forEach { add(it) } }
-                            put("multiple", draft.poll.multiple)
+                        draft.poll?.let { p ->
+                            putJsonObject("poll") {
+                                put("question", p.question)
+                                putJsonArray("options") { p.options.forEach { add(it) } }
+                                put("multiple", p.multiple)
+                            }
                         }
+                        draft.event?.let { putEvent(it) }
                         put("clientId", "local-" + UUID.randomUUID())
                     }
                     r.message?.let { m -> app.chatCache.add(conversationId, m)?.let { detail = it } }
+                    if (draft.event != null) app.refreshEventReminders()
                     reload++
                     return@Composer
                 }
@@ -1163,7 +1169,7 @@ private fun Bubble(
                 }
             }
             // A poll's message is its card, not its words.
-            val bodyText = if (m.poll != null) "" else if (run.size > 1) runText(run) else textOf(m.body)
+            val bodyText = if (m.poll != null || m.calendarEvent != null) "" else if (run.size > 1) runText(run) else textOf(m.body)
             val bodyLoc = if (run.size > 1) null else locationIn(m.body)
             // The words come last (no location card after them): the time sits in their last line, as in WhatsApp.
             val metaInline = m.deleted || (bodyText.isNotBlank() && m.groupInvite == null && bodyLoc == null)
@@ -1257,6 +1263,7 @@ private fun Bubble(
                             else Text(words, style = wordsStyle, modifier = inset)
                         }
                         m.poll?.let { Box(inset) { MessagePoll(m, onDark = !mine) } }
+                        m.calendarEvent?.let { Box(inset) { MessageEvent(m, onDark = !mine) } }
                         if (loc != null) {
                             if (files.isNotEmpty() || text.isNotBlank()) Spacer(Modifier.height(6.dp))
                             Box(inset) { LocationCard(loc.first, loc.second, onDark = !mine) }

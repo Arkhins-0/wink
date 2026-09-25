@@ -101,7 +101,50 @@ data class Message(
     val batchPos: Int? = null,
     /** A poll on this message (groups and announcements), as this person sees it. */
     val poll: Poll? = null,
+    /** An event on this message (groups and announcements), as this person sees it. */
+    val calendarEvent: CalendarEvent? = null,
 )
+
+/** An event: when (and until when), where, the reminder, the going / not going counts and this person's answer. */
+@Serializable
+data class CalendarEvent(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val startsAt: String,
+    val endsAt: String? = null,
+    val location: String = "",
+    val reminderMinutes: Int? = null,
+    val going: Int = 0,
+    val notGoing: Int = 0,
+    /** "going", "not_going" or null. */
+    val myAnswer: String? = null,
+    /** Whether names come with the counts (a group's members; an announcement's sender). */
+    val named: Boolean = false,
+    val goingNames: List<String> = emptyList(),
+    val notGoingNames: List<String> = emptyList(),
+)
+
+/** An event that hasn't ended, for Home's card and the reminders. */
+@Serializable
+data class UpcomingEvent(
+    val id: String,
+    val messageId: String,
+    /** The group it was posted in; null for an announcement. */
+    val conversationId: String? = null,
+    /** The group's name, or "Announcement". */
+    val place: String = "",
+    val name: String,
+    val startsAt: String,
+    val endsAt: String? = null,
+    val location: String = "",
+    val reminderMinutes: Int? = null,
+    val myAnswer: String? = null,
+    val going: Int = 0,
+)
+
+@Serializable
+data class UpcomingEventsResponse(val events: List<UpcomingEvent> = emptyList())
 
 /** Who picked an option (shown where the poll names its voters). */
 @Serializable
