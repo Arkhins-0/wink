@@ -52,10 +52,11 @@ suspend fun forwardMessages(
                 batchId = batch,
                 batchPos = if (batch != null) i else null,
             )
-            chats.add(target, local)
             Triple(target, m, local)
         }
     }
+    // Each chat's clock copies in one write, so they're all on screen at once.
+    work.groupBy { it.first }.forEach { (target, items) -> chats.addAll(target, items.map { it.third }) }
     work.map { (target, m, local) ->
         async {
             val sent = runCatching {

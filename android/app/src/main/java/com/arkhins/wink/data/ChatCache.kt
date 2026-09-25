@@ -158,6 +158,17 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         }
     }
 
+    /** Several messages into the phone's copy in one write (a forward's clock copies); null if there is no copy yet. */
+    suspend fun addAll(id: String, messages: List<Message>): CachedChat? = locks.getOrPut(id) { Mutex() }.withLock {
+        withContext(Dispatchers.IO) {
+            val cached = load(id) ?: return@withContext null
+            val ids = messages.map { it.id }.toSet()
+            val out = cached.copy(messages = (cached.messages.filter { it.id !in ids } + messages).sortedBy { instant(it.createdAt) })
+            keep(id, out)
+            out
+        }
+    }
+
     /** Swap a message the phone made up (a copy on its way) for the one the server confirmed — or drop it, when null. */
     suspend fun replace(id: String, localId: String, message: Message?): CachedChat? = locks.getOrPut(id) { Mutex() }.withLock {
         withContext(Dispatchers.IO) {
