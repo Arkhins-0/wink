@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import androidx.compose.animation.animateContentSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.first
@@ -1122,6 +1123,9 @@ private fun Bubble(
                         .widthIn(max = 300.dp)
                         // With pictures the bubble is as wide as its widest part, and the grid fills it: no gap beside it.
                         .then(if (picture) Modifier.width(IntrinsicSize.Max) else Modifier)
+                        // A message deleted, edited or with a photo taken out eases to its new size instead of snapping,
+                        // so the chat around it never jumps.
+                        .animateContentSize()
                         .clip(shape)
                         .background(if (mine) Gold else NightPanel)
                         .border(1.dp, if (mine) Gold else NightLine, shape)
