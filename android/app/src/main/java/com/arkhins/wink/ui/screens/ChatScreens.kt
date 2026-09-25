@@ -1,5 +1,7 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.formatted
+import com.arkhins.wink.ui.components.plainText
 import com.arkhins.wink.ui.components.saveAll
 import com.arkhins.wink.ui.components.stamped
 import androidx.compose.animation.animateContentSize
@@ -473,7 +475,7 @@ private fun refOf(m: Message) = m.attachments.firstOrNull().let { f -> ReplyRef(
  * lets several be counted ("📷 3 photos").
  */
 private fun snippet(r: ReplyRef, files: List<FileInfo> = emptyList()): String {
-    val text = textOf(r.body).trim()
+    val text = plainText(textOf(r.body)).trim()
     return when {
         r.deleted -> "This message was deleted"
         text.isNotBlank() -> text
@@ -983,21 +985,16 @@ private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(m) }
 
 /** The message text with every match of the search lit up. */
 private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnnotatedString {
-    if (needle.isNullOrBlank()) {
-        append(body)
-        return@buildAnnotatedString
-    }
+    // Bold, italic, underline and strikethrough first (see Formatting.kt), then the search's matches over the words.
+    val shown = formatted(body)
+    append(shown)
+    if (needle.isNullOrBlank()) return@buildAnnotatedString
+    val lit = SpanStyle(background = if (mine) Night.copy(alpha = 0.25f) else Gold.copy(alpha = 0.45f), color = if (mine) Night else Snow)
     var from = 0
     while (true) {
-        val at = body.indexOf(needle, from, ignoreCase = true)
-        if (at < 0) {
-            append(body.substring(from))
-            break
-        }
-        append(body.substring(from, at))
-        withStyle(SpanStyle(background = if (mine) Night.copy(alpha = 0.25f) else Gold.copy(alpha = 0.45f), color = if (mine) Night else Snow)) {
-            append(body.substring(at, at + needle.length))
-        }
+        val at = shown.text.indexOf(needle, from, ignoreCase = true)
+        if (at < 0) break
+        addStyle(lit, at, at + needle.length)
         from = at + needle.length
     }
 }

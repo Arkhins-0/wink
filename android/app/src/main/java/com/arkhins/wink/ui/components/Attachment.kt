@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.ui.text.font.FontWeight
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
@@ -247,8 +248,8 @@ fun LocationCard(lat: Double, lng: Double, onDark: Boolean = true) {
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp).background(Gold.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.Place, contentDescription = null, tint = Gold)
+        Box(Modifier.size(40.dp).background(if (onDark) Gold.copy(alpha = 0.15f) else Night.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Place, contentDescription = null, tint = if (onDark) Gold else Night)
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -522,15 +523,17 @@ private fun DocumentAttachment(file: FileInfo, onView: (FileView) -> Unit, onDar
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp).background(Gold.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+        // Gold on a dark bubble; dark on your own gold bubble, where gold would vanish.
+        val mark = if (onDark) Gold else Night
+        Box(Modifier.size(40.dp).background(if (onDark) Gold.copy(alpha = 0.15f) else Night.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             if (uploading != null) {
-                if (uploading >= 0f) CircularProgressIndicator(progress = { uploading }, modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp, trackColor = Gold.copy(alpha = 0.2f))
-                else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
+                if (uploading >= 0f) CircularProgressIndicator(progress = { uploading }, modifier = Modifier.size(24.dp), color = mark, strokeWidth = 2.dp, trackColor = mark.copy(alpha = 0.2f))
+                else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = mark, strokeWidth = 2.dp)
             } else if (busy) {
-                if (progress > 0f) CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
-                else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Gold, strokeWidth = 2.dp)
+                if (progress > 0f) CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), color = mark, strokeWidth = 2.dp)
+                else CircularProgressIndicator(modifier = Modifier.size(24.dp), color = mark, strokeWidth = 2.dp)
             } else {
-                Text(file.name.substringAfterLast('.', "doc").take(4).uppercase(), style = MaterialTheme.typography.labelSmall, color = Gold)
+                Text(file.name.substringAfterLast('.', "doc").take(4).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = mark)
             }
         }
         Spacer(Modifier.width(10.dp))

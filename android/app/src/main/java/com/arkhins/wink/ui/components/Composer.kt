@@ -402,6 +402,8 @@ fun Composer(
         if (!editing && images.isNotEmpty()) {
             PhotoStrip(images, enabled = !busy) { p -> images = images - p; uploaded.remove(p.uri) }
         }
+        // Words selected: bold, italic, underline, strikethrough (see Formatting.kt).
+        if (recording == null && !body.selection.collapsed) FormatBar(body, onChange = { body = it })
         Row(verticalAlignment = Alignment.Bottom) {
             if (recording != null) {
                 Row(Modifier.weight(1f).heightIn(min = 44.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {

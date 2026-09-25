@@ -95,7 +95,7 @@ fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Bool
                 val text = if (run.size > 1) runText(run) else textOf(m.body)
                 if (text.isNotBlank()) {
                     Spacer(Modifier.height(if (files.isEmpty()) 4.dp else 8.dp))
-                    Text(text, style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
+                    Text(formatted(text), style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
                 }
                 if (loc != null) {
                     Spacer(Modifier.height(6.dp))

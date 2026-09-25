@@ -51,6 +51,7 @@ import com.arkhins.wink.data.SeasonResponse
 import com.arkhins.wink.data.SeasonsResponse
 import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.components.Attachment
+import com.arkhins.wink.ui.components.formatted
 import com.arkhins.wink.ui.components.Avatar
 import com.arkhins.wink.ui.components.Chip
 import com.arkhins.wink.ui.components.Divider
@@ -439,7 +440,7 @@ private fun ArchivedBubble(m: ArchivedMessage, onView: (FileView) -> Unit) {
                 Chip("Urgent", if (mine) Night else Danger, filled = mine)
                 Spacer(Modifier.height(4.dp))
             }
-            if (m.body.isNotBlank()) Text(m.body, style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow)
+            if (m.body.isNotBlank()) Text(formatted(m.body), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow)
             if (m.file != null) {
                 if (m.body.isNotBlank()) Spacer(Modifier.height(6.dp))
                 Attachment(m.file, onView, onDark = !mine)
@@ -478,7 +479,7 @@ private fun ArchivedLine(m: ArchivedMessage, onView: (FileView) -> Unit) {
         }
         if (m.body.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
-            Text(m.body, style = MaterialTheme.typography.bodySmall, color = SnowSoft)
+            Text(formatted(m.body), style = MaterialTheme.typography.bodySmall, color = SnowSoft)
         }
         if (m.file != null) {
             Spacer(Modifier.height(6.dp))

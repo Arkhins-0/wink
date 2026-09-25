@@ -282,7 +282,7 @@ fun Row2(content: @Composable () -> Unit) = Row(Modifier.fillMaxWidth(), horizon
 fun PreviewLine(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
     val line = remember(text) {
         val first = text.lineSequence().firstOrNull().orEmpty()
-        if (first.trimEnd().endsWith("📍 My location")) first.trimEnd().removeSuffix("My location") + "Location" else text
+        if (first.trimEnd().endsWith("📍 My location")) first.trimEnd().removeSuffix("My location") + "Location" else plainText(text)
     }
     // The first emoji a preview starts a part with: a location's pin, or a voice note's (or audio's) mic.
     val mark = listOf("📍 ", "🎤 ").map { it to line.indexOf(it) }.filter { it.second >= 0 }.minByOrNull { it.second }
