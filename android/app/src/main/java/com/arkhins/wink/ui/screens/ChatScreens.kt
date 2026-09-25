@@ -551,6 +551,13 @@ fun ChatScreen(
     val uploads by app.outbox.progress.collectAsState()
     // One left the queue: the server's copy is in the phone's chat by now.
     LaunchedEffect(pending.size) { app.chatCache.peek(conversationId)?.let { detail = it } }
+    // The screen follows the phone's copy of this chat, the way a messaging app's chat watches its database:
+    // a forward into it, a server copy swapped in, a background sync — whatever changes it shows at once.
+    val cacheVersion by app.chatCache.version.collectAsState()
+    LaunchedEffect(cacheVersion) {
+        val kept = app.chatCache.peek(conversationId) ?: return@LaunchedEffect
+        if (kept !== detail) detail = kept
+    }
     val list = rememberLazyListState()
 
     // The phone's copy first: the chat is there at once, even offline.
