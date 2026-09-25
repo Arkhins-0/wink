@@ -99,7 +99,7 @@ export function ChannelView({
       {error && <p className="error">{error}</p>}
       {messages.length === 0 && <p className="card text-sm text-snow-faint">No posts yet.</p>}
       {[...messages].reverse().map((m) => (
-        <MessageItem key={m.id} m={m} />
+        <MessageItem key={m.id} m={m} inPlace />
       ))}
     </div>
   );

@@ -129,7 +129,7 @@ export function PersonActions({
 
       {editing && (
         <form onSubmit={save} className="card space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="label">Full name</span>
               <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />

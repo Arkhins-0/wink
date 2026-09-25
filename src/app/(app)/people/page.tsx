@@ -51,7 +51,7 @@ export default async function People() {
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-snow-faint">
             {ROLE_LABEL[g.role]}s · {g.people.length}
           </h2>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {g.people.map((p) => (
               <Link key={p.id} href={`/people/${p.id}`} className="row border border-night-line bg-night-panel/60 hover:border-gold/40">
                 <Avatar src={p.photoUrl} name={p.name ?? p.email} />

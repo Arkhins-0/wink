@@ -23,7 +23,8 @@ export default async function Chat({ params }: { params: Promise<{ id: string }>
   await markConversationRead(user.id, id);
 
   return (
-    <div className="card relative flex h-full min-h-0 flex-1 flex-col overflow-hidden p-0">
+    // Edge to edge on a phone; a card beside the list on a laptop.
+    <div className="card relative flex h-full min-h-0 flex-1 flex-col overflow-hidden p-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-night">
       <ChatView
         conversationId={id}
         initial={messages}

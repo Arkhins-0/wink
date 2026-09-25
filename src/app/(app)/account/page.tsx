@@ -19,7 +19,7 @@ export default async function Account() {
   ]);
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="space-y-5">
       <section className="card flex items-center gap-4">
         <Avatar src={p.photoUrl} name={p.name ?? p.email} size={72} />
@@ -42,7 +42,7 @@ export default async function Account() {
             <p className="label">Account code</p>
             <p className="font-mono text-2xl tracking-[0.2em]">{p.verifyCode}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <p className="label">Email</p>
               <p className="truncate">{p.email}</p>

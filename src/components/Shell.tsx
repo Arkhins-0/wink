@@ -36,6 +36,8 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
   // A chat thread wants the whole phone screen: no bottom bar under the composer.
   // A chat (or a form opened from the chats tab) fills the phone; the Channels tab keeps the bottom bar.
   const immersive = /^\/chats\/[^/]+$/.test(pathname) && pathname !== "/chats/channels";
+  // An open conversation goes edge to edge; the new-chat forms keep the page's margins.
+  const edgeToEdge = immersive && pathname !== "/chats/new" && pathname !== "/chats/new-group";
   // Chats are app-like: header and composer stay put, only the messages scroll.
   const fixedHeight = pathname === "/chats" || pathname.startsWith("/chats/");
 
@@ -67,7 +69,8 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 shrink-0 border-b border-night-line bg-night/90 backdrop-blur">
+          {/* In an open chat on a phone, the chat's own header is the only one (as in the app). */}
+          <header className={`sticky top-0 z-30 shrink-0 border-b border-night-line bg-night/90 backdrop-blur ${immersive ? "hidden lg:block" : ""}`}>
             <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6">
               <Link href="/home" className="flex items-center gap-2.5 lg:hidden">
                 <Image src="/ctr-logo.png" alt="" width={36} height={20} priority />
@@ -81,7 +84,7 @@ export function Shell({ user, unreadHome, unreadChats, children }: { user: Shell
           <main
             className={`flex-1 px-4 sm:px-6 lg:px-8 ${
               fixedHeight
-                ? `min-h-0 overflow-hidden pt-3 lg:py-6 ${immersive ? "pb-2" : "pb-24 lg:pb-6"}`
+                ? `min-h-0 overflow-hidden lg:py-6 ${immersive ? `pb-[env(safe-area-inset-bottom)] ${edgeToEdge ? "max-lg:px-0" : "pt-3"}` : "pt-3 pb-24 lg:pb-6"}`
                 : "py-5 pb-24 lg:py-6 lg:pb-8"
             }`}
           >

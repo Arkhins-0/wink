@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/client";
+import { useEffect, useRef, useState } from "react";
+import { api, startChange } from "@/lib/client";
+import { useHydrated } from "@/lib/useHydrated";
 import type { EventOut, MessageOut } from "@/lib/messages";
 
 type Answer = EventOut["myAnswer"];
@@ -22,8 +23,11 @@ export function eventWhen(startsAt: string, endsAt: string | null): string {
  * shows the same (Events.kt).
  */
 export function EventCard({ event: given, onDark = true }: { event: EventOut; onDark?: boolean }) {
+  const hydrated = useHydrated();
   const [ev, setEv] = useState(given);
   const [open, setOpen] = useState(false);
+  // Only the answer to the latest tap counts: taps close together can come back out of order.
+  const latest = useRef(0);
   useEffect(() => setEv(given), [given]);
 
   async function answer(a: Exclude<Answer, null>) {
@@ -31,11 +35,15 @@ export function EventCard({ event: given, onDark = true }: { event: EventOut; on
     const before = ev;
     const count = (k: Exclude<Answer, null>) => (ev.myAnswer === k ? -1 : 0) + (next === k ? 1 : 0);
     setEv({ ...ev, myAnswer: next, going: ev.going + count("going"), notGoing: ev.notGoing + count("not_going") });
+    const done = startChange();
+    const mine = ++latest.current;
     try {
       const r = await api<{ message: MessageOut | null }>(`/api/events/${ev.id}/reply`, { method: "POST", json: { answer: next } });
-      if (r.message?.calendarEvent) setEv(r.message.calendarEvent);
+      if (mine === latest.current && r.message?.calendarEvent) setEv(r.message.calendarEvent);
     } catch {
-      setEv(before);
+      if (mine === latest.current) setEv(before);
+    } finally {
+      done();
     }
   }
 
@@ -50,7 +58,7 @@ export function EventCard({ event: given, onDark = true }: { event: EventOut; on
   return (
     <div className="mt-1 min-w-60">
       <p className={`font-bold ${ink}`}>📅 {ev.name}</p>
-      <p className={`text-sm ${ink}`}>{eventWhen(ev.startsAt, ev.endsAt)}</p>
+      <p className={`text-sm ${ink}`}>{hydrated ? eventWhen(ev.startsAt, ev.endsAt) : " "}</p>
       {ev.location && <p className={`text-sm ${soft}`}>📍 {ev.location}</p>}
       {ev.description && <p className={`mt-1 whitespace-pre-wrap text-sm ${soft}`}>{ev.description}</p>}
       <div className="mt-2 flex gap-2">
@@ -78,6 +86,32 @@ export function EventCard({ event: given, onDark = true }: { event: EventOut; on
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type Upcoming = { id: string; messageId: string; conversationId: string | null; place: string; name: string; startsAt: string; endsAt: string | null; location: string; myAnswer: Answer };
+
+/** Home's card: the next few events this person can see, each opening where it was posted. The app has the same. */
+export function UpcomingEvents({ events }: { events: Upcoming[] }) {
+  const hydrated = useHydrated();
+  if (events.length === 0) return null;
+  return (
+    <div className="card p-3">
+      <p className="section-title px-2 pb-2">Upcoming events</p>
+      <div className="divide-y divide-night-line">
+        {events.slice(0, 3).map((e) => (
+          <a key={e.id} href={e.conversationId ? `/chats/${e.conversationId}` : `/home?m=${e.messageId}#m-${e.messageId}`} className="row">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold/15 text-lg">📅</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{e.name}</span>
+              <span className="block truncate text-xs text-snow-soft">{hydrated ? eventWhen(e.startsAt, e.endsAt) : " "}</span>
+              <span className="block truncate text-[11px] text-snow-faint">{[e.location, e.place].filter(Boolean).join(" · ")}</span>
+            </span>
+            {e.myAnswer && <span className={`shrink-0 text-[11px] ${e.myAnswer === "going" ? "text-gold" : "text-snow-faint"}`}>{e.myAnswer === "going" ? "Going" : "Not going"}</span>}
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

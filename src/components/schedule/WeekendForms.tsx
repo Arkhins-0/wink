@@ -40,7 +40,7 @@ export function WeekendForm({ weekend, seasons, onDone, onCancel }: { weekend?: 
   return (
     <form onSubmit={submit} className="card space-y-3">
       {error && <p className="error">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Name">
           <input className="input" required value={f.name} onChange={set("name")} placeholder="Round 4 — Sepang" />
         </Field>
@@ -115,7 +115,7 @@ export function SessionForm({ weekend, session, onDone, onCancel }: { weekend: W
   return (
     <form onSubmit={submit} className="space-y-3 rounded-xl border border-night-line p-3">
       {error && <p className="error">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Session">
           <input className="input" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Qualifying" />
         </Field>

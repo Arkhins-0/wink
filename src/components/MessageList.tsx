@@ -12,6 +12,7 @@ import { Avatar } from "./Avatar";
 import { DocumentDialog } from "./DocumentDialog";
 import { Icon } from "./Icon";
 import { InviteCard } from "./chat/InviteCard";
+import { LocalTime } from "./LocalTime";
 
 const MAPS = /https:\/\/maps\.google\.com\/\?q=(-?\d+\.\d+),(-?\d+\.\d+)/;
 
@@ -42,7 +43,6 @@ function LocationCard({ lat, lng, onDark = true }: { lat: number; lng: number; o
   );
 }
 
-const timeOnly = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
 
 /** A document, picture or audio inside a message. */
 export function Attachment({ file, onDark = true }: { file: NonNullable<MessageOut["file"]>; onDark?: boolean }) {
@@ -76,7 +76,8 @@ export function Attachment({ file, onDark = true }: { file: NonNullable<MessageO
         className={`mt-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left hover:border-gold/50 ${onDark ? "border-night-line bg-night" : "border-night/20 bg-night/10"}`}
         onClick={() => setOpen(true)}
       >
-        <span className="rounded-lg bg-gold/15 px-2 py-1 text-[10px] font-bold uppercase text-gold">{file.name.split(".").pop()?.slice(0, 4) || "doc"}</span>
+        {/* On your own (gold) bubble the badge is dark, so it can be read. */}
+        <span className={`rounded-lg px-2 py-1 text-[10px] font-bold uppercase ${onDark ? "bg-gold/15 text-gold" : "bg-night text-gold"}`}>{file.name.split(".").pop()?.slice(0, 4) || "doc"}</span>
         <span className="min-w-0 flex-1">
           <span className={`block truncate text-sm ${onDark ? "" : "text-night"}`}>{file.name}</span>
           <span className={`block text-xs ${onDark ? "text-snow-faint" : "text-night/60"}`}>{formatBytes(file.size)}</span>
@@ -169,7 +170,7 @@ export function batched(messages: MessageOut[]): { shown: MessageOut; run: Messa
 }
 
 /** One message as it appears in the inbox or a channel. */
-export function MessageItem({ m, showSender = true, highlight = false }: { m: MessageOut; showSender?: boolean; highlight?: boolean }) {
+export function MessageItem({ m, showSender = true, highlight = false, inPlace = false }: { m: MessageOut; showSender?: boolean; highlight?: boolean; /** Shown where it was posted: no link back there. */ inPlace?: boolean }) {
   const unread = !m.readAt && !m.mine;
   const loc = locationIn(m.body);
   return (
@@ -194,7 +195,7 @@ export function MessageItem({ m, showSender = true, highlight = false }: { m: Me
           </div>
           {m.poll ? <PollCard poll={m.poll} /> : m.calendarEvent ? <EventCard event={m.calendarEvent} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
           <Files files={filesOf(m)} />
-          {m.kind !== "broadcast" && (
+          {m.kind !== "broadcast" && !inPlace && (
             <p className="mt-2 text-xs text-snow-faint">
               {m.kind === "direct" && m.conversationId && (
                 <Link href={`/chats/${m.conversationId}`} className="hover:text-snow">
@@ -356,7 +357,7 @@ export function Bubble({
           )}
           <p className={`mt-1 flex items-center justify-end text-[10px] ${m.mine ? "text-night/60" : "text-snow-faint"}`}>
             {m.editedAt && !m.deleted ? "edited · " : ""}
-            {timeOnly(m.createdAt)}
+            <LocalTime iso={m.createdAt} mode="time" />
             {m.status && !m.deleted && <Ticks status={m.status} />}
             {/* Marked urgent: it also went out by email. */}
             {m.urgent && !m.deleted && (

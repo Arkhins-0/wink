@@ -25,7 +25,7 @@ export default async function Schedule() {
           <h1 className="page-title">Schedule</h1>
           {weekends.length === 0 && <p className="card text-sm text-snow-faint">No race weekend has been scheduled yet.</p>}
           {/* Sessions start folded, as in the app: the arrow opens them. */}
-          <div className="grid items-start gap-5 xl:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
             {[...upcoming, ...past].map((w) => (
               <WeekendCard key={w.id} weekend={w} isAdmin={false} href={`/w/${w.id}`} showSeason dimmed={past.includes(w)} />
             ))}

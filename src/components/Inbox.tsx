@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/client";
+import { api, changeMark, isStale } from "@/lib/client";
 import type { MessageOut } from "@/lib/messages";
 import { MessageItem } from "./MessageList";
 
@@ -31,11 +31,15 @@ export function Inbox({ initial, highlight }: { initial: MessageOut[]; highlight
   useEffect(() => {
     const timer = setInterval(async () => {
       try {
+        const at = changeMark();
         const r = await api<{ messages: MessageOut[] }>("/api/messages");
+        if (isStale(at)) return;
         setMessages((current) => {
+          // New ones on top; the ones already shown take their latest (poll counts, event answers, edits).
+          const latest = new Map(r.messages.map((m) => [m.id, m]));
           const known = new Set(current.map((m) => m.id));
           const fresh = r.messages.filter((m) => !known.has(m.id));
-          return fresh.length ? [...fresh, ...current] : current;
+          return [...fresh, ...current.map((m) => latest.get(m.id) ?? m)];
         });
       } catch {
         // Next tick.

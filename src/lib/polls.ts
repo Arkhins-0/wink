@@ -59,10 +59,12 @@ export async function vote(user: SessionUser, pollId: string, optionIds: string[
   const picked = Array.from(new Set(optionIds)).filter((id) => valid.includes(id));
   if (!poll.multiple && picked.length > 1) throw new AuthError(400, "This poll takes one answer.");
   await tx(async (c) => {
+    // One vote at a time per person and poll: two taps close together (or two phones) wait their turn, the last wins.
+    await c.query("SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))", [poll.id, user.id]);
     await c.query("DELETE FROM poll_votes WHERE poll_id = $1 AND user_id = $2", [poll.id, user.id]);
     if (picked.length) {
       await c.query(
-        "INSERT INTO poll_votes (poll_id, option_id, user_id) SELECT $1, o, $2 FROM unnest($3::uuid[]) AS o",
+        "INSERT INTO poll_votes (poll_id, option_id, user_id) SELECT $1, o, $2 FROM unnest($3::uuid[]) AS o ON CONFLICT DO NOTHING",
         [poll.id, user.id, picked],
       );
     }

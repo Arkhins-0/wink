@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/client";
+import { useEffect, useRef, useState } from "react";
+import { api, startChange } from "@/lib/client";
 import type { MessageOut, PollOut } from "@/lib/messages";
 
 /**
@@ -12,6 +12,8 @@ import type { MessageOut, PollOut } from "@/lib/messages";
 export function PollCard({ poll: given, onDark = true }: { poll: PollOut; onDark?: boolean }) {
   const [poll, setPoll] = useState(given);
   const [open, setOpen] = useState(false);
+  // Only the answer to the latest tap counts: taps close together can come back out of order.
+  const latest = useRef(0);
   useEffect(() => setPoll(given), [given]);
   const most = Math.max(1, ...poll.options.map((o) => o.votes));
 
@@ -27,11 +29,15 @@ export function PollCard({ poll: given, onDark = true }: { poll: PollOut; onDark
         return { ...o, mine: now, votes: o.votes + (now && !o.mine ? 1 : !now && o.mine ? -1 : 0) };
       }),
     });
+    const done = startChange();
+    const tap = ++latest.current;
     try {
       const r = await api<{ message: MessageOut | null }>(`/api/polls/${poll.id}/vote`, { method: "POST", json: { optionIds: next } });
-      if (r.message?.poll) setPoll(r.message.poll);
+      if (tap === latest.current && r.message?.poll) setPoll(r.message.poll);
     } catch {
-      setPoll(before);
+      if (tap === latest.current) setPoll(before);
+    } finally {
+      done();
     }
   }
 

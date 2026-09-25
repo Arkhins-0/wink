@@ -155,7 +155,7 @@ function SeasonForm({ season, onDone, onCancel }: { season: Season | null; onDon
   return (
     <form onSubmit={submit} className="space-y-3 rounded-xl border border-night-line p-3">
       {error && <p className="error">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block">
           <span className="label">Name</span>
           <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />

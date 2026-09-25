@@ -41,7 +41,7 @@ export default async function Person({ params }: { params: Promise<{ id: string 
       </section>
 
       <section className="card flex flex-col gap-4 text-sm sm:flex-row sm:items-start">
-        <div className="grid flex-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 flex-1 gap-3 sm:grid-cols-2">
           <Row label="Email" value={p.email} />
           <Row label="Contact" value={p.phone ?? "—"} />
           <Row label="Date of birth" value={p.dob ?? "—"} />

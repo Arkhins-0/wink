@@ -3,7 +3,8 @@
 import { plainText } from "@/lib/formatting";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api } from "@/lib/client";
+import { api, changeMark, isStale, startChange } from "@/lib/client";
+import { useHydrated } from "@/lib/useHydrated";
 import type { GroupInfo } from "@/lib/groups";
 import type { ConversationOut, GroupInviteRef, MessageOut, PersonCard, ReplyRef } from "@/lib/messages";
 import { ChatHeader, SelectionBar, type SelectionAction } from "./chat/ChatHeader";
@@ -70,6 +71,7 @@ export function ChatView({
   group: GroupInfo | null;
   myName: string;
 }) {
+  const hydrated = useHydrated();
   const router = useRouter();
   const [messages, setMessages] = useState(initial);
   const [group, setGroup] = useState(initialGroup);
@@ -102,7 +104,10 @@ export function ChatView({
 
   const reload = async () => {
     try {
+      const at = changeMark();
       const r = await api<{ messages: MessageOut[]; group: GroupInfo | null }>(`/api/conversations/${conversationId}`);
+      // Something was changed here while this was out: its answer is older than what is shown.
+      if (isStale(at)) return;
       setMessages(r.messages);
       if (r.group) setGroup(r.group);
     } catch {
@@ -283,9 +288,12 @@ export function ChatView({
     const ids = new Set(list.map((m) => m.id));
     if (editing && ids.has(editing.id)) setEditing(null);
     if (replyTo && ids.has(replyTo.id)) setReplyTo(null);
-    setMessages((ms) => ms.map((m) => (ids.has(m.id) ? { ...m, body: "", file: null, deleted: true } : m)));
+    setMessages((ms) => ms.map((m) => (ids.has(m.id) ? { ...m, body: "", file: null, files: [], deleted: true } : m)));
+    // All at once (a grid of photos is many messages); a reload out meanwhile must not bring them back.
+    const done = startChange();
     let failed = 0;
-    for (const m of list) await api(`/api/messages/${m.id}`, { method: "DELETE" }).catch(() => failed++);
+    await Promise.all(list.map((m) => api(`/api/messages/${m.id}`, { method: "DELETE" }).catch(() => failed++)));
+    done();
     if (failed > 0) setActionError(failed === 1 ? "One message could not be deleted." : `${failed} messages could not be deleted.`);
     await reload();
   };
@@ -363,7 +371,8 @@ export function ChatView({
   let lastDay = "";
   // A batch of photos (sent or forwarded together) is one bubble with a grid.
   for (const { shown: m, run } of batched(messages)) {
-    const day = dayOf(run[0].createdAt);
+    // Days in the reader's own zone, so only once in the browser (the server's zone would split them wrongly).
+    const day = hydrated ? dayOf(run[0].createdAt) : "";
     if (day !== lastDay) {
       lastDay = day;
       rows.push(

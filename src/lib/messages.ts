@@ -953,14 +953,14 @@ export async function myConversations(user: SessionUser): Promise<ConversationOu
       },
       iOpened: r.owner_id === user.id,
       lastMessageAt: r.live_last_at ? new Date(r.live_last_at).toISOString() : null,
-      lastMessage: r.last_body?.trim() || describeFiles(r.last_files ?? []) || null,
+      lastMessage: plainText(r.last_body ?? "").trim() || describeFiles(r.last_files ?? []) || null,
       lastStatus: r.last_status,
       messages: Number(r.total),
       unread: Number(r.unread),
     })),
     ...groups.map((g) => {
       const n = Number(g.members);
-      const last = g.last_body?.trim() || describeFiles(g.last_files ?? []) || null;
+      const last = plainText(g.last_body ?? "").trim() || describeFiles(g.last_files ?? []) || null;
       return {
         id: g.id,
         kind: "group" as const,

@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Avatar } from "@/components/Avatar";
 import { Inbox } from "@/components/Inbox";
+import { UpcomingEvents } from "@/components/EventCard";
+import { upcoming } from "@/lib/events";
+import { plainText } from "@/lib/formatting";
 import { LocalTime } from "@/components/LocalTime";
 import { channelFor, conversationMessages, inbox, myConversations } from "@/lib/messages";
 import { listWeekends, nextRace } from "@/lib/races";
@@ -18,7 +21,7 @@ export const metadata = { title: "Home" };
 export default async function Home({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const user = await requireProfile();
   const today = new Date().toISOString().slice(0, 10);
-  const [messages, next, chats, weekends, { m }] = await Promise.all([inbox(user), nextRace(), myConversations(user), listWeekends(), searchParams]);
+  const [messages, next, chats, weekends, events, { m }] = await Promise.all([inbox(user), nextRace(), myConversations(user), listWeekends(), upcoming(user), searchParams]);
   const announcements = messages.filter((x) => x.kind === "broadcast");
   const recentChats = chats.filter((c) => c.lastMessageAt).slice(0, 3);
   const active = weekends.filter((w) => w.endsOn >= today).sort((a, b) => a.startsOn.localeCompare(b.startsOn));
@@ -32,7 +35,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ m
   const canSend = (CREATE_RULES[user.role] ?? []).length > 0 || user.role === "admin";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="page-title">Announcements</h1>
@@ -57,6 +60,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ m
             {next.weekend.venue && <p className="mt-1 text-xs text-snow-faint">{[next.weekend.venue, next.weekend.city, next.weekend.country].filter(Boolean).join(", ")}</p>}
           </Link>
         )}
+
+        <UpcomingEvents events={events} />
 
         {recentChats.length > 0 && (
           <div className="card p-3">
@@ -94,7 +99,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ m
                   {latest && <span className="shrink-0 text-[11px] text-snow-faint">{timeAgo(latest.createdAt)}</span>}
                 </div>
                 <p className={`mt-1 line-clamp-2 text-xs ${latest && !latest.readAt && !latest.mine ? "text-snow" : "text-snow-faint"}`}>
-                  {latest ? `${latest.mine ? "You" : latest.sender?.name ?? "Wink"}: ${latest.body || (latest.file ? `Document: ${latest.file.name}` : "")}` : "No posts yet."}
+                  {latest ? `${latest.mine ? "You" : latest.sender?.name ?? "Wink"}: ${plainText(latest.body) || (latest.file ? `Document: ${latest.file.name}` : "")}` : "No posts yet."}
                 </p>
               </Link>
             ))}

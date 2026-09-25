@@ -89,3 +89,25 @@ export const timeAgo = (iso: string): string => {
   if (h < 24) return `${h}h`;
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
+
+/*
+ * Stale refreshes. A list on screen reloads every few seconds; a vote or an event answer made meanwhile must not be
+ * undone by a reload that set off before it, or that lands while it is still on its way. Whatever changes something
+ * calls [startChange] and the function it returns when done; a reload takes [changeMark] as it sets off and drops
+ * its answer if [isStale] says so.
+ */
+let changes = 0;
+let pending = 0;
+export const changeMark = () => changes;
+export const isStale = (mark: number) => pending > 0 || mark !== changes;
+export function startChange(): () => void {
+  changes++;
+  pending++;
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    pending--;
+    changes++;
+  };
+}

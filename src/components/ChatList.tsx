@@ -42,7 +42,7 @@ export function ChatList({ conversations, canOpen, children }: { conversations: 
   );
 
   return (
-    <div className="grid h-full min-h-0 gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 h-full min-h-0 gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
       <aside className={`${onList ? "flex" : "hidden lg:flex"} -mx-4 h-full min-h-0 flex-col sm:-mx-6 lg:mx-0 lg:border-r lg:border-night-line lg:pr-2`}>
         <div className="px-4 sm:px-6 lg:px-0">
           <ChatsTabs />
