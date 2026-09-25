@@ -64,6 +64,8 @@ import com.arkhins.wink.ui.theme.SnowFaint
 import com.arkhins.wink.ui.theme.SnowSoft
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
@@ -196,15 +198,14 @@ fun GalleryScreen(
                             val ok = runCatching {
                                 app.api.delete("/api/messages/${m.id}/files") { putJsonArray("fileIds") { chosen.forEach { add(it.file.id) } } }
                             }.isSuccess
-                            if (ok) chosen.forEach { app.chatMedia.remove(it.file) }
                             if (ok) 0 else chosen.size
                         } else {
-                            // Each photo is its own message: those messages go.
-                            chosen.count { p ->
-                                val ok = runCatching { app.api.delete("/api/messages/${p.message.id}") }.isSuccess
-                                if (ok) app.chatMedia.remove(p.file)
-                                !ok
-                            }
+                            // Each photo is its own message: those messages go, on the phone first, then the server.
+                            val ids = chosen.map { it.message.id }.toSet()
+                            chosen.groupBy { it.message.conversationId }.forEach { (c, ps) -> if (c != null) app.chatCache.deleteLocally(c, ps.map { it.message.id }.toSet()) }
+                            val refused = chosen.map { p -> async { runCatching { app.api.delete("/api/messages/${p.message.id}") }.isFailure } }.awaitAll().count { it }
+                            app.chatCache.deleteDone(ids)
+                            refused
                         }
                         chosen.mapNotNull { it.message.conversationId }.distinct().forEach { c -> runCatching { app.chatCache.sync(c, markRead = false) } }
                         withContext(Dispatchers.Main) {

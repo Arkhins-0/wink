@@ -38,6 +38,9 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
         explicitNulls = false
     }
     private val locks = ConcurrentHashMap<String, Mutex>()
+    // Messages deleted on this phone that the server hasn't confirmed yet: every copy and every sync shows them deleted.
+    private val deleting: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private fun gone(m: Message) = m.copy(body = "", file = null, files = emptyList(), deleted = true)
     // The same copies held in memory, so a chat or the list opened a second time is there in the very first frame.
     private val mem = ConcurrentHashMap<String, CachedChat>()
     @Volatile private var memList: List<Conversation>? = null
@@ -124,7 +127,8 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                     addAll(old.attachments.filter { it.id !in kept })
                 }
             }
-            val out = CachedChat(d.other ?: cached?.other, merged, d.group ?: cached?.group)
+            val shown = if (deleting.isEmpty()) merged else merged.map { if (it.id in deleting && !it.deleted) gone(it) else it }
+            val out = CachedChat(d.other ?: cached?.other, shown, d.group ?: cached?.group)
             keep(id, out)
             gone.filterNot { f -> usedElsewhere(f.id, id, out) }.forEach { media.remove(it) }
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
@@ -156,6 +160,24 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
             keep(id, out)
             out
         }
+    }
+
+    /**
+     * Delete for everyone, on the phone first, the way a messaging app writes its database before the network:
+     * the chat, the chats list and Home all show "deleted" at once, and a sync that answers before the server has
+     * done it can't bring the messages back. [deleteDone] lets the server's word count again.
+     */
+    suspend fun deleteLocally(id: String, ids: Set<String>) = locks.getOrPut(id) { Mutex() }.withLock {
+        deleting.addAll(ids)
+        withContext(Dispatchers.IO) {
+            val cached = load(id) ?: return@withContext
+            keep(id, cached.copy(messages = cached.messages.map { if (it.id in ids && !it.deleted) gone(it) else it }))
+        }
+    }
+
+    /** The server has answered those deletes (done, or refused: then the next sync shows the message again). */
+    fun deleteDone(ids: Set<String>) {
+        deleting.removeAll(ids)
     }
 
     /** Several messages into the phone's copy in one write (a forward's clock copies); null if there is no copy yet. */

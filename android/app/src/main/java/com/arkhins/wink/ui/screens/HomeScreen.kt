@@ -120,6 +120,8 @@ fun HomeScreen(
     var next by remember { mutableStateOf<NextRace?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val list = rememberLazyListState()
+    // Last lines from the phone's own copy, as in the chats list: a send or a delete shows here at once.
+    val shownChats = rememberPhoneLast(chats).orEmpty()
 
     LaunchedEffect(Unit) {
         if (messages == null) {
@@ -195,7 +197,7 @@ fun HomeScreen(
             item {
                 Panel(padding = PaddingValues(6.dp)) {
                     Column {
-                        chats.forEachIndexed { i, chat ->
+                        shownChats.forEachIndexed { i, chat ->
                             if (i > 0) Divider()
                             Row(
                                 Modifier

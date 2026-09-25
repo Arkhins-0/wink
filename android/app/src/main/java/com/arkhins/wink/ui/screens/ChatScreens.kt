@@ -239,15 +239,7 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
     val canOpen = vm.me?.user?.role != "race_official"
     // Each row's last line from the phone's own copy when that is newer than the server's list: what was just
     // sent (still with its clock) or just synced shows at once, without waiting for the list to come back.
-    val copies by app.chatCache.version.collectAsState()
-    val queued by app.outbox.items.collectAsState()
-    val c = remember(chats, copies, queued) {
-        val waiting = queued.groupBy { it.conversationId }
-        chats?.map { chat ->
-            val pending = waiting[chat.id].orEmpty().map { if (it.failed) it.message.copy(status = "failed") else it.message }
-            withPhoneLast(chat, app.chatCache.peek(chat.id)?.messages.orEmpty() + pending)
-        }?.sortedByDescending { it.lastMessageAt?.let(::instant) }
-    }
+    val c = rememberPhoneLast(chats)
     val shown = remember(c, filter) {
         c?.filter {
             when (filter) {
@@ -346,11 +338,29 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
 }
 
 /**
+ * Chats with each row's last line from the phone's own copy when that is newer than the server's list: what was
+ * just sent (still with its clock), deleted or synced shows at once, in the chats list and on Home alike.
+ */
+@Composable
+fun rememberPhoneLast(chats: List<Conversation>?): List<Conversation>? {
+    val app = LocalApp.current
+    val copies by app.chatCache.version.collectAsState()
+    val queued by app.outbox.items.collectAsState()
+    return remember(chats, copies, queued) {
+        val waiting = queued.groupBy { it.conversationId }
+        chats?.map { chat ->
+            val pending = waiting[chat.id].orEmpty().map { if (it.failed) it.message.copy(status = "failed") else it.message }
+            withPhoneLast(chat, app.chatCache.peek(chat.id)?.messages.orEmpty() + pending)
+        }?.sortedByDescending { it.lastMessageAt?.let(::instant) }
+    }
+}
+
+/**
  * A chat's row with its last line (and time and ticks) from [messages], the
  * phone's own copy with anything still queued, when that is at least as new
  * as what the server's list said; the server's row as it is otherwise.
  */
-private fun withPhoneLast(chat: Conversation, messages: List<Message>): Conversation {
+internal fun withPhoneLast(chat: Conversation, messages: List<Message>): Conversation {
     val last = messages.maxByOrNull { instant(it.createdAt) } ?: return chat
     val at = instant(last.createdAt)
     val server = chat.lastMessageAt?.let(::instant)
@@ -494,9 +504,6 @@ private sealed interface ChatRow {
 /** Ticks on a message you sent that the other person has read. */
 private val ReadBlue = Color(0xFF0B5CAD)
 
-/** Messages being deleted from this phone, until the server has confirmed it (kept across chats reopening). */
-private val deletingNow = mutableStateSetOf<String>()
-
 /**
  * One private chat: bubbles, yours on the right, with day separators and the
  * composer pinned below. Long-press a message for Reply, Edit and Delete;
@@ -590,12 +597,7 @@ fun ChatScreen(
         }
     }
 
-    // Messages deleted here whose delete the server hasn't confirmed yet stay deleted on screen: a sync that
-    // answers first (the 5-second check) would otherwise bring them back for a moment.
-    val d = detail?.let { dd ->
-        if (deletingNow.isEmpty() || dd.messages.none { it.id in deletingNow && !it.deleted }) dd
-        else dd.copy(messages = dd.messages.map { m -> if (m.id in deletingNow && !m.deleted) m.copy(body = "", file = null, files = emptyList(), deleted = true) else m })
-    }
+    val d = detail
     val rows = remember(d?.messages, pending) {
         buildList {
             // One header per day: a phone clock behind the server's could otherwise put a message just sent
@@ -905,15 +907,16 @@ fun ChatScreen(
                     val ids = chosen.map { it.id }.toSet()
                     if (editing?.id in ids) editing = null
                     if (replyTo?.id in ids) replyTo = null
-                    deletingNow.addAll(ids)
                     detail = detail?.let { it.copy(messages = it.messages.map { m -> if (m.id in ids) m.copy(body = "", file = null, files = emptyList(), deleted = true) else m }) }
                     app.appScope.launch {
+                        // On the phone first (the chats list and Home follow at once), then the server.
+                        app.chatCache.deleteLocally(conversationId, ids)
                         // All at once; each is its own request, so the order doesn't matter.
                         val failed = chosen.map { m -> async { runCatching { app.api.delete("/api/messages/${m.id}") }.isFailure } }.awaitAll().count { it }
                         // The server's copy says deleted now (or, for one that failed, not: it comes back, as it should).
+                        app.chatCache.deleteDone(ids)
                         runCatching { app.chatCache.sync(conversationId, markRead = true) }.getOrNull()?.let { fresh -> withContext(Dispatchers.Main) { detail = fresh } }
                         withContext(Dispatchers.Main) {
-                            deletingNow.removeAll(ids)
                             if (failed > 0) actionError = if (failed == 1) "One message could not be deleted." else "$failed messages could not be deleted."
                             reload++
                         }
