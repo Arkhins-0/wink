@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
 import { canAccess, conversationById, conversationDelta, conversationMessages, duplicateSend, markConversationRead, markDelivered, messageById, personCard, postDirect, postGroup, sentBefore } from "@/lib/messages";
 import { groupInfo, memberRole } from "@/lib/groups";
+import { pollBody, readPoll } from "@/lib/polls";
 import { userById } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -56,14 +57,16 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const conv = await conversationById(id);
   const post = conv?.kind === "group" ? postGroup : postDirect;
   const clientId = str(b.clientId, 80) || null;
+  const poll = readPoll(b.poll);
   const batchPos = Number.isInteger(b.batchPos) ? Number(b.batchPos) : null;
   // Sent before under the same client id (a resend after a lost answer): that message, not a second one.
   const messageId =
     (await sentBefore(user.id, clientId)) ??
     (await post(user, id, {
-      body: str(b.body, 5000),
-      fileId: str(b.fileId, 64) || null,
-      fileIds: uuids(b.fileIds),
+      body: poll ? pollBody(poll) : str(b.body, 5000),
+      poll,
+      fileId: poll ? null : str(b.fileId, 64) || null,
+      fileIds: poll ? [] : uuids(b.fileIds),
       urgent: bool(b.urgent),
       replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
       forwardOf: isUuid(str(b.forwardOf, 64)) ? str(b.forwardOf, 64) : null,

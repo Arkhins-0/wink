@@ -2,6 +2,7 @@ import { body, bool, handle, str, strings, uuids } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { json } from "@/lib/http";
 import { inbox, sendBroadcast } from "@/lib/messages";
+import { pollBody, readPoll } from "@/lib/polls";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,13 @@ export const GET = handle(async (request) => {
 export const POST = handle(async (request) => {
   const user = await requireUser();
   const b = await body(request);
+  const poll = readPoll(b.poll);
   const result = await sendBroadcast(user, {
     recipientIds: strings(b.recipientIds),
-    body: str(b.body, 5000),
-    fileId: str(b.fileId, 64) || null,
-    fileIds: uuids(b.fileIds),
+    body: poll ? pollBody(poll) : str(b.body, 5000),
+    poll,
+    fileId: poll ? null : str(b.fileId, 64) || null,
+    fileIds: poll ? [] : uuids(b.fileIds),
     urgent: bool(b.urgent),
   });
   return json(result, 201);

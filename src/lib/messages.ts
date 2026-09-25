@@ -4,6 +4,7 @@ import { plainText } from "./formatting";
 import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
+import { savePoll, type PollDraft } from "./polls";
 import { filesByIds, messageFileIds, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
@@ -81,6 +82,8 @@ export type MessageOut = {
   clientId: string | null;
   batchId: string | null;
   batchPos: number | null;
+  /** A poll on this message, as this person sees it. */
+  poll: PollOut | null;
 };
 
 export type ReplyRef = {
@@ -139,7 +142,41 @@ type Row = {
   client_id: string | null;
   batch_id: string | null;
   batch_pos: number | null;
+  poll_json: PollRow | null;
 };
+
+type PollRow = { id: string; question: string; multiple: boolean; options: { id: string; text: string; voters: { id: string; name: string }[] }[] | null };
+
+/** A poll as a person sees it: counts for everyone, their own picks, and names where they may see them. */
+export type PollOut = {
+  id: string;
+  question: string;
+  multiple: boolean;
+  /** How many people have answered. */
+  voters: number;
+  /** Whether the names of who picked what are shown (a group's members; an announcement's sender). */
+  named: boolean;
+  options: { id: string; text: string; votes: number; mine: boolean; voters: { id: string; name: string }[] }[];
+};
+
+function pollOut(row: PollRow, viewerId: string, named: boolean): PollOut {
+  const options = row.options ?? [];
+  const people = new Set(options.flatMap((o) => o.voters.map((v) => v.id)));
+  return {
+    id: row.id,
+    question: row.question,
+    multiple: row.multiple,
+    voters: people.size,
+    named,
+    options: options.map((o) => ({
+      id: o.id,
+      text: o.text,
+      votes: o.voters.length,
+      mine: o.voters.some((v) => v.id === viewerId),
+      voters: named ? o.voters : [],
+    })),
+  };
+}
 
 const SELECT = `
   SELECT m.id, m.conversation_id, c.kind, c.weekend_id, m.sender_id,
@@ -151,6 +188,12 @@ const SELECT = `
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
          m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name,
          gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event, m.client_id, m.batch_id, m.batch_pos,
+         (SELECT json_build_object('id', p.id, 'question', p.question, 'multiple', p.multiple,
+                   'options', (SELECT json_agg(json_build_object('id', o.id, 'text', o.text,
+                                 'voters', (SELECT COALESCE(json_agg(json_build_object('id', vu.id, 'name', COALESCE(NULLIF(vu.name, ''), vu.email)) ORDER BY v.created_at), '[]'::json)
+                                            FROM poll_votes v JOIN users vu ON vu.id = v.user_id WHERE v.option_id = o.id)) ORDER BY o.position)
+                               FROM poll_options o WHERE o.poll_id = p.id))
+            FROM polls p WHERE p.message_id = m.id) AS poll_json,
          (SELECT json_agg(json_build_object('id', xf.id, 'name', xf.name, 'mime', xf.mime, 'size', xf.size, 'document', xf.as_document) ORDER BY mf.position)
             FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json
   FROM messages m
@@ -226,6 +269,8 @@ function out(row: Row, viewerId: string): MessageOut {
     clientId: row.sender_id === viewerId ? row.client_id : null,
     batchId: row.batch_id,
     batchPos: row.batch_pos,
+    // In a group everyone sees who voted; an announcement's voters are named only to its sender.
+    poll: row.poll_json && !row.deleted_at ? pollOut(row.poll_json, viewerId, row.kind === "group" || row.sender_id === viewerId) : null,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -256,6 +301,8 @@ export type Draft = {
   /** Photos sent or forwarded together share this, each with its place in the batch. */
   batchId?: string | null;
   batchPos?: number | null;
+  /** A poll (groups and announcements only); the body then reads "📊 <question>". */
+  poll?: PollDraft | null;
 };
 
 /** The attachments a draft names, in order, each once. */
@@ -338,6 +385,7 @@ async function insertMessage(conversationId: string | null, sender: SessionUser,
       [row!.id, files.map((f) => f.id)],
     );
   }
+  if (draft.poll) await savePoll(row!.id, draft.poll);
   if (conversationId) {
     await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [conversationId, row!.created_at]);
   }
@@ -645,6 +693,7 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   const conv = await conversationById(conversationId);
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
+  if (draft.poll) throw new AuthError(400, "Polls are for groups and announcements.");
   const { draft: ready, files } = await prepareDraft(sender, conv.id, draft);
   draft = ready;
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
@@ -744,6 +793,16 @@ async function nudge(m: Changed): Promise<void> {
   const people = (await q<{ user_id: string }>("SELECT user_id FROM message_recipients WHERE message_id = $1", [m.id])).map((r) => r.user_id);
   if (m.kind === "channel" && m.weekend_id) return pushSync(people, { scope: "weekend", id: m.weekend_id });
   return pushSync(people, { scope: "home" });
+}
+
+/** Tell the phones that can see this message that it changed (a poll's new answers, say). */
+export async function nudgeMessage(messageId: string): Promise<void> {
+  const m = await one<Changed>(
+    `SELECT m.id, c.kind, m.conversation_id, c.owner_id, c.member_id, c.weekend_id
+     FROM messages m LEFT JOIN conversations c ON c.id = m.conversation_id WHERE m.id = $1`,
+    [messageId],
+  );
+  if (m) await nudge(m);
 }
 
 /** Everyone in a private chat or a group, for the nudge that follows a change. */
