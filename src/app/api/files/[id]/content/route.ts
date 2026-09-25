@@ -1,6 +1,6 @@
 import { handle, isUuid, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { fileById, fileForUser, MAX_PROXY_BYTES, safeName } from "@/lib/files";
+import { fileById, fileForUser, isInlineSafe, MAX_PROXY_BYTES, safeName } from "@/lib/files";
 import { fail } from "@/lib/http";
 import { storage } from "@/lib/storage";
 import { run } from "@/lib/db";
@@ -21,12 +21,16 @@ export const GET = handle<Params<"id">>(async (request, { params }) => {
   if (!file || !file.ready) return fail("No such file.", 404);
   const stored = await storage().get(file.key);
   if (!stored) return fail("The file is missing from storage.", 404);
-  const inline = new URL(request.url).searchParams.get("inline") === "1";
+  // Only kinds safe inside a page show inline from our own site; anything else (an HTML file, say) is a download,
+  // as plain bytes, so a browser can never run it here.
+  const safe = isInlineSafe(file.mime);
+  const inline = safe && new URL(request.url).searchParams.get("inline") === "1";
   return new Response(new Uint8Array(stored.body), {
     headers: {
-      "content-type": file.mime,
+      "content-type": safe ? file.mime : "application/octet-stream",
       "content-length": String(stored.body.length),
       "content-disposition": `${inline ? "inline" : "attachment"}; filename="${safeName(file.name)}"`,
+      "x-content-type-options": "nosniff",
       "cache-control": "private, max-age=3600",
     },
   });

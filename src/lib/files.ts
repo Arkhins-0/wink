@@ -54,7 +54,25 @@ const ALLOWED_MIME = new Set([
   "audio/amr",
 ]);
 
-export const isAllowedMime = (mime: string): boolean => ALLOWED_MIME.has(mime);
+/**
+ * Any kind of file may be sent, as in WhatsApp. The type the client names is kept when it is a well-formed
+ * "type/subtype", else the file is plain bytes.
+ */
+export const cleanMime = (mime: string): string =>
+  /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(mime) ? mime : "application/octet-stream";
+
+/**
+ * Kinds that are safe to show inside a page from our own site: pictures (not SVG, which can carry script),
+ * PDFs, audio, video and plain text. Anything else — HTML above all — is only ever downloaded from here.
+ */
+export const isInlineSafe = (mime: string): boolean =>
+  (mime.startsWith("image/") && mime !== "image/svg+xml") ||
+  mime === "application/pdf" ||
+  mime.startsWith("audio/") ||
+  mime.startsWith("video/") ||
+  mime === "text/plain" ||
+  mime === "text/csv" ||
+  ALLOWED_MIME.has(mime) && !mime.includes("xml");
 
 export const isOfficeMime = (mime: string): boolean =>
   mime.startsWith("application/vnd.") || mime === "application/msword";

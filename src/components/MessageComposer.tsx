@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { api, uploadFile } from "@/lib/client";
 import { Icon } from "./Icon";
 
-const DOCS = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt";
 
 export type Draft = { body: string; fileId: string | null; urgent: boolean };
 
@@ -272,7 +271,7 @@ export function MessageComposer({
         </div>
       )}
       <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setMenu("none"); e.target.value = ""; }} />
-      <input ref={docInput} type="file" accept={DOCS} className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setMenu("none"); e.target.value = ""; }} />
+      <input ref={docInput} type="file" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setMenu("none"); e.target.value = ""; }} />
       <input ref={audioInput} type="file" accept="audio/*" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setMenu("none"); e.target.value = ""; }} />
     </div>
   );

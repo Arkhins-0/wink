@@ -1,7 +1,7 @@
 import { body, handle, str } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { one } from "@/lib/db";
-import { isAllowedMime, MAX_FILE_BYTES, MAX_PROXY_BYTES, safeName, uploadTarget, type FileRow } from "@/lib/files";
+import { cleanMime, MAX_FILE_BYTES, MAX_PROXY_BYTES, safeName, uploadTarget, type FileRow } from "@/lib/files";
 import { fail, json } from "@/lib/http";
 import { randomToken } from "@/lib/ids";
 
@@ -15,10 +15,9 @@ export const POST = handle(async (request) => {
   const user = await requireUser();
   const b = await body(request);
   const name = safeName(str(b.name, 200));
-  const mime = str(b.mime, 120).toLowerCase();
+  const mime = cleanMime(str(b.mime, 120).toLowerCase().split(";")[0].trim());
   const size = Number(b.size ?? 0);
   if (!name) return fail("The file needs a name.");
-  if (!isAllowedMime(mime)) return fail("Only documents (PDF, Word, Excel, PowerPoint, CSV, text) and images are allowed.");
   if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_BYTES) return fail("Files can be up to 50 MB.");
 
   const key = `docs/${randomToken().slice(0, 16)}/${name}`;
