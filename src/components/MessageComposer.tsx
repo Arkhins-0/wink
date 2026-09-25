@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, uploadFile } from "@/lib/client";
 import { Icon } from "./Icon";
+import { FormattingTextarea } from "./FormattingTextarea";
 
 
 export type Draft = { body: string; fileId: string | null; urgent: boolean };
@@ -187,13 +188,13 @@ export function MessageComposer({
           </div>
         ) : (
           <>
-            <textarea
+            <FormattingTextarea
               ref={textarea}
               rows={1}
-              className="min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-snow placeholder:text-snow-faint focus:outline-none"
+              className="min-h-[44px] resize-none px-3 py-2.5 text-sm placeholder:text-snow-faint focus:outline-none"
               placeholder={placeholder}
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onValueChange={setBody}
               onKeyDown={(e) => {
                 if (e.key === "Escape" && banner) banner.onCancel();
                 if (e.key === "Enter" && !e.shiftKey) {

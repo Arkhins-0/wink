@@ -51,6 +51,54 @@ export function parseFormatting(text: string): Piece[] {
   return out;
 }
 
+/** As [parseFormatting], but each marked group keeps its marker: what a text box shows while typing. */
+export type LivePiece = string | { mark: Mark; token: string; children: LivePiece[] };
+
+export function parseLive(text: string): LivePiece[] {
+  const out: LivePiece[] = [];
+  let plain = "";
+  let i = 0;
+  while (i < text.length) {
+    const found = edge(text[i - 1]) ? MARKS.find((m) => text.startsWith(m.token, i)) : undefined;
+    const close = found ? closing(text, i, found.token) : -1;
+    if (found && close > 0) {
+      if (plain) out.push(plain);
+      plain = "";
+      out.push({ mark: found.mark, token: found.token, children: parseLive(text.slice(i + found.token.length, close)) });
+      i = close + found.token.length;
+    } else {
+      plain += text[i];
+      i++;
+    }
+  }
+  if (plain) out.push(plain);
+  return out;
+}
+
+export const TOKEN: Record<Mark, string> = { bold: "*", italic: "_", underline: "__", strike: "~", mono: "```" };
+
+/**
+ * Put a marker round the selection, or take it off when it is already there (WhatsApp's menu). Spaces at the
+ * selection's edges stay outside, since a marker only counts against a word. Gives the new text and selection.
+ */
+export function toggleMark(text: string, start: number, end: number, mark: Mark): { text: string; start: number; end: number } {
+  const token = TOKEN[mark];
+  let s = start;
+  let e = end;
+  while (s < e && /\s/.test(text[s])) s++;
+  while (e > s && /\s/.test(text[e - 1])) e--;
+  if (s === e) return { text, start, end };
+  // Already marked, markers just outside the selection…
+  if (text.slice(s - token.length, s) === token && text.slice(e, e + token.length) === token) {
+    return { text: text.slice(0, s - token.length) + text.slice(s, e) + text.slice(e + token.length), start: s - token.length, end: e - token.length };
+  }
+  // …or just inside it.
+  if (e - s > 2 * token.length && text.startsWith(token, s) && text.slice(e - token.length, e) === token) {
+    return { text: text.slice(0, s) + text.slice(s + token.length, e - token.length) + text.slice(e), start: s, end: e - 2 * token.length };
+  }
+  return { text: text.slice(0, s) + token + text.slice(s, e) + token + text.slice(e), start: s + token.length, end: e + token.length };
+}
+
 /** The words alone, markers gone: notifications, previews, search. */
 export function plainText(text: string): string {
   const flat = (pieces: Piece[]): string => pieces.map((p) => (typeof p === "string" ? p : flat(p.children))).join("");
