@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "migrate": "node scripts/migrate.mjs",
-    "create-admin": "node scripts/create-admin.mjs"
+    "create-admin": "node scripts/create-admin.mjs",
+    "clean-files": "node scripts/clean-files.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",
