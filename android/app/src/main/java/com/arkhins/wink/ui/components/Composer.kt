@@ -1,5 +1,8 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.focus.focusRequester
@@ -402,8 +405,6 @@ fun Composer(
         if (!editing && images.isNotEmpty()) {
             PhotoStrip(images, enabled = !busy) { p -> images = images - p; uploaded.remove(p.uri) }
         }
-        // Words selected: bold, italic, underline, strikethrough (see Formatting.kt).
-        if (recording == null && !body.selection.collapsed) FormatBar(body, onChange = { body = it })
         Row(verticalAlignment = Alignment.Bottom) {
             if (recording != null) {
                 Row(Modifier.weight(1f).heightIn(min = 44.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -416,7 +417,8 @@ fun Composer(
                     )
                 }
             } else {
-                BasicTextField(
+                // Formatting live as it's typed, and Bold / Format in the selection menu (see FormattedTextField).
+                FormattedTextField(
                     value = body,
                     onValueChange = { next ->
                         // Selecting a word while the keyboard is down brings it back up.
@@ -432,6 +434,7 @@ fun Composer(
                         .heightIn(min = 44.dp)
                         .focusRequester(focus)
                         .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                    markerColor = SnowFaint,
                     decorationBox = { inner ->
                         Box {
                             if (body.text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = SnowFaint)

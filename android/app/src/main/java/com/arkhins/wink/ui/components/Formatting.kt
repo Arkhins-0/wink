@@ -1,55 +1,53 @@
 package com.arkhins.wink.ui.components
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.background
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
-import com.arkhins.wink.ui.theme.Night
-import com.arkhins.wink.ui.theme.Snow
 
 /*
  * Text formatting, the way WhatsApp writes it, so people already know it:
- *   *bold*   _italic_   ~strikethrough~   __underline__ (WhatsApp has none; a double underscore here)
+ *   *bold*   _italic_   ~strikethrough~   ```monospace```   __underline__ (WhatsApp has none; a double underscore)
  * A marker counts only at a word's edge (so snake_case and a*b stay as they are), with no space just inside it, on
  * one line. Markers can nest: *_bold italic_*. The website reads the same (src/lib/formatting.ts).
+ *
+ * One parse feeds everything: a sent message shows the styles with the markers hidden (formatted), the message box
+ * shows them live with the markers faded (FormattingTransformation), previews and copies take the words (plainText).
  */
 
-private enum class Mark(val token: String, val style: SpanStyle) {
+enum class Mark(val token: String, val style: SpanStyle) {
+    Mono("```", SpanStyle(fontFamily = FontFamily.Monospace)),
     Underline("__", SpanStyle(textDecoration = TextDecoration.Underline)),
     Bold("*", SpanStyle(fontWeight = FontWeight.Bold)),
     Italic("_", SpanStyle(fontStyle = FontStyle.Italic)),
     Strike("~", SpanStyle(textDecoration = TextDecoration.LineThrough)),
 }
 
+/** One formatted stretch of the text: its opening marker at [start], the words, its closing marker ending at [end]. */
+private data class Span(val mark: Mark, val start: Int, val end: Int) {
+    val innerStart get() = start + mark.token.length
+    val innerEnd get() = end - mark.token.length
+}
+
 private fun edge(c: Char?) = c == null || !c.isLetterOrDigit()
 
 /** Where [mark] opened at [open] closes, or -1. */
-private fun closing(text: String, open: Int, mark: Mark): Int {
+private fun closing(text: String, open: Int, until: Int, mark: Mark): Int {
     val start = open + mark.token.length
-    if (start >= text.length || text[start].isWhitespace()) return -1
+    if (start >= until || text[start].isWhitespace()) return -1
     var j = start + 1
-    while (j <= text.length - mark.token.length) {
+    while (j <= until - mark.token.length) {
         if (text[j] == '\n') return -1
-        if (text.startsWith(mark.token, j) && !text[j - 1].isWhitespace() && edge(text.getOrNull(j + mark.token.length)) &&
+        if (text.startsWith(mark.token, j) && !text[j - 1].isWhitespace() && (j + mark.token.length == until || edge(text.getOrNull(j + mark.token.length))) &&
             // A single "_" isn't the start of a "__".
             !(mark == Mark.Italic && text.getOrNull(j + 1) == '_')
         ) return j
@@ -58,30 +56,66 @@ private fun closing(text: String, open: Int, mark: Mark): Int {
     return -1
 }
 
-private fun AnnotatedString.Builder.appendFormatted(text: String) {
-    var i = 0
-    val plain = StringBuilder()
-    while (i < text.length) {
-        val mark = if (edge(text.getOrNull(i - 1))) Mark.entries.firstOrNull { text.startsWith(it.token, i) } else null
-        val close = mark?.let { closing(text, i, it) } ?: -1
+/** Every formatted stretch in text[from, until), nested ones included. */
+private fun spans(text: String, from: Int = 0, until: Int = text.length, out: MutableList<Span> = mutableListOf()): List<Span> {
+    var i = from
+    while (i < until) {
+        val mark = if (i == from || edge(text[i - 1])) Mark.entries.firstOrNull { text.startsWith(it.token, i) } else null
+        val close = mark?.let { closing(text, i, until, it) } ?: -1
         if (mark != null && close > 0) {
-            append(plain.toString())
-            plain.clear()
-            withStyle(mark.style) { appendFormatted(text.substring(i + mark.token.length, close)) }
-            i = close + mark.token.length
+            val span = Span(mark, i, close + mark.token.length)
+            out += span
+            spans(text, span.innerStart, span.innerEnd, out)
+            i = span.end
         } else {
-            plain.append(text[i])
             i++
         }
     }
-    append(plain.toString())
+    return out
 }
 
-/** A message's words with their formatting applied (the markers themselves hidden). */
-fun formatted(text: String): AnnotatedString = buildAnnotatedString { appendFormatted(text) }
+/** A sent message's words with their styles, the markers hidden. */
+fun formatted(text: String): AnnotatedString {
+    val found = spans(text)
+    if (found.isEmpty()) return AnnotatedString(text)
+    // Characters that are markers drop out; every other one keeps its place, shifted left.
+    val hidden = BooleanArray(text.length)
+    found.forEach { s ->
+        for (k in s.start until s.innerStart) hidden[k] = true
+        for (k in s.innerEnd until s.end) hidden[k] = true
+    }
+    val shift = IntArray(text.length + 1)
+    for (k in text.indices) shift[k + 1] = shift[k] + if (hidden[k]) 0 else 1
+    return buildAnnotatedString {
+        text.forEachIndexed { k, c -> if (!hidden[k]) append(c) }
+        found.forEach { s -> addStyle(s.mark.style, shift[s.innerStart], shift[s.innerEnd]) }
+    }
+}
 
-/** The words alone, markers gone: for previews, quotes and popups. */
+/** The words alone, markers gone: previews, quotes, copying, notifications. */
 fun plainText(text: String): String = formatted(text).text
+
+/** The message box's text with its styles live and the markers kept but faded, as WhatsApp shows it while typing. */
+fun formattedLive(text: String, markerColor: Color): AnnotatedString {
+    val found = spans(text)
+    if (found.isEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        append(text)
+        val faded = SpanStyle(color = markerColor)
+        found.forEach { s ->
+            addStyle(s.mark.style, s.innerStart, s.innerEnd)
+            addStyle(faded, s.start, s.innerStart)
+            addStyle(faded, s.innerEnd, s.end)
+        }
+    }
+}
+
+/** For a text field: the styles as you type. Nothing is added or removed, so the cursor maps one to one. */
+class FormattingTransformation(private val markerColor: Color) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText = TransformedText(formattedLive(text.text, markerColor), OffsetMapping.Identity)
+    override fun equals(other: Any?) = other is FormattingTransformation && other.markerColor == markerColor
+    override fun hashCode() = markerColor.hashCode()
+}
 
 /** The selection wrapped in [token] — or, when it already is, unwrapped. The selection stays on the same words. */
 fun toggleMark(value: TextFieldValue, token: String): TextFieldValue {
@@ -99,28 +133,5 @@ fun toggleMark(value: TextFieldValue, token: String): TextFieldValue {
     } else {
         val out = text.substring(0, from) + token + text.substring(from, to) + token + text.substring(to)
         TextFieldValue(out, TextRange(from + n, to + n))
-    }
-}
-
-/** B I U S over the message box while words are selected. */
-@Composable
-fun FormatBar(value: TextFieldValue, onChange: (TextFieldValue) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.padding(horizontal = 6.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(
-            Triple("B", "*", SpanStyle(fontWeight = FontWeight.Bold)),
-            Triple("I", "_", SpanStyle(fontStyle = FontStyle.Italic)),
-            Triple("U", "__", SpanStyle(textDecoration = TextDecoration.Underline)),
-            Triple("S", "~", SpanStyle(textDecoration = TextDecoration.LineThrough)),
-        ).forEach { (label, token, style) ->
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .background(Night, RoundedCornerShape(10.dp))
-                    .clickable { onChange(toggleMark(value, token)) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(buildAnnotatedString { withStyle(style) { append(label) } }, style = MaterialTheme.typography.titleMedium, color = Snow)
-            }
-        }
     }
 }

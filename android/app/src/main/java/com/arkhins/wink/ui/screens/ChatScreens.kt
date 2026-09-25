@@ -981,7 +981,7 @@ fun ChatScreen(
 }
 
 /** What copying a message puts on the clipboard: its words, or what it carried. */
-private fun copyText(m: Message): String = m.body.trim().ifBlank { snippet(m) }
+private fun copyText(m: Message): String = plainText(m.body).trim().ifBlank { snippet(m) }
 
 /** The message text with every match of the search lit up. */
 private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnnotatedString {
