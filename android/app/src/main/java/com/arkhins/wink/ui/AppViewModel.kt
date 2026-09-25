@@ -216,8 +216,8 @@ class AppViewModel(private val app: WinkApplication) : ViewModel() {
                     attach = when {
                         location -> "location"
                         m.file == null -> ""
-                        m.file.mime.startsWith("image/") -> "image"
-                        m.file.mime.startsWith("audio/") -> "audio"
+                        !m.file.document && m.file.mime.startsWith("image/") -> "image"
+                        !m.file.document && m.file.mime.startsWith("audio/") -> "audio"
                         else -> "document"
                     },
                 )

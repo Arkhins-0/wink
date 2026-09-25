@@ -61,7 +61,8 @@ data class ResetInfo(val email: String)
 data class Sender(val id: String, val name: String, val role: String, val roleLabel: String, val photoUrl: String? = null)
 
 @Serializable
-data class FileInfo(val id: String, val name: String, val mime: String, val size: Long = 0)
+/** [document]: sent through "Document", so it shows, opens and saves as a document whatever its type. */
+data class FileInfo(val id: String, val name: String, val mime: String, val size: Long = 0, val document: Boolean = false)
 
 @Serializable
 data class Message(

@@ -262,6 +262,7 @@ class ChatMedia(context: Context, private val api: WinkApi) {
 
     /** The folder for a file's kind: photos, audio (voice notes too), or any other file. */
     private fun folderFor(file: FileInfo): File = when {
+        file.document -> folders[2]
         file.mime.startsWith("image/") && file.mime != "image/svg+xml" -> folders[0]
         file.mime.startsWith("audio/") -> folders[1]
         else -> folders[2]

@@ -110,8 +110,9 @@ fun FileView.stamped(messages: List<Message>): FileView = when (this) {
 data class GalleryPhoto(val message: Message, val file: FileInfo)
 
 /** A picture the app shows as one (an SVG goes as a document: it can't be drawn as a photo). */
-val FileInfo.isImage: Boolean get() = mime.startsWith("image/") && mime != "image/svg+xml"
-val FileInfo.isAudio: Boolean get() = mime.startsWith("audio/")
+val FileInfo.isImage: Boolean get() = !document && mime.startsWith("image/") && mime != "image/svg+xml"
+/** Audio the app plays in place; one sent as a document is a document. */
+val FileInfo.isAudio: Boolean get() = !document && mime.startsWith("audio/")
 
 /* ───────────────────────────── Photo runs ────────────────────────── */
 

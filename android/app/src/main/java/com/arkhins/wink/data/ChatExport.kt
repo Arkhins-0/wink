@@ -51,8 +51,8 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                         if (f.id in paths) return@forEach
                         val local = media.local(f) ?: return@forEach
                         val folder = when {
-                            f.mime.startsWith("image/") -> "images"
-                            f.mime.startsWith("audio/") -> "audio"
+                            !f.document && f.mime.startsWith("image/") -> "images"
+                            !f.document && f.mime.startsWith("audio/") -> "audio"
                             else -> "docs"
                         }
                         val name = "${fileStamp(m.createdAt)} ${f.name}".replace(Regex("[\\\\/:*?\"<>|]"), "_")
@@ -174,12 +174,12 @@ a{color:inherit}.doc{display:block;padding:6px 0}
                     val path = paths[f.id]
                     when {
                         path == null -> out.text("<span class=\"doc\">📄 ${esc(f.name)} (not on this phone)</span>")
-                        f.mime.startsWith("image/") -> {
+                        !f.document && f.mime.startsWith("image/") -> {
                             out.text("<a href=\"${esc(path)}\"><img src=\"")
                             out.inline(locals[f.id], f.mime, path)
                             out.text("\" alt=\"${esc(f.name)}\"></a>")
                         }
-                        f.mime.startsWith("audio/") -> {
+                        !f.document && f.mime.startsWith("audio/") -> {
                             out.text("<audio controls src=\"")
                             out.inline(locals[f.id], f.mime, path)
                             out.text("\"></audio>")

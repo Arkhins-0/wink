@@ -39,7 +39,8 @@ object Saver {
         Document(Environment.DIRECTORY_DOCUMENTS),
     }
 
-    private fun kindOf(mime: String) = when {
+    private fun kindOf(mime: String, document: Boolean) = when {
+        document -> Kind.Document
         mime.startsWith("image/") && mime != "image/svg+xml" -> Kind.Photo
         mime.startsWith("audio/") -> Kind.Audio
         else -> Kind.Document
@@ -60,7 +61,7 @@ object Saver {
     /** An attachment: from the phone's own copy, fetched first if it isn't here yet. */
     suspend fun save(context: Context, media: ChatMedia, file: FileInfo, sentAt: String?): Saved {
         val source = media.local(file) ?: media.fetch(file)
-        return save(context, file.name, file.mime, sentAt) { source.inputStream() }
+        return save(context, file.name, file.mime, sentAt, document = file.document) { source.inputStream() }
     }
 
     /** A document already opened (its copy in the app's Wink_Documents). */
@@ -69,8 +70,8 @@ object Saver {
             context.contentResolver.openInputStream(doc.uri) ?: throw IOException("The document could not be read.")
         }
 
-    suspend fun save(context: Context, name: String, mime: String, sentAt: String?, open: () -> InputStream): Saved = withContext(Dispatchers.IO) {
-        val kind = kindOf(mime)
+    suspend fun save(context: Context, name: String, mime: String, sentAt: String?, document: Boolean = false, open: () -> InputStream): Saved = withContext(Dispatchers.IO) {
+        val kind = kindOf(mime, document)
         val fileName = savedName(name, sentAt)
         val type = mime.ifBlank { "application/octet-stream" }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

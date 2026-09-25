@@ -128,7 +128,9 @@ class Outbox(
             items.zip(sources).forEach { (q, uri) ->
                 val out = q.file!!
                 // A photo goes as a smaller JPEG (see PhotoShrink); anything else, or a photo that can't be, as it is.
-                val shrunk = if (!PhotoShrink.applies(out.mime)) null else withContext(Dispatchers.IO) {
+                // Sent as a document: the file as it is.
+                val asDocument = q.message.files.firstOrNull()?.document == true
+                val shrunk = if (asDocument || !PhotoShrink.applies(out.mime)) null else withContext(Dispatchers.IO) {
                     val info = q.message.files.firstOrNull()?.let { FileInfo(it.id, PhotoShrink.jpegName(out.name), "image/jpeg") }
                     val target = info?.let { media.pathFor(it) }
                     target?.let { t -> PhotoShrink.shrink(context, uri, t)?.let { size -> OutgoingFile(t.path, info.name, info.mime, size) } }
@@ -220,7 +222,7 @@ class Outbox(
                 }
                 val info = gate.withPermit {
                     step(item) {
-                        uploadFile(api, documents, media, File(f.path), f.name, f.mime) { p -> _progress.update { it + (id to p) } }
+                        uploadFile(api, documents, media, File(f.path), f.name, f.mime, asDocument = item.message.files.firstOrNull()?.document == true) { p -> _progress.update { it + (id to p) } }
                     }
                 } ?: return@async
                 fileIds[id] = info.id
@@ -304,12 +306,15 @@ suspend fun uploadFile(
     source: File,
     name: String,
     mime: String,
+    /** Picked through "Document": a document for everyone, whatever its type. */
+    asDocument: Boolean = false,
     onProgress: (Float) -> Unit = {},
 ): FileInfo = withContext(Dispatchers.IO) {
     val slot: UploadSlot = api.post("/api/files", UploadSlot.serializer()) {
         put("name", name)
         put("mime", mime)
         put("size", source.length())
+        if (asDocument) put("asDocument", true)
     }
     try {
         api.putBytes(slot.uploadUrl, source, mime, onProgress)
@@ -318,8 +323,8 @@ suspend fun uploadFile(
         api.putBytes(api.url("/api/files/${slot.id}/content"), source, mime, onProgress)
     }
     api.post("/api/files/${slot.id}/ready", Ok.serializer())
-    val info = FileInfo(slot.id, name, mime, source.length())
+    val info = FileInfo(slot.id, name, mime, source.length(), document = asDocument)
     runCatching { media.put(info, source) }
-    if (!mime.startsWith("image/") && !mime.startsWith("audio/")) runCatching { documents.keepSent(info, source) }
+    if (asDocument || (!mime.startsWith("image/") && !mime.startsWith("audio/"))) runCatching { documents.keepSent(info, source) }
     info
 }

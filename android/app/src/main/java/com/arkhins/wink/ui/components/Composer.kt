@@ -109,7 +109,8 @@ data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolea
 data class ComposerBanner(val title: String, val text: String, val onCancel: () -> Unit)
 
 /** A file picked for the tray. */
-data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long)
+/** [document]: picked through "Document": it goes as a document, as it is, whatever its type. */
+data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long, val document: Boolean = false)
 
 /** What the server takes in one message. */
 private const val MAX_PHOTOS = 30
@@ -216,15 +217,15 @@ fun Composer(
     }
 
     /** New files onto the end of a list, skipping ones already there, within the per-message limit. */
-    fun added(to: List<Picked>, uris: List<Uri>, cap: Int = Int.MAX_VALUE): List<Picked> {
+    fun added(to: List<Picked>, uris: List<Uri>, cap: Int = Int.MAX_VALUE, document: Boolean = false): List<Picked> {
         val fresh = uris.distinct().filter { u -> to.none { it.uri == u } }
         val fits = minOf(fresh.size, room(), cap - to.size).coerceAtLeast(0)
         if (fits < fresh.size) error = if (cap - to.size < room()) "Up to $MAX_PHOTOS photos at a time." else "Up to $MAX_ATTACHMENTS attachments at a time."
-        return to + fresh.take(fits).map { describe(context, it) }
+        return to + fresh.take(fits).map { describe(context, it).copy(document = document) }
     }
 
     val pickDocuments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) { makeRoomFor("documents"); docs = added(docs, uris) }
+        if (uris.isNotEmpty()) { makeRoomFor("documents"); docs = added(docs, uris, document = true) }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { makeRoomFor("audio"); audios = added(audios, uris) }
@@ -682,7 +683,7 @@ private suspend fun upload(context: Context, api: WinkApi, documents: Documents,
             ?: throw IllegalStateException("The file could not be read.")
     }
     try {
-        val info = uploadFile(api, documents, media, temp, p.name, p.mime)
+        val info = uploadFile(api, documents, media, temp, p.name, p.mime, asDocument = p.document)
         // A recorded note goes once it's up; on a failure it stays, so the tray can try again.
         if (p.uri.scheme == "file") runCatching { File(p.uri.path!!).delete() }
         info.id

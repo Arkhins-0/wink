@@ -834,7 +834,7 @@ fun ChatScreen(
                     val batch = UUID.randomUUID().toString()
                     val now = Instant.now().toString()
                     val items = files.mapIndexed { i, p ->
-                        val file = FileInfo("local-" + UUID.randomUUID(), p.name, p.mime, p.size)
+                        val file = FileInfo("local-" + UUID.randomUUID(), p.name, p.mime, p.size, document = p.document)
                         Queued(
                             conversationId,
                             Message(
