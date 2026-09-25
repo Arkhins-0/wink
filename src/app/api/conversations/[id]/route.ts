@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { body, bool, handle, isUuid, str, uuids, type Params } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { fail, json } from "@/lib/http";
-import { canAccess, conversationById, conversationDelta, conversationMessages, markConversationRead, markDelivered, messageById, personCard, postDirect, postGroup } from "@/lib/messages";
+import { canAccess, conversationById, conversationDelta, conversationMessages, duplicateSend, markConversationRead, markDelivered, messageById, personCard, postDirect, postGroup, sentBefore } from "@/lib/messages";
 import { groupInfo, memberRole } from "@/lib/groups";
 import { userById } from "@/lib/users";
 
@@ -55,14 +55,25 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const b = await body(request);
   const conv = await conversationById(id);
   const post = conv?.kind === "group" ? postGroup : postDirect;
-  const messageId = await post(user, id, {
-    body: str(b.body, 5000),
-    fileId: str(b.fileId, 64) || null,
-    fileIds: uuids(b.fileIds),
-    urgent: bool(b.urgent),
-    replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
-    forwardOf: isUuid(str(b.forwardOf, 64)) ? str(b.forwardOf, 64) : null,
-  });
+  const clientId = str(b.clientId, 80) || null;
+  const batchPos = Number.isInteger(b.batchPos) ? Number(b.batchPos) : null;
+  // Sent before under the same client id (a resend after a lost answer): that message, not a second one.
+  const messageId =
+    (await sentBefore(user.id, clientId)) ??
+    (await post(user, id, {
+      body: str(b.body, 5000),
+      fileId: str(b.fileId, 64) || null,
+      fileIds: uuids(b.fileIds),
+      urgent: bool(b.urgent),
+      replyToId: isUuid(str(b.replyToId, 64)) ? str(b.replyToId, 64) : null,
+      forwardOf: isUuid(str(b.forwardOf, 64)) ? str(b.forwardOf, 64) : null,
+      clientId,
+      batchId: str(b.batchId, 80) || null,
+      batchPos: batchPos !== null && batchPos >= 0 && batchPos < 1000 ? batchPos : null,
+    }).catch(async (error) => {
+      if (duplicateSend(error)) return (await sentBefore(user.id, clientId))!;
+      throw error;
+    }));
   // The message itself, so the phone can show its tick without asking again.
   return json({ id: messageId, message: await messageById(user, messageId) }, 201);
 });

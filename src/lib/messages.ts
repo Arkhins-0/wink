@@ -75,6 +75,10 @@ export type MessageOut = {
   event: string | null;
   /** Your own private message: sent (one tick), delivered (two), read (three). Null otherwise. */
   status: "sent" | "delivered" | "read" | null;
+  /** The sender's own id for it (to the sender only), and the batch it came in. */
+  clientId: string | null;
+  batchId: string | null;
+  batchPos: number | null;
 };
 
 export type ReplyRef = {
@@ -129,6 +133,9 @@ type Row = {
   rm_deleted_at: string | null;
   to_delivered_at: string | null;
   to_read_at: string | null;
+  client_id: string | null;
+  batch_id: string | null;
+  batch_pos: number | null;
 };
 
 const SELECT = `
@@ -140,7 +147,7 @@ const SELECT = `
          rf.name AS rm_file_name, rf.mime AS rm_file_mime, rm.deleted_at AS rm_deleted_at,
          rr.delivered_at AS to_delivered_at, rr.read_at AS to_read_at,
          m.group_invite_id, gi.status AS gi_status, gi.conversation_id AS gi_group, gc.name AS gi_name,
-         gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event,
+         gi.upward AS gi_upward, gi.expires_at AS gi_expires, m.event, m.client_id, m.batch_id, m.batch_pos,
          (SELECT json_agg(json_build_object('id', xf.id, 'name', xf.name, 'mime', xf.mime, 'size', xf.size) ORDER BY mf.position)
             FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json
   FROM messages m
@@ -213,6 +220,9 @@ function out(row: Row, viewerId: string): MessageOut {
         }
       : null,
     event: row.event,
+    clientId: row.sender_id === viewerId ? row.client_id : null,
+    batchId: row.batch_id,
+    batchPos: row.batch_pos,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -238,6 +248,11 @@ export type Draft = {
    * a few photos picked out of an album.
    */
   forwardOf?: string | null;
+  /** The sending phone's own id for this message (see migration 014): a second send of it is the same message. */
+  clientId?: string | null;
+  /** Photos sent or forwarded together share this, each with its place in the batch. */
+  batchId?: string | null;
+  batchPos?: number | null;
 };
 
 /** The attachments a draft names, in order, each once. */
@@ -290,12 +305,27 @@ function senderLabel(sender: SessionUser): string {
   return `${sender.name || sender.email} · ${ROLE_LABEL[sender.role]}`;
 }
 
+/** The message this sender already sent under this client id, if any: a resend is the same message. */
+export async function sentBefore(senderId: string, clientId: string | null | undefined): Promise<string | null> {
+  if (!clientId) return null;
+  const row = await one<{ id: string }>("SELECT id FROM messages WHERE sender_id = $1 AND client_id = $2", [senderId, clientId]);
+  return row?.id ?? null;
+}
+
+/** Two sends of one client id raced: the database's unique index turned the second away. */
+export const duplicateSend = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as { code?: string; constraint?: string }).code === "23505" &&
+  (error as { constraint?: string }).constraint === "messages_sender_client_idx";
+
 async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, files: FileRow[]) {
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
-    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`,
-    [conversationId, sender.id, draft.body, files[0]?.id ?? null, Boolean(draft.urgent), season.id, draft.replyToId ?? null, Boolean(draft.forwardOf)],
+    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded, client_id, batch_id, batch_pos)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, created_at`,
+    [
+      conversationId, sender.id, draft.body, files[0]?.id ?? null, Boolean(draft.urgent), season.id, draft.replyToId ?? null,
+      Boolean(draft.forwardOf), draft.clientId ?? null, draft.batchId ?? null, draft.batchPos ?? null,
+    ],
   );
   if (files.length > 0) {
     await run(
