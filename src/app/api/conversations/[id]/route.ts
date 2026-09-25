@@ -66,6 +66,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
     (await sentBefore(user.id, clientId)) ??
     (await post(user, id, {
       body: poll ? pollBody(poll) : calendarEvent ? eventBody(calendarEvent) : str(b.body, 5000),
+      linkUrl: str(b.linkUrl, 2000) || null,
       poll,
       calendarEvent,
       fileId: poll || calendarEvent ? null : str(b.fileId, 64) || null,

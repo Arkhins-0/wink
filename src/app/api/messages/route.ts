@@ -23,6 +23,7 @@ export const POST = handle(async (request) => {
   const result = await sendBroadcast(user, {
     recipientIds: strings(b.recipientIds),
     body: poll ? pollBody(poll) : calendarEvent ? eventBody(calendarEvent) : str(b.body, 5000),
+    linkUrl: str(b.linkUrl, 2000) || null,
     poll,
     calendarEvent,
     fileId: poll || calendarEvent ? null : str(b.fileId, 64) || null,

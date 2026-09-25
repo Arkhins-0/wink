@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { api, uploadFile } from "@/lib/client";
 import { Icon } from "./Icon";
 import { FormattingTextarea } from "./FormattingTextarea";
+import { ComposerPreview, useLinkPreview } from "./LinkPreview";
 
 
-export type Draft = { body: string; fileId: string | null; urgent: boolean };
+/** `linkUrl`: the link whose preview card was left open (see LinkPreview.tsx); none, a plain link. */
+export type Draft = { body: string; fileId: string | null; urgent: boolean; linkUrl?: string | null };
 
 /** What sits above the field: the message being answered or edited. */
 export type Banner = { title: string; text: string; onCancel: () => void };
@@ -24,6 +26,7 @@ export function MessageComposer({
   submitLabel = "Send",
   banner = null,
   editText = null,
+  linkPreviews = true,
 }: {
   send: (draft: Draft) => Promise<void>;
   placeholder?: string;
@@ -32,6 +35,8 @@ export function MessageComposer({
   banner?: Banner | null;
   /** Set while editing a message: the field holds its text, and attachments and voice notes step aside. */
   editText?: string | null;
+  /** A card for the first link typed (off for email). */
+  linkPreviews?: boolean;
 }) {
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -49,6 +54,8 @@ export function MessageComposer({
   const discard = useRef(false);
   const editing = editText !== null;
   const lastEdit = useRef<string | null>(null);
+  // An edit keeps whatever preview the message had; a card is for new messages.
+  const link = useLinkPreview(body, linkPreviews && !editing && !file);
 
   // Starting an edit fills the field; starting a reply or edit puts the cursor there.
   useEffect(() => {
@@ -85,9 +92,12 @@ export function MessageComposer({
         setProgress(0);
         fileId = await uploadFile(attachment, setProgress);
       }
-      await send({ body: text.trim(), fileId, urgent });
+      // A voice note or a location is sent on its own, with no card.
+      const linkUrl = text === body && !attachment ? link.linkUrl : null;
+      await send({ body: text.trim(), fileId, urgent, linkUrl });
       setBody("");
       setFile(null);
+      link.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send.");
     } finally {
@@ -167,6 +177,7 @@ export function MessageComposer({
           </button>
         </div>
       )}
+      <ComposerPreview preview={link.preview} loading={link.loading} onClose={link.close} />
       {file && (
         <div className="mx-2 mb-1 flex items-center gap-2 text-xs text-snow-soft">
           <Icon name={file.type.startsWith("image/") ? "gallery" : file.type.startsWith("audio/") ? "audio" : "document"} className="h-4 w-4 text-gold" />

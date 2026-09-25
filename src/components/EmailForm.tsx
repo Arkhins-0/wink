@@ -48,6 +48,7 @@ export function EmailForm({ mode, group }: { mode: "relay"; group: "volunteers" 
       )}
       <MessageComposer
         urgentOption={false}
+        linkPreviews={false}
         submitLabel="Send email"
         placeholder="What everyone needs to know"
         send={async (draft) => {

@@ -13,6 +13,7 @@ import { DocumentDialog } from "./DocumentDialog";
 import { Icon } from "./Icon";
 import { InviteCard } from "./chat/InviteCard";
 import { LocalTime } from "./LocalTime";
+import { LinkCard, textBesideCard } from "./LinkPreview";
 
 const MAPS = /https:\/\/maps\.google\.com\/\?q=(-?\d+\.\d+),(-?\d+\.\d+)/;
 
@@ -193,7 +194,8 @@ export function MessageItem({ m, showSender = true, highlight = false, inPlace =
               {timeAgo(m.createdAt)}
             </span>
           </div>
-          {m.poll ? <PollCard poll={m.poll} /> : m.calendarEvent ? <EventCard event={m.calendarEvent} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
+          {m.linkPreview && <div className="mt-2"><LinkCard preview={m.linkPreview} /></div>}
+          {m.poll ? <PollCard poll={m.poll} /> : m.calendarEvent ? <EventCard event={m.calendarEvent} /> : loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : textBesideCard(m.body, m.linkPreview) && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={textBesideCard(m.body, m.linkPreview)} /></p>}
           <Files files={filesOf(m)} />
           {m.kind !== "broadcast" && !inPlace && (
             <p className="mt-2 text-xs text-snow-faint">
@@ -346,11 +348,14 @@ export function Bubble({
               ) : loc ? (
                 <LocationCard lat={loc.lat} lng={loc.lng} onDark={!m.mine} />
               ) : (
-                m.body && (
-                  <p className="whitespace-pre-wrap break-words">
-                    <Highlighted text={m.body} needle={highlight} mine={m.mine} />
-                  </p>
-                )
+                <>
+                  {m.linkPreview && <LinkCard preview={m.linkPreview} onDark={!m.mine} />}
+                  {textBesideCard(m.body, m.linkPreview) && (
+                    <p className="whitespace-pre-wrap break-words">
+                      <Highlighted text={m.body} needle={highlight} mine={m.mine} />
+                    </p>
+                  )}
+                </>
               )}
               <Files files={filesOf(m)} onDark={!m.mine} />
             </>

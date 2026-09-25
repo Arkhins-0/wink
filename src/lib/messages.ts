@@ -6,6 +6,7 @@ import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { savePoll, type PollDraft } from "./polls";
 import { saveEvent, type EventDraft } from "./events";
+import { keepLinkAfterEdit, linkForMessage, previewOut } from "./linkPreview";
 import { filesByIds, messageFileIds, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
@@ -87,6 +88,8 @@ export type MessageOut = {
   poll: PollOut | null;
   /** A calendar event on this message, as this person sees it. */
   calendarEvent: EventOut | null;
+  /** The card for the first link in the text, unless the sender closed it (see linkPreview.ts). */
+  linkPreview: { url: string; title: string; description: string; site: string; image: string | null } | null;
 };
 
 export type ReplyRef = {
@@ -150,6 +153,7 @@ type Row = {
   batch_pos: number | null;
   poll_json: PollRow | null;
   event_json: EventRow | null;
+  link_json: { url: string; title: string; description: string; image: string | null; site: string } | null;
 };
 
 type EventRow = {
@@ -249,7 +253,9 @@ const SELECT = `
                                FROM event_replies er JOIN users ru ON ru.id = er.user_id WHERE er.event_id = e.id))
             FROM events e WHERE e.message_id = m.id) AS event_json,
          (SELECT json_agg(json_build_object('id', xf.id, 'name', xf.name, 'mime', xf.mime, 'size', xf.size, 'document', xf.as_document) ORDER BY mf.position)
-            FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json
+            FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json,
+         (SELECT json_build_object('url', lp.url, 'title', lp.title, 'description', lp.description, 'image', lp.image_url, 'site', lp.site_name)
+            FROM link_previews lp WHERE lp.url = m.link_url) AS link_json
   FROM messages m
   LEFT JOIN conversations c ON c.id = m.conversation_id
   LEFT JOIN users s ON s.id = m.sender_id
@@ -326,6 +332,7 @@ function out(row: Row, viewerId: string): MessageOut {
     batchPos: row.batch_pos,
     // In a group everyone sees who voted; an announcement's voters are named only to its sender.
     poll: row.poll_json && !row.deleted_at ? pollOut(row.poll_json, viewerId, row.kind === "group" || row.sender_id === viewerId) : null,
+    linkPreview: row.deleted_at ? null : previewOut(row.link_json),
     calendarEvent: row.event_json && !row.deleted_at ? eventOut(row.event_json, viewerId, row.kind === "group" || row.sender_id === viewerId) : null,
     status:
       row.kind === "direct" && row.sender_id === viewerId
@@ -361,6 +368,8 @@ export type Draft = {
   poll?: PollDraft | null;
   /** An event (groups and announcements only); the body then reads "📅 <name>". */
   calendarEvent?: EventDraft | null;
+  /** The link whose preview the sender left open (the ✕ on the card closes it: no preview). */
+  linkUrl?: string | null;
 };
 
 /** The attachments a draft names, in order, each once. */
@@ -425,11 +434,12 @@ export const duplicateSend = (error: unknown): boolean =>
 async function insertMessage(conversationId: string | null, sender: SessionUser, draft: Draft, files: FileRow[]) {
   const season = await currentSeason();
   const row = await one<{ id: string; created_at: string }>(
-    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded, client_id, batch_id, batch_pos)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, created_at`,
+    `INSERT INTO messages (conversation_id, sender_id, body, file_id, urgent, season_id, reply_to_id, forwarded, client_id, batch_id, batch_pos, link_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, created_at`,
     [
       conversationId, sender.id, draft.body, files[0]?.id ?? null, Boolean(draft.urgent), season.id, draft.replyToId ?? null,
       Boolean(draft.forwardOf), draft.clientId ?? null, draft.batchId ?? null, draft.batchPos ?? null,
+      await linkForMessage(draft.body, draft.linkUrl),
     ],
   );
   if (files.length > 0) {
@@ -626,8 +636,8 @@ export async function canAccess(user: SessionUser, conv: ConvRow): Promise<boole
  */
 async function resolveForward(sender: SessionUser, draft: Draft): Promise<Draft> {
   if (!draft.forwardOf) return draft;
-  const source = await one<{ id: string; body: string; file_id: string | null }>(
-    `SELECT m.id, m.body, m.file_id FROM messages m
+  const source = await one<{ id: string; body: string; file_id: string | null; link_url: string | null }>(
+    `SELECT m.id, m.body, m.file_id, m.link_url FROM messages m
      WHERE m.id = $1 AND m.deleted_at IS NULL AND m.group_invite_id IS NULL AND m.event IS NULL
        AND (m.sender_id = $2 OR EXISTS (SELECT 1 FROM message_recipients r WHERE r.message_id = m.id AND r.user_id = $2))`,
     [draft.forwardOf, sender.id],
@@ -637,7 +647,8 @@ async function resolveForward(sender: SessionUser, draft: Draft): Promise<Draft>
   const all = own.length ? own : source.file_id ? [source.file_id] : [];
   const picked = draft.fileIds?.length ? all.filter((id) => draft.fileIds!.includes(id)) : null;
   if (picked && picked.length === 0) throw new AuthError(404, "Those files are not in that message.");
-  return { ...draft, body: picked ? "" : source.body, fileId: null, fileIds: picked ?? all, urgent: false, replyToId: null };
+  // A forward keeps the preview the original showed.
+  return { ...draft, body: picked ? "" : source.body, fileId: null, fileIds: picked ?? all, urgent: false, replyToId: null, linkUrl: picked ? null : source.link_url };
 }
 
 /** A mail's text: the words, then what is attached. */
@@ -814,6 +825,7 @@ export async function editDirect(user: SessionUser, messageId: string, body: str
   const m = await ownRecent(user, messageId);
   if (!body.trim() && !m.file_id) throw new AuthError(400, "Write something, or delete the message instead.");
   await run("UPDATE messages SET body = $2, edited_at = now(), changed_at = now() WHERE id = $1", [m.id, body]);
+  await keepLinkAfterEdit(m.id, body);
   after(() => nudge(m));
 }
 

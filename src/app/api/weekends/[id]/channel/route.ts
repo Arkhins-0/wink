@@ -48,6 +48,7 @@ export const POST = handle<Params<"id">>(async (request, { params }) => {
   const b = await body(request);
   const messageId = await postToChannel(user, id, {
     body: str(b.body, 5000),
+    linkUrl: str(b.linkUrl, 2000) || null,
     fileId: str(b.fileId, 64) || null,
     fileIds: uuids(b.fileIds),
     urgent: bool(b.urgent),
