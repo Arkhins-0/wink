@@ -58,6 +58,9 @@ import com.arkhins.wink.ui.screens.ChatScreen
 import com.arkhins.wink.ui.screens.ChatProfileScreen
 import com.arkhins.wink.ui.screens.GroupScreen
 import com.arkhins.wink.ui.screens.SettingsScreen
+import com.arkhins.wink.ui.screens.AboutScreen
+import com.arkhins.wink.ui.screens.AccountDetailsScreen
+import com.arkhins.wink.ui.screens.StorageScreen
 import com.arkhins.wink.ui.screens.NewGroupScreen
 import com.arkhins.wink.ui.screens.ChatsScreen
 import com.arkhins.wink.ui.screens.ComposeScreen
@@ -284,6 +287,9 @@ private fun MainNav(vm: AppViewModel) {
         "scanner", "verify" -> "Verify"
         "changelog" -> "What's new"
         "settings" -> "Settings"
+        "details" -> "Account"
+        "storage" -> "Storage"
+        "about" -> "About"
         "archive" -> if (route == "archive") "Archive" else title.ifBlank { "Season" }
         "pdf" -> pdf?.name ?: "Document"
         "image" -> image?.name ?: "Photo"
@@ -331,8 +337,21 @@ private fun MainNav(vm: AppViewModel) {
                 composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
                 composable("email") { EmailScreen(null) { nav.popBackStack() } }
                 composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
-                composable("account") { AccountScreen(vm, onScan = { nav.navigate("scanner") }, onArchive = { nav.navigate("archive") }, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }, onSettings = { nav.navigate("settings") }) }
+                composable("account") {
+                    AccountScreen(
+                        vm,
+                        onScan = { nav.navigate("scanner") },
+                        onArchive = { nav.navigate("archive") },
+                        onDetails = { nav.navigate("details") },
+                        onStorage = { nav.navigate("storage") },
+                        onSettings = { nav.navigate("settings") },
+                        onAbout = { nav.navigate("about") },
+                    )
+                }
+                composable("details") { AccountDetailsScreen(vm) }
+                composable("storage") { StorageScreen() }
                 composable("settings") { SettingsScreen() }
+                composable("about") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) }
                 composable("changelog") { ChangelogScreen() }
                 composable("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
                 composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
