@@ -93,6 +93,11 @@ data class Message(
     val groupInvite: GroupInvite? = null,
     /** A line in a group chat about the group itself (joined, left, …), not something someone said. */
     val event: String? = null,
+    /** Yours: the id this phone gave it when sending (a `local-` id), so the server's copy replaces the phone's. */
+    val clientId: String? = null,
+    /** Photos sent or forwarded together share a batch (one grid), each with its place in it. */
+    val batchId: String? = null,
+    val batchPos: Int? = null,
 )
 
 /** An invitation to a group, carried by a message in a private chat. */

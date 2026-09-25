@@ -131,11 +131,16 @@ fun photoRuns(chronological: List<Message>): List<List<Message>> {
     chronological.forEach { m ->
         val run = out.lastOrNull()
         val prev = run?.last()
-        val joins = prev != null && isPhotoMessage(prev) && isPhotoMessage(m) && m.replyTo == null && who(prev) == who(m) &&
-            instant(m.createdAt).toEpochMilli() - instant(prev.createdAt).toEpochMilli() in 0..PHOTO_RUN_GAP_MS
+        // Sent (or forwarded) together: one grid, however long it took. Two different sends: two grids, however
+        // close. Older messages, from before batches were recorded: close together in time.
+        val sameBatch = prev?.batchId != null && prev.batchId == m.batchId
+        val otherBatch = prev?.batchId != null && m.batchId != null && prev.batchId != m.batchId
+        val joins = prev != null && isPhotoMessage(prev) && isPhotoMessage(m) && who(prev) == who(m) &&
+            (sameBatch || (!otherBatch && m.replyTo == null && instant(m.createdAt).toEpochMilli() - instant(prev.createdAt).toEpochMilli() in 0..PHOTO_RUN_GAP_MS))
         if (joins) run!!.add(m) else out.add(mutableListOf(m))
     }
-    return out
+    // A batch keeps the order it was picked in, whichever copy (the phone's or the server's) each photo is now.
+    return out.map { run -> if (run.size > 1 && run.all { it.batchPos != null }) run.sortedBy { it.batchPos } else run }
 }
 
 /** A run's photos, one per message; a lone message's own photos. */

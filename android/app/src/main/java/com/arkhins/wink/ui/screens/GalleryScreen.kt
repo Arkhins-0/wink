@@ -44,6 +44,7 @@ import coil.compose.AsyncImage
 import com.arkhins.wink.LocalApp
 import com.arkhins.wink.R
 import com.arkhins.wink.data.ChatSent
+import com.arkhins.wink.data.forwardMessages
 import com.arkhins.wink.data.FileInfo
 import com.arkhins.wink.data.Message
 import com.arkhins.wink.data.attachments
@@ -107,6 +108,8 @@ fun GalleryScreen(
     val list = rememberLazyListState(initialFirstVisibleItemIndex = g.start.coerceIn(0, (photos.size - 1).coerceAtLeast(0)))
 
     fun toggle(f: FileInfo) {
+        // Not on the server yet: nothing to forward or delete.
+        if (photos.any { it.file.id == f.id && it.message.id.startsWith("local-") }) return
         selected = if (f.id in selected) selected - f.id else selected + f.id
     }
     val bar = remember(selected, photos) {
@@ -225,65 +228,18 @@ fun GalleryScreen(
             forwarding = false
             selected = emptySet()
             Toast.makeText(context, if (targets.size == 1) "Forwarding to ${targets[0].other.name}" else "Forwarding to ${targets.size} chats", Toast.LENGTH_SHORT).show()
-            // As in a chat: each target gets a clock copy at once, swapped for the server's when it answers.
+            // As in a chat: each target gets a clock copy at once, swapped in place for the server's (see forwardMessages).
             app.appScope.launch {
-                if (oneMessage) {
+                val ids = targets.map { it.id }
+                val failed = if (oneMessage) {
                     // One message's several files: just these photos, as one forwarded message.
-                    val m = chosen.first().message
-                    val files = chosen.map { it.file }
-                    val work = targets.map { c ->
-                        val local = Message(
-                            id = "local-" + UUID.randomUUID(),
-                            conversationId = c.id,
-                            kind = "direct",
-                            file = files.first(),
-                            files = files,
-                            createdAt = Instant.now().toString(),
-                            mine = true,
-                            forwarded = true,
-                            status = "pending",
-                        )
-                        app.chatCache.add(c.id, local)
-                        c to local
-                    }
-                    work.forEach { (c, local) ->
-                        val sent = runCatching {
-                            app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) {
-                                put("forwardOf", m.id)
-                                putJsonArray("fileIds") { files.forEach { add(it.id) } }
-                            }.message
-                        }
-                        app.chatCache.replace(c.id, local.id, sent.getOrNull())
-                        if (sent.isFailure) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
-                    }
+                    forwardMessages(app.chatCache, app.api, listOf(chosen.first().message), ids, onlyFiles = chosen.map { it.file })
                 } else {
-                    // Each photo is its own message: those messages are forwarded whole, in the order sent.
-                    val messages = chosen.map { it.message }.distinctBy { it.id }.sortedBy { it.createdAt }
-                    val work = targets.flatMap { c ->
-                        messages.map { m ->
-                            val local = m.copy(
-                                id = "local-" + UUID.randomUUID(),
-                                conversationId = c.id,
-                                kind = "direct",
-                                createdAt = Instant.now().toString(),
-                                mine = true,
-                                forwarded = true,
-                                replyTo = null,
-                                urgent = false,
-                                status = "pending",
-                                editedAt = null,
-                                readAt = null,
-                            )
-                            app.chatCache.add(c.id, local)
-                            Triple(c, m, local)
-                        }
-                    }
-                    val failed = mutableSetOf<String>()
-                    work.forEach { (c, m, local) ->
-                        val sent = runCatching { app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }.message }
-                        app.chatCache.replace(c.id, local.id, sent.getOrNull())
-                        if (sent.isFailure && failed.add(c.id)) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
-                    }
+                    // Each photo is its own message: those messages, in the grid's order, as one batch per chat.
+                    forwardMessages(app.chatCache, app.api, chosen.map { it.message }.distinctBy { it.id }, ids)
+                }
+                withContext(Dispatchers.Main) {
+                    targets.filter { it.id in failed }.forEach { c -> Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
                 }
             }
         }

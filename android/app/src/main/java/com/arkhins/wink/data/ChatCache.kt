@@ -103,11 +103,13 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                 d.messages
             } else {
                 val live = d.liveIds.toSet()
+                // The phone's own copies the server now has (by the id the phone gave them): the server's takes over.
+                val confirmed = d.messages.mapNotNull { it.clientId }.toSet()
                 // Copies the phone made up (a forward still on its way) stay until the server's answer replaces
                 // them — but not for ever: one left behind by a forward the process did not live to finish
                 // would otherwise sit in the chat with its clock, and nothing could select or delete it.
                 val stale = System.currentTimeMillis() - LOCAL_COPY_LIFE
-                (cached.messages.filter { it.id in live || (it.id.startsWith("local-") && instant(it.createdAt).toEpochMilli() > stale) } + d.messages)
+                (cached.messages.filter { it.id in live || (it.id.startsWith("local-") && it.id !in confirmed && instant(it.createdAt).toEpochMilli() > stale) } + d.messages)
                     .associateBy { it.id }
                     .values
                     .sortedBy { instant(it.createdAt) }
@@ -149,7 +151,7 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
     suspend fun add(id: String, message: Message): CachedChat? = locks.getOrPut(id) { Mutex() }.withLock {
         withContext(Dispatchers.IO) {
             val cached = load(id) ?: return@withContext null
-            val merged = (cached.messages.filter { it.id != message.id } + message).sortedBy { instant(it.createdAt) }
+            val merged = (cached.messages.filter { it.id != message.id && it.id != message.clientId } + message).sortedBy { instant(it.createdAt) }
             val out = cached.copy(messages = merged)
             keep(id, out)
             out

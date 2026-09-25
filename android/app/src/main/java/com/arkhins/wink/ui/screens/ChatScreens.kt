@@ -47,6 +47,7 @@ import com.arkhins.wink.data.ConversationDetail
 import com.arkhins.wink.data.Queued
 import com.arkhins.wink.data.OutgoingFile
 import com.arkhins.wink.data.Conversation
+import com.arkhins.wink.data.forwardMessages
 import androidx.compose.runtime.collectAsState
 import com.arkhins.wink.data.GroupInvite
 import com.arkhins.wink.data.InviteAnswer
@@ -541,8 +542,10 @@ fun ChatScreen(
     // Written here, not yet taken by the server: shown at once with a clock, from the outbox, which
     // keeps them through a lost connection (or a closed app) and sends them when the network is back.
     val queued by app.outbox.items.collectAsState()
-    val pending = remember(queued) {
-        queued.filter { it.conversationId == conversationId }.map { if (it.failed) it.message.copy(status = "failed") else it.message }
+    val confirmed = remember(detail?.messages) { detail?.messages?.mapNotNull { it.clientId }?.toSet().orEmpty() }
+    val pending = remember(queued, confirmed) {
+        queued.filter { it.conversationId == conversationId && it.message.id !in confirmed }
+            .map { if (it.failed) it.message.copy(status = "failed") else it.message }
     }
     // How far each file still going up has got, for the circles over them.
     val uploads by app.outbox.progress.collectAsState()
@@ -834,6 +837,8 @@ fun ChatScreen(
                                 mine = true,
                                 replyTo = if (i == 0) replyingTo?.let(::refOf) else null,
                                 status = "pending",
+                                batchId = if (files.size > 1) batch else null,
+                                batchPos = if (files.size > 1) i else null,
                             ),
                             replyToId = if (i == 0) replyingTo?.id else null,
                             file = OutgoingFile(app.chatMedia.pathFor(file).path, p.name, p.mime, p.size),
@@ -947,34 +952,14 @@ fun ChatScreen(
             forwarding = false
             selected = emptySet()
             Toast.makeText(context, if (targets.size == 1) "Forwarding to ${targets[0].other.name}" else "Forwarding to ${targets.size} chats", Toast.LENGTH_SHORT).show()
-            // Each target chat gets a clock copy at once; the real sends run in the background and swap them out.
+            // Each target chat gets a clock copy at once, swapped in place for the server's (see forwardMessages).
             app.appScope.launch {
-                val work = targets.flatMap { c ->
-                    chosen.map { m ->
-                        val local = m.copy(
-                            id = "local-" + UUID.randomUUID(),
-                            conversationId = c.id,
-                            createdAt = Instant.now().toString(),
-                            mine = true,
-                            forwarded = true,
-                            replyTo = null,
-                            urgent = false,
-                            status = "pending",
-                            editedAt = null,
-                            readAt = null,
-                        )
-                        app.chatCache.add(c.id, local)
-                        Triple(c, m, local)
-                    }
+                val failed = forwardMessages(app.chatCache, app.api, chosen, targets.map { it.id })
+                withContext(Dispatchers.Main) {
+                    targets.filter { it.id in failed }.forEach { c -> Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
+                    if (targets.any { it.id == conversationId }) app.chatCache.peek(conversationId)?.let { detail = it }
+                    reload++
                 }
-                if (targets.any { it.id == conversationId }) app.chatCache.load(conversationId)?.let { fresh -> withContext(Dispatchers.Main) { detail = fresh } }
-                work.forEach { (c, m, local) ->
-                    val sent = runCatching { app.api.post("/api/conversations/${c.id}", ChatSent.serializer()) { put("forwardOf", m.id) }.message }
-                    val updated = app.chatCache.replace(c.id, local.id, sent.getOrNull())
-                    if (sent.isFailure) withContext(Dispatchers.Main) { Toast.makeText(context, "Could not forward to ${c.other.name}", Toast.LENGTH_SHORT).show() }
-                    if (c.id == conversationId && updated != null) withContext(Dispatchers.Main) { detail = updated }
-                }
-                withContext(Dispatchers.Main) { reload++ }
             }
         }
     }
@@ -1188,15 +1173,14 @@ private fun Bubble(
                         // One still going up is not on the server yet: a tap on it opens nothing (or retries it, when
                         // it failed). A grid opens with the photos that are sent; those still on their way are left out.
                         val view: (FileView) -> Unit = { v ->
-                            val sending = { p: GalleryPhoto -> p.message.id.startsWith("local-") }
+                            val failedTap = when (v) {
+                                is FileView.Gallery -> v.photos[v.start].message.status == "failed"
+                                is FileView.Image -> run.any { r -> r.status == "failed" && r.attachments.any { it.id == v.file.id } }
+                                else -> false
+                            }
                             when {
                                 selecting -> onToggle()
-                                v is FileView.Image && v.file.id.startsWith("local-") -> onRetry?.invoke()
-                                v is FileView.Gallery && sending(v.photos[v.start]) -> onRetry?.invoke()
-                                v is FileView.Gallery && v.photos.any(sending) -> {
-                                    val sent = v.photos.filterNot(sending)
-                                    onView(FileView.Gallery(sent, sent.indexOf(v.photos[v.start]).coerceAtLeast(0)))
-                                }
+                                failedTap && onRetry != null -> onRetry()
                                 else -> onView(v)
                             }
                         }
