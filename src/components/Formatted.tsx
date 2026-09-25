@@ -1,6 +1,6 @@
 import { parseFormatting, type Piece } from "@/lib/formatting";
 
-const CLASS = { bold: "font-bold", italic: "italic", underline: "underline", strike: "line-through" } as const;
+const CLASS = { mono: "font-mono", bold: "font-bold", italic: "italic", underline: "underline", strike: "line-through" } as const;
 
 function render(pieces: Piece[], key = ""): React.ReactNode[] {
   return pieces.map((p, i) =>
@@ -12,7 +12,7 @@ function render(pieces: Piece[], key = ""): React.ReactNode[] {
   );
 }
 
-/** A message's words with *bold*, _italic_, __underline__ and ~strikethrough~ shown, markers hidden. */
+/** A message's words with *bold*, _italic_, __underline__, ~strikethrough~ and ```monospace``` shown, markers hidden. */
 export function Formatted({ text }: { text: string }) {
   return <>{render(parseFormatting(text))}</>;
 }

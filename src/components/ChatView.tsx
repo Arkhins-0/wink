@@ -1,5 +1,6 @@
 "use client";
 
+import { plainText } from "@/lib/formatting";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/client";
@@ -40,7 +41,8 @@ const asRef = (m: MessageOut): ReplyRef => ({
 });
 
 /** What copying a message puts on the clipboard: its words, or what it carried. */
-const copyText = (m: MessageOut) => m.body.trim() || snippet(asRef(m));
+// Copying gives the words, as in WhatsApp; forwarding keeps the formatting.
+const copyText = (m: MessageOut) => plainText(m.body).trim() || snippet(asRef(m));
 
 /**
  * Something that can be selected: not a line about the group, not a deleted

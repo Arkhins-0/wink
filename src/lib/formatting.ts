@@ -1,14 +1,15 @@
 /*
  * Text formatting, the way WhatsApp writes it (the app reads the same, in Formatting.kt):
- *   *bold*   _italic_   ~strikethrough~   __underline__
+ *   *bold*   _italic_   ~strikethrough~   ```monospace```   __underline__
  * A marker counts only at a word's edge, with no space just inside it, on one line. Markers can nest.
  * Pure, so the server (plain text for notifications) and the browser (the formatted message) share it.
  */
 
-export type Mark = "underline" | "bold" | "italic" | "strike";
+export type Mark = "mono" | "underline" | "bold" | "italic" | "strike";
 export type Piece = string | { mark: Mark; children: Piece[] };
 
 const MARKS: { token: string; mark: Mark }[] = [
+  { token: "```", mark: "mono" },
   { token: "__", mark: "underline" },
   { token: "*", mark: "bold" },
   { token: "_", mark: "italic" },
