@@ -36,6 +36,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -253,12 +254,12 @@ private fun MainNav(vm: AppViewModel) {
         onDispose { nav.removeOnDestinationChangedListener(listener) }
     }
 
-    val openWeekend: (String) -> Unit = { nav.navigate("weekend/$it") }
+    val openWeekend: (String) -> Unit = { nav.open("weekend/$it") }
     val view: (FileView) -> Unit = {
         when (it) {
-            is FileView.Pdf -> { pdf = it.doc; nav.navigate("pdf") }
-            is FileView.Image -> { image = it.file; nav.navigate("image") }
-            is FileView.Gallery -> { gallery = it; gallerySelection = null; nav.navigate("gallery") }
+            is FileView.Pdf -> { pdf = it.doc; nav.open("pdf") }
+            is FileView.Image -> { image = it.file; nav.open("image") }
+            is FileView.Gallery -> { gallery = it; gallerySelection = null; nav.open("gallery") }
         }
     }
 
@@ -300,21 +301,21 @@ private fun MainNav(vm: AppViewModel) {
             popEnterTransition = { EnterTransition.None },
             popExitTransition = { if (initialState.isTab()) ExitTransition.None else slideOutHorizontally(tween(200)) { it } },
         ) {
-            composable("home") { Tab("home", "Wink") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) } }
-            composable("home?m={m}") { e -> Tab("home", "Wink") { HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) } }
-            composable("schedule") { Tab("schedule", "Schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) } }
-            composable("chats") { Tab("chats", "Chats", center = { ChatsHeader(chatsPage) { chatsPage = it } }) { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = openChat, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) } }
-            composable("people") { Tab("people", "People") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) } }
+            composable("home") { Tab("home", "Wink") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.open("compose") }, onView = view) } }
+            composable("home?m={m}") { e -> Tab("home", "Wink") { HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.open("compose") }, onView = view) } }
+            composable("schedule") { Tab("schedule", "Schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.open("archive") }) } }
+            composable("chats") { Tab("chats", "Chats", center = { ChatsHeader(chatsPage) { chatsPage = it } }) { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = openChat, onNewChat = { nav.open("newchat") }, onOpenWeekend = openWeekend) } }
+            composable("people") { Tab("people", "People") { PeopleScreen(vm.me, onOpen = { nav.open("person/$it") }, onAdd = { nav.open("newperson") }, onEmail = { g -> nav.open(if (g == null) "email" else "email?group=$g") }) } }
             composable("account") {
                 Tab("account", "Account") {
                     AccountScreen(
                         vm,
-                        onScan = { nav.navigate("scanner") },
-                        onArchive = { nav.navigate("archive") },
-                        onDetails = { nav.navigate("details") },
-                        onStorage = { nav.navigate("storage") },
-                        onSettings = { nav.navigate("settings") },
-                        onAbout = { nav.navigate("about") },
+                        onScan = { nav.open("scanner") },
+                        onArchive = { nav.open("archive") },
+                        onDetails = { nav.open("details") },
+                        onStorage = { nav.open("storage") },
+                        onSettings = { nav.open("settings") },
+                        onAbout = { nav.open("about") },
                     )
                 }
             }
@@ -339,7 +340,7 @@ private fun MainNav(vm: AppViewModel) {
                         onBack = back,
                         onOpenWeekend = openWeekend,
                         photo = who?.let { w -> { Avatar(app.api.absolute(w.photoUrl), w.name, 36) } },
-                        onTitleClick = { nav.navigate(if (who?.role == "group") "group/$id" else "chatprofile/$id") },
+                        onTitleClick = { nav.open(if (who?.role == "group") "group/$id" else "chatprofile/$id") },
                         menu = listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()),
                     )
                 }) {
@@ -347,7 +348,7 @@ private fun MainNav(vm: AppViewModel) {
                 }
             }
             // Made or chosen from a form: back to the chats tab, with the chat on top of it.
-            composable("newchat") { Pushed("New chat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.popBackStack("chats", false); openChat(id) } } }
+            composable("newchat") { Pushed("New chat") { NewChatScreen(onNewGroup = { nav.open("newgroup") }) { id -> nav.popBackStack("chats", false); openChat(id) } } }
             composable("newgroup") { Pushed("New group") { NewGroupScreen { id -> nav.popBackStack("chats", false); openChat(id) } } }
             composable("group/{id}") { e ->
                 var t by remember { mutableStateOf("") }
@@ -370,13 +371,13 @@ private fun MainNav(vm: AppViewModel) {
             composable("details") { Pushed("Account") { AccountDetailsScreen(vm) } }
             composable("storage") { Pushed("Storage") { StorageScreen() } }
             composable("settings") { Pushed("Settings") { SettingsScreen() } }
-            composable("about") { Pushed("About") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) } }
+            composable("about") { Pushed("About") { AboutScreen(vm, onChangelog = { nav.open("changelog") }, onLegal = { nav.open("legal/$it") }) } }
             composable("changelog") { Pushed("What's new") { ChangelogScreen() } }
             composable("legal/{doc}") { e ->
                 var t by remember { mutableStateOf("") }
-                Pushed(t) { LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { t = it }) }
+                Pushed(t) { LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.open("legal/$it") }, onTitle = { t = it }) }
             }
-            composable("archive") { Pushed("Archive") { ArchiveScreen { nav.navigate("archive/$it") } } }
+            composable("archive") { Pushed("Archive") { ArchiveScreen { nav.open("archive/$it") } } }
             composable("archive/{id}") { e ->
                 var t by remember { mutableStateOf("Season") }
                 Pushed(t) { SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = back) { t = it } }
@@ -410,6 +411,22 @@ private fun MainNav(vm: AppViewModel) {
             }
         }
     }
+}
+
+/**
+ * Open a screen from a tap. Taps while a screen is still sliding in are ignored (the screen they were
+ * made on is no longer the settled one), and a screen already on top is never stacked on itself, so
+ * tapping Settings three times, or the countdown on the race weekend page, opens it once.
+ */
+private fun NavController.open(route: String) {
+    val top = currentBackStackEntry
+    if (top != null && !top.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+    // The exact screen on top ("weekend/42", not just any weekend): Terms can still open Privacy.
+    val showing = top?.destination?.route?.let { pattern ->
+        Regex("\\{(\\w+)\\}").replace(pattern) { m -> top.arguments?.getString(m.groupValues[1]) ?: "" }
+    }
+    if (showing == route) return
+    navigate(route)
 }
 
 /** Open a link, or do nothing if no browser is installed. */
