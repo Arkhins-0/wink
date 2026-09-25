@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import kotlinx.serialization.json.putJsonObject
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -184,13 +185,20 @@ fun ComposeScreen(onSent: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
             )
             Box(Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp)) {
-                Composer(placeholder = "What they need to know", voiceNoteSends = false) { d ->
+                Composer(placeholder = "What they need to know", voiceNoteSends = false, polls = true) { d ->
                     if (picked.isEmpty()) throw IllegalStateException("Pick at least one person.")
                     val r = app.api.post("/api/messages", SentResponse.serializer()) {
                         putJsonArray("recipientIds") { picked.forEach { add(it) } }
                         put("body", d.body)
                         putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                         put("urgent", d.urgent)
+                        d.poll?.let { p ->
+                            putJsonObject("poll") {
+                                put("question", p.question)
+                                putJsonArray("options") { p.options.forEach { add(it) } }
+                                put("multiple", p.multiple)
+                            }
+                        }
                     }
                     sent = r.delivered
                 }

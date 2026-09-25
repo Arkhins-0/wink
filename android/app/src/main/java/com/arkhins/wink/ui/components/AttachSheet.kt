@@ -82,6 +82,8 @@ fun AttachSheet(
     onLocation: () -> Unit,
     onDocument: () -> Unit,
     onAudio: () -> Unit,
+    /** Set in groups and announcements: the Poll tile. */
+    onPoll: (() -> Unit)? = null,
     onSystemGallery: () -> Unit,
     onSend: (photos: List<Uri>, caption: String, hd: Boolean) -> Unit,
 ) {
@@ -109,6 +111,7 @@ fun AttachSheet(
                 Tile("Location", 0, busy = locating, onClick = onLocation)
                 Tile("Document", R.drawable.ic_document, onClick = onDocument)
                 Tile("Audio", R.drawable.ic_audio, onClick = onAudio)
+                onPoll?.let { Tile("Poll", R.drawable.ic_poll, onClick = it) }
             }
             Spacer(Modifier.height(8.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(NightLine))

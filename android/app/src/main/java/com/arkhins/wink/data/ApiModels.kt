@@ -99,7 +99,32 @@ data class Message(
     /** Photos sent or forwarded together share a batch (one grid), each with its place in it. */
     val batchId: String? = null,
     val batchPos: Int? = null,
+    /** A poll on this message (groups and announcements), as this person sees it. */
+    val poll: Poll? = null,
 )
+
+/** Who picked an option (shown where the poll names its voters). */
+@Serializable
+data class Voter(val id: String, val name: String)
+
+@Serializable
+data class PollOption(val id: String, val text: String, val votes: Int = 0, val mine: Boolean = false, val voters: List<Voter> = emptyList())
+
+/** A poll: its question, whether several answers are allowed, how many answered, and each option's count. */
+@Serializable
+data class Poll(
+    val id: String,
+    val question: String,
+    val multiple: Boolean = false,
+    val voters: Int = 0,
+    /** Whether names come with the counts (a group's members; an announcement's sender). */
+    val named: Boolean = false,
+    val options: List<PollOption> = emptyList(),
+)
+
+/** The vote route's answer: the message with its poll brought up to date. */
+@Serializable
+data class VoteAnswer(val message: Message? = null)
 
 /** An invitation to a group, carried by a message in a private chat. */
 @Serializable

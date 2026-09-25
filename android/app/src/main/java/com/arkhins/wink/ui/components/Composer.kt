@@ -105,7 +105,7 @@ import java.util.Locale
 import kotlin.coroutines.resume
 
 /** What a composer hands back. */
-data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolean) {
+data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolean, val poll: NewPoll? = null) {
     /** The first attachment, for callers that only ever sent one. */
     val fileId: String? get() = fileIds.firstOrNull()
 }
@@ -145,6 +145,8 @@ fun Composer(
     voiceNoteSends: Boolean = true,
     /** True in chats: a location goes out at once as its own message, as in WhatsApp. False elsewhere: it joins the tray. */
     locationSends: Boolean = voiceNoteSends,
+    /** Groups and announcements: the 📎 sheet offers Poll. */
+    polls: Boolean = false,
     /** True: every file is its own message, sent in order. False (the email page): one message carries them all. */
     oneMessagePerFile: Boolean = true,
     /**
@@ -254,6 +256,7 @@ fun Composer(
     // Photos picked or taken open the editor first (see PhotoEditor), as in WhatsApp.
     var editorPhotos by remember { mutableStateOf<List<Uri>?>(null) }
     var filesOpen by remember { mutableStateOf(false) }
+    var pollOpen by remember { mutableStateOf(false) }
     var editorCaption by remember { mutableStateOf("") }
     var editorHd by remember { mutableStateOf(false) }
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
@@ -604,6 +607,7 @@ fun Composer(
                 sheet = false
                 pickAudio.launch(arrayOf("audio/*"))
             },
+            onPoll = if (polls && !editing) ({ sheet = false; pollOpen = true }) else null,
             onSystemGallery = {
                 sheet = false
                 if (images.size >= MAX_PHOTOS) error = "Up to $MAX_PHOTOS photos at a time."
@@ -617,6 +621,12 @@ fun Composer(
                 editorPhotos = uris
             },
         )
+    }
+    if (pollOpen) {
+        CreatePollScreen(onClose = { pollOpen = false }) { p ->
+            // Its message reads "📊 <question>"; the caller sends the poll with it.
+            currentSend(Draft("📊 ${p.question}", emptyList(), false, poll = p))
+        }
     }
     if (filesOpen) {
         FilesPage(

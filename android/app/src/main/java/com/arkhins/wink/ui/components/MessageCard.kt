@@ -92,7 +92,12 @@ fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Bool
                     Attachment(f, onView)
                 }
                 val loc = locationIn(m.body)
-                val text = if (run.size > 1) runText(run) else textOf(m.body)
+                // A poll's message is its card, not its words.
+                val text = if (m.poll != null) "" else if (run.size > 1) runText(run) else textOf(m.body)
+                if (m.poll != null) {
+                    Spacer(Modifier.height(4.dp))
+                    MessagePoll(m, onDark = true)
+                }
                 if (text.isNotBlank()) {
                     Spacer(Modifier.height(if (files.isEmpty()) 4.dp else 8.dp))
                     Text(formatted(text), style = MaterialTheme.typography.bodyMedium, color = SnowSoft)
