@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.TextWithMeta
 import com.arkhins.wink.ui.components.formatted
 import com.arkhins.wink.ui.components.plainText
 import com.arkhins.wink.ui.components.saveAll
@@ -1128,6 +1129,26 @@ private fun Bubble(
                 if (msg.status == "pending" && msg.attachments.firstOrNull()?.id?.startsWith("local-") == true) uploads[msg.id] ?: -1f else null
             val picture = !m.deleted && photos.isNotEmpty()
             val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
+            /** When it was sent (edited), the ticks, a failed send, the urgent mark: at the bubble's bottom right. */
+            val meta: @Composable () -> Unit = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        (if (m.editedAt != null && !m.deleted) "edited · " else "") + localTime(m.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (mine) Night.copy(alpha = 0.6f) else SnowFaint,
+                    )
+                    when {
+                        run.any { it.status == "failed" } -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
+                        m.status != null && !m.deleted -> Ticks(m.status)
+                    }
+                    // Marked urgent: it also went out by email.
+                    if (run.any { it.urgent } && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
+                }
+            }
+            val bodyText = if (run.size > 1) runText(run) else textOf(m.body)
+            val bodyLoc = if (run.size > 1) null else locationIn(m.body)
+            // The words come last (no location card after them): the time sits in their last line, as in WhatsApp.
+            val metaInline = m.deleted || (bodyText.isNotBlank() && m.groupInvite == null && bodyLoc == null)
             Box {
                 Column(
                     Modifier
@@ -1152,11 +1173,10 @@ private fun Bubble(
                         .then(if (picture) Modifier.padding(start = 3.dp, end = 3.dp, top = 3.dp, bottom = 6.dp) else Modifier.padding(horizontal = 12.dp, vertical = 8.dp)),
                 ) {
                     if (m.deleted) {
-                        Text(
-                            "This message was deleted",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontStyle = FontStyle.Italic,
-                            color = if (mine) Night.copy(alpha = 0.7f) else SnowFaint,
+                        TextWithMeta(
+                            AnnotatedString("This message was deleted"),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic, color = if (mine) Night.copy(alpha = 0.7f) else SnowFaint),
+                            meta = meta,
                         )
                     } else {
                         if (senderName != null) {
@@ -1209,30 +1229,24 @@ private fun Bubble(
                             Box(inset) { Attachment(f, view, onDark = !mine, uploading = uploading(msg)) }
                         }
                         // The words, then the place they point to: a Maps link on the last line becomes a card.
-                        val loc = if (run.size > 1) null else locationIn(m.body)
-                        val text = if (run.size > 1) runText(run) else textOf(m.body)
+                        val loc = bodyLoc
+                        val text = bodyText
                         if (text.isNotBlank() && m.groupInvite == null) {
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                            Text(highlighted(text, highlight, mine), style = MaterialTheme.typography.bodyMedium, color = if (mine) Night else Snow, modifier = inset)
+                            val words = highlighted(text, highlight, mine)
+                            val wordsStyle = MaterialTheme.typography.bodyMedium.copy(color = if (mine) Night else Snow)
+                            if (metaInline) TextWithMeta(words, style = wordsStyle, meta = meta, modifier = inset)
+                            else Text(words, style = wordsStyle, modifier = inset)
                         }
                         if (loc != null) {
                             if (files.isNotEmpty() || text.isNotBlank()) Spacer(Modifier.height(6.dp))
                             Box(inset) { LocationCard(loc.first, loc.second, onDark = !mine) }
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Row(Modifier.align(Alignment.End).then(inset), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            (if (m.editedAt != null && !m.deleted) "edited · " else "") + localTime(m.createdAt),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (mine) Night.copy(alpha = 0.6f) else SnowFaint,
-                        )
-                        when {
-                            run.any { it.status == "failed" } -> Text("  Not sent · tap to retry", style = MaterialTheme.typography.labelSmall, color = Danger)
-                            m.status != null && !m.deleted -> Ticks(m.status)
-                        }
-                        // Marked urgent: it also went out by email.
-                        if (run.any { it.urgent } && !m.deleted) Icon(Icons.Outlined.Email, contentDescription = "Also sent by email", tint = Danger, modifier = Modifier.padding(start = 4.dp).size(13.dp))
+                    // Text last: the time went in beside its last line (TextWithMeta). Otherwise it gets its own row.
+                    if (!metaInline) {
+                        Spacer(Modifier.height(2.dp))
+                        Row(Modifier.align(Alignment.End).then(inset)) { meta() }
                     }
                 }
             }
