@@ -27,21 +27,44 @@ function connectionString(): string {
 
 function pool(): Pool {
   if (!globalThis.__winkPool) {
-    globalThis.__winkPool = new Pool({
+    const created = new Pool({
       connectionString: connectionString(),
       ssl: { rejectUnauthorized: true },
       max: 8,
       idleTimeoutMillis: 30_000,
     });
+    // Neon closes connections that sit idle. An idle client in the pool then emits "error"; unhandled,
+    // that takes the whole process down. The pool has already dropped the client, so noting it is enough.
+    created.on("error", (error) => console.warn("[db] idle connection closed:", error.message));
+    globalThis.__winkPool = created;
   }
   return globalThis.__winkPool;
+}
+
+/** A connection Neon closed under us: the query never ran, so it is safe to send again on a fresh one. */
+function droppedConnection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Connection terminated|ECONNRESET|Client has encountered a connection error/i.test(message);
+}
+
+/**
+ * One query, a read sent again once if the connection it got had been closed. A write is not: it may
+ * have gone through before the connection dropped, and a second one would save it twice.
+ */
+async function query(text: string, params: Params) {
+  try {
+    return await pool().query(text, params as unknown[]);
+  } catch (error) {
+    if (!droppedConnection(error) || !/^\s*select\b/i.test(text)) throw error;
+    return await pool().query(text, params as unknown[]);
+  }
 }
 
 type Params = readonly unknown[];
 
 /** All rows. */
 export async function q<T>(text: string, params: Params = []): Promise<T[]> {
-  const result = await pool().query(text, params as unknown[]);
+  const result = await query(text, params);
   return result.rows as T[];
 }
 
@@ -52,7 +75,7 @@ export async function one<T>(text: string, params: Params = []): Promise<T | und
 
 /** Rows affected. */
 export async function run(text: string, params: Params = []): Promise<number> {
-  const result = await pool().query(text, params as unknown[]);
+  const result = await query(text, params);
   return result.rowCount ?? 0;
 }
 
