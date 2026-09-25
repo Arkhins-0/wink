@@ -1,5 +1,7 @@
 "use client";
 
+import { Formatted } from "@/components/Formatted";
+import { plainText } from "@/lib/formatting";
 import Link from "next/link";
 import { useState } from "react";
 import type { MessageOut, ReplyRef } from "@/lib/messages";
@@ -107,7 +109,7 @@ export function MessageItem({ m, showSender = true, highlight = false }: { m: Me
               {timeAgo(m.createdAt)}
             </span>
           </div>
-          {loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft">{m.body}</p>}
+          {loc ? <LocationCard lat={loc.lat} lng={loc.lng} /> : m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-snow-soft"><Formatted text={m.body} /></p>}
           {m.file && <Attachment file={m.file} />}
           {m.kind !== "broadcast" && (
             <p className="mt-2 text-xs text-snow-faint">
@@ -183,8 +185,10 @@ function Quote({ r, onDark, onClick }: { r: ReplyRef; onDark: boolean; onClick?:
 }
 
 /** Message text with every match of the search lit up. */
-function Highlighted({ text, needle, mine }: { text: string; needle: string | null; mine: boolean }) {
-  if (!needle) return <>{text}</>;
+function Highlighted({ text: raw, needle, mine }: { text: string; needle: string | null; mine: boolean }) {
+  if (!needle) return <Formatted text={raw} />;
+  // While searching, the words plain, with the matches lit up.
+  const text = plainText(raw);
   const parts: React.ReactNode[] = [];
   const lower = text.toLowerCase();
   const n = needle.toLowerCase();

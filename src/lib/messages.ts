@@ -1,5 +1,6 @@
 import "server-only";
 
+import { plainText } from "./formatting";
 import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
@@ -297,7 +298,8 @@ export function popupData(
     senderName: sender.name || sender.email,
     senderRole: ROLE_LABEL[sender.role],
     senderPhoto: photoUrl(sender) ?? "",
-    text: location ? "" : draft.body.trim().replace(/\s+/g, " ").slice(0, 300),
+    // Notifications and popups show the words, not the formatting markers.
+    text: location ? "" : plainText(draft.body).trim().replace(/\s+/g, " ").slice(0, 300),
     attach,
     place,
   };
