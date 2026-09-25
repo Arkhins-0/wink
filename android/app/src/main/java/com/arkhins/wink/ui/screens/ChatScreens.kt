@@ -1,5 +1,7 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.saveAll
+import com.arkhins.wink.ui.components.stamped
 import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableStateSetOf
 import kotlinx.coroutines.async
@@ -680,6 +682,12 @@ fun ChatScreen(
                 add(SelectionAction("Copy", drawable = R.drawable.ic_copy, onClick = ::copy))
                 if (allMine) add(SelectionAction("Delete", enabled = allRecent, vector = Icons.Outlined.Delete) { deleting = chosen })
                 add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
+                // Photos, documents, audio and voice notes, into the phone's own folders (see Saver).
+                val files = chosen.filterNot { it.id.startsWith("local-") }.flatMap { m -> m.attachments.map { it to m.createdAt } }
+                if (files.isNotEmpty()) add(SelectionAction("Save", drawable = R.drawable.ic_download) {
+                    selected = emptySet()
+                    saveAll(context, app, files)
+                })
             },
         )
     }
@@ -1186,7 +1194,7 @@ private fun Bubble(
                             when {
                                 selecting -> onToggle()
                                 failedTap && onRetry != null -> onRetry()
-                                else -> onView(v)
+                                else -> onView(v.stamped(run))
                             }
                         }
                         PhotoGrid(

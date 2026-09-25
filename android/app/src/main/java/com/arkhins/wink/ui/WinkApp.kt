@@ -1,5 +1,9 @@
 package com.arkhins.wink.ui
 
+import com.arkhins.wink.data.Saver
+import com.arkhins.wink.ui.components.SaveButton
+import com.arkhins.wink.ui.components.saveAll
+import com.arkhins.wink.ui.components.report
 import com.arkhins.wink.ui.screens.LegalScreen
 import com.arkhins.wink.ui.screens.ChangelogScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -201,6 +205,9 @@ private fun MainNav(vm: AppViewModel) {
     var chatsPage by remember { mutableIntStateOf(0) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
+    // When the photo or document being viewed was sent: its saved copy is named after it.
+    var viewSentAt by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     // A grid's photos, opened from it; while some are picked there the header is the selection bar.
     var gallery by remember { mutableStateOf<FileView.Gallery?>(null) }
     var gallerySelection by remember { mutableStateOf<SelectionBar?>(null) }
@@ -257,8 +264,8 @@ private fun MainNav(vm: AppViewModel) {
     val openWeekend: (String) -> Unit = { nav.open("weekend/$it") }
     val view: (FileView) -> Unit = {
         when (it) {
-            is FileView.Pdf -> { pdf = it.doc; nav.open("pdf") }
-            is FileView.Image -> { image = it.file; nav.open("image") }
+            is FileView.Pdf -> { pdf = it.doc; viewSentAt = it.sentAt; nav.open("pdf") }
+            is FileView.Image -> { image = it.file; viewSentAt = it.sentAt; nav.open("image") }
             is FileView.Gallery -> { gallery = it; gallerySelection = null; nav.open("gallery") }
         }
     }
@@ -286,8 +293,8 @@ private fun MainNav(vm: AppViewModel) {
 
     /** A screen opened on top: its own header with a back arrow, no footer. */
     @Composable
-    fun Pushed(title: String, showCountdown: Boolean = true, header: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) =
-        Screen(title, onBack = back, onOpenWeekend = openWeekend, showCountdown = showCountdown, header = header, content = content)
+    fun Pushed(title: String, showCountdown: Boolean = true, header: (@Composable () -> Unit)? = null, action: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) =
+        Screen(title, onBack = back, onOpenWeekend = openWeekend, showCountdown = showCountdown, header = header, action = action, content = content)
 
     Box(Modifier.fillMaxSize()) {
         // Tabs swap in place, footer still. Anything else flies in from the right, header and all, over
@@ -385,8 +392,18 @@ private fun MainNav(vm: AppViewModel) {
             composable("scanner") { Pushed("Verify") { ScannerScreen(onOpenChat = openChat) } }
             composable("verify/{token}") { e -> Pushed("Verify") { ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = openChat) } }
 
-            composable("pdf") { Pushed(pdf?.name ?: "Document", showCountdown = false) { pdf?.let { PdfScreen(it) } } }
-            composable("image") { Pushed(image?.name ?: "Photo", showCountdown = false) { image?.let { ImageScreen(it) } } }
+            composable("pdf") {
+                val at = viewSentAt
+                Pushed(pdf?.name?.replace(Regex("^[0-9a-f]{8}-"), "") ?: "Document", showCountdown = false, action = {
+                    SaveButton { pdf?.let { d -> app.appScope.launch { report(context, listOf(runCatching { Saver.save(context, d, at) })) } } }
+                }) { pdf?.let { PdfScreen(it) } }
+            }
+            composable("image") {
+                val at = viewSentAt
+                Pushed(image?.name ?: "Photo", showCountdown = false, action = { SaveButton { image?.let { f -> saveAll(context, app, listOf(f to at)) } } }) {
+                    image?.let { ImageScreen(it) }
+                }
+            }
             composable("gallery") {
                 // Who sent the photos and when, as WhatsApp heads them: "You · 8:16 pm".
                 val heading = gallery?.message?.let { m -> "${if (m.mine) "You" else m.sender?.name ?: "Wink"} · ${localTime(m.createdAt)}" } ?: "Photos"
@@ -451,11 +468,12 @@ private fun Screen(
     center: (@Composable () -> Unit)? = null,
     header: (@Composable () -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null,
+    action: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(Night)) {
         if (header != null) header()
-        else TopBar(title = title, onBack = onBack, onOpenWeekend = onOpenWeekend, showCountdown = showCountdown, center = center)
+        else TopBar(title = title, onBack = onBack, onOpenWeekend = onOpenWeekend, showCountdown = showCountdown, center = center, action = action)
         Box(Modifier.weight(1f)) { content() }
         footer?.invoke()
     }

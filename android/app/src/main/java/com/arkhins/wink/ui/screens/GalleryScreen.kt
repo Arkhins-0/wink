@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.screens
 
+import com.arkhins.wink.ui.components.saveAll
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -125,6 +126,10 @@ fun GalleryScreen(
                 // Only your own, and greyed out once their 2 hours are up.
                 if (messages.all { it.mine }) add(SelectionAction("Delete", enabled = messages.all(::recent), vector = Icons.Outlined.Delete) { removing = chosen })
                 add(SelectionAction("Forward", drawable = R.drawable.ic_forward) { forwarding = true })
+                add(SelectionAction("Save", drawable = R.drawable.ic_download) {
+                    selected = emptySet()
+                    saveAll(context, app, chosen.map { it.file to it.message.createdAt })
+                })
             },
         )
     }
@@ -147,7 +152,7 @@ fun GalleryScreen(
                     .clip(RoundedCornerShape(8.dp))
                     .background(NightPanel)
                     .combinedClickable(
-                        onClick = { if (selected.isNotEmpty()) toggle(f) else onView(FileView.Image(f)) },
+                        onClick = { if (selected.isNotEmpty()) toggle(f) else onView(FileView.Image(f, photos.firstOrNull { it.file.id == f.id }?.message?.createdAt)) },
                         onLongClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             toggle(f)

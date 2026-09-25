@@ -1,5 +1,7 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.ui.res.painterResource
+import com.arkhins.wink.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.foundation.text.InlineTextContent
@@ -282,16 +284,18 @@ fun PreviewLine(text: String, color: Color, style: TextStyle, modifier: Modifier
         val first = text.lineSequence().firstOrNull().orEmpty()
         if (first.trimEnd().endsWith("📍 My location")) first.trimEnd().removeSuffix("My location") + "Location" else text
     }
-    val at = line.indexOf("📍 ")
-    if (at < 0) {
+    // The first emoji a preview starts a part with: a location's pin, or a voice note's (or audio's) mic.
+    val mark = listOf("📍 ", "🎤 ").map { it to line.indexOf(it) }.filter { it.second >= 0 }.minByOrNull { it.second }
+    if (mark == null) {
         Text(line, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
         return
     }
+    val (emoji, at) = mark
     val shown = buildAnnotatedString {
         append(line.substring(0, at))
-        appendInlineContent("pin", "📍")
+        appendInlineContent(if (emoji.startsWith("📍")) "pin" else "mic", emoji.trim())
         append(" ")
-        append(line.substring(at + 3))
+        append(line.substring(at + emoji.length))
     }
     Text(
         shown,
@@ -303,6 +307,9 @@ fun PreviewLine(text: String, color: Color, style: TextStyle, modifier: Modifier
         inlineContent = mapOf(
             "pin" to InlineTextContent(Placeholder(1.1.em, 1.1.em, PlaceholderVerticalAlign.TextCenter)) {
                 Icon(Icons.Outlined.Place, contentDescription = null, tint = color, modifier = Modifier.fillMaxSize())
+            },
+            "mic" to InlineTextContent(Placeholder(1.1.em, 1.1.em, PlaceholderVerticalAlign.TextCenter)) {
+                Icon(painterResource(R.drawable.ic_mic), contentDescription = null, tint = color, modifier = Modifier.fillMaxSize())
             },
         ),
     )

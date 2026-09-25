@@ -38,6 +38,8 @@ import com.arkhins.wink.ui.theme.SnowSoft
  */
 @Composable
 fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Boolean = true, highlight: Boolean = false) {
+    val openView = onView
+    @Suppress("NAME_SHADOWING") val onView: (FileView) -> Unit = { v -> openView(v.stamped(run)) }
     val app = LocalApp.current
     val m = run.last()
     val unread = run.any { it.readAt == null && !it.mine }

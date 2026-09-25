@@ -82,8 +82,9 @@ import java.util.Locale
 
 /** Something a message wants shown full screen. */
 sealed interface FileView {
-    data class Image(val file: FileInfo) : FileView
-    data class Pdf(val doc: SavedDocument) : FileView
+    /** [sentAt]: when the message carrying it was sent, for the saved copy's name. */
+    data class Image(val file: FileInfo, val sentAt: String? = null) : FileView
+    data class Pdf(val doc: SavedDocument, val sentAt: String? = null) : FileView
     /**
      * The photos of a grid one under another, starting at [start]: to view,
      * forward or delete. Either one message's several files (sent that way
@@ -95,6 +96,14 @@ sealed interface FileView {
         /** All the photos are files of one message, not messages of their own. */
         val oneMessage: Boolean get() = photos.map { it.message.id }.distinct().size == 1 && photos.first().message.attachments.size > 1
     }
+}
+
+/** The view with the time its message was sent, found among [messages] (the bubble or card it was opened from). */
+fun FileView.stamped(messages: List<Message>): FileView = when (this) {
+    is FileView.Image -> if (sentAt != null) this else copy(sentAt = messages.firstOrNull { m -> m.attachments.any { it.id == file.id } }?.createdAt)
+    // A document's saved name starts with its file id's first characters.
+    is FileView.Pdf -> if (sentAt != null) this else copy(sentAt = messages.firstOrNull { m -> m.attachments.any { doc.name.startsWith(it.id.take(8) + "-") } }?.createdAt)
+    is FileView.Gallery -> this
 }
 
 /** One photo of a grid, with the message it came in. */

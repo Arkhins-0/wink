@@ -68,6 +68,8 @@ fun TopBar(
     menu: List<Pair<String, () -> Unit>> = emptyList(),
     /** Takes the title's place when set: the Chats | Channels switch. */
     center: (@Composable () -> Unit)? = null,
+    /** A button at the right end, before any ⋮: the viewers' Save. */
+    action: (@Composable () -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -104,6 +106,7 @@ fun TopBar(
         }
         OfflineIcon()
         if (showCountdown) CountdownChip(onOpenWeekend)
+        action?.invoke()
         if (menu.isNotEmpty()) HeaderMenu(menu) else Spacer(Modifier.width(8.dp))
     }
 }
