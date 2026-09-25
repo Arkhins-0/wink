@@ -10,6 +10,7 @@ import java.time.Instant
 import com.arkhins.wink.push.Notifications
 import com.arkhins.wink.data.ChatSent
 import kotlin.math.roundToInt
+import com.arkhins.wink.ui.components.GalleryPhoto
 import com.arkhins.wink.ui.components.ComposerBanner
 import com.arkhins.wink.data.ReplyRef
 import com.arkhins.wink.data.Ok
@@ -1164,16 +1165,18 @@ private fun Bubble(
                             InviteCard(inv, open = open, mine = mine, onDark = !mine, onAnswer = if (!mine && open && onInvite != null) ({ ok -> onInvite(inv, ok) }) else null)
                         }
                         // While messages are being picked, a tap on a photo picks this one too instead of opening it.
-                        // One still going up is not on the server yet: a tap opens nothing (or retries it, when it failed).
+                        // One still going up is not on the server yet: a tap on it opens nothing (or retries it, when
+                        // it failed). A grid opens with the photos that are sent; those still on their way are left out.
                         val view: (FileView) -> Unit = { v ->
-                            val onPhone = when (v) {
-                                is FileView.Image -> v.file.id.startsWith("local-")
-                                is FileView.Gallery -> v.photos.any { it.message.id.startsWith("local-") }
-                                else -> false
-                            }
+                            val sending = { p: GalleryPhoto -> p.message.id.startsWith("local-") }
                             when {
                                 selecting -> onToggle()
-                                onPhone -> onRetry?.invoke()
+                                v is FileView.Image && v.file.id.startsWith("local-") -> onRetry?.invoke()
+                                v is FileView.Gallery && sending(v.photos[v.start]) -> onRetry?.invoke()
+                                v is FileView.Gallery && v.photos.any(sending) -> {
+                                    val sent = v.photos.filterNot(sending)
+                                    onView(FileView.Gallery(sent, sent.indexOf(v.photos[v.start]).coerceAtLeast(0)))
+                                }
                                 else -> onView(v)
                             }
                         }

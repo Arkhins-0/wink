@@ -110,14 +110,13 @@ private const val PHOTO_RUN_GAP_MS = 60_000L
 
 /**
  * A message that is just one photo (with or without a caption): the kind
- * that joins a run. One still going up joins too (its file is the phone's
- * own `local-` copy), so a batch shows as its grid from the start; a
- * forward's stand-in does not.
+ * that joins a run. One still going up joins too, and so does a forward's
+ * stand-in, so a batch shows as its grid from the start and stays in it
+ * once the server has it, instead of standing alone and then jumping in.
  */
 fun isPhotoMessage(m: Message): Boolean =
     !m.deleted && m.event == null && m.groupInvite == null &&
-        m.attachments.size == 1 && m.attachments[0].isImage &&
-        (!m.id.startsWith("local-") || m.attachments[0].id.startsWith("local-"))
+        m.attachments.size == 1 && m.attachments[0].isImage
 
 /**
  * Messages in the order sent, with each run of photos gathered into one
