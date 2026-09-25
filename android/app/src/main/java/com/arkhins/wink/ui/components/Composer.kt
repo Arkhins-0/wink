@@ -114,7 +114,8 @@ data class ComposerBanner(val title: String, val text: String, val onCancel: () 
 
 /** A file picked for the tray. */
 /** [document]: picked through "Document": it goes as a document, as it is, whatever its type. */
-data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long, val document: Boolean = false, val hd: Boolean = false)
+/** [caption]: its own words, from the photo editor (else the message box's go with the first). */
+data class Picked(val uri: Uri, val name: String, val mime: String, val size: Long, val document: Boolean = false, val hd: Boolean = false, val caption: String = "")
 
 /** What the server takes in one message. */
 private const val MAX_PHOTOS = 30
@@ -234,7 +235,12 @@ fun Composer(
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) { makeRoomFor("audio"); audios = added(audios, uris) }
     }
+    // Photos picked or taken open the editor first (see PhotoEditor), as in WhatsApp.
+    var editorPhotos by remember { mutableStateOf<List<Uri>?>(null) }
+    var editorCaption by remember { mutableStateOf("") }
+    var editorHd by remember { mutableStateOf(false) }
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris ->
+        if (uris.isNotEmpty() && !editing) { editorCaption = ""; editorHd = false; editorPhotos = uris; return@rememberLauncherForActivityResult }
         if (uris.isNotEmpty()) { makeRoomFor("photos"); images = added(images, uris, MAX_PHOTOS) }
     }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -242,10 +248,7 @@ fun Composer(
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val u = cameraUri
-        if (ok && u != null) {
-            makeRoomFor("photos")
-            images = added(images, listOf(u), MAX_PHOTOS)
-        }
+        if (ok && u != null) { editorCaption = ""; editorHd = false; editorPhotos = listOf(u) }
     }
     fun openCamera() {
         val dir = File(context.cacheDir, "camera").apply { mkdirs() }
@@ -298,8 +301,8 @@ fun Composer(
      * whole tray is uploaded and goes as one message. A location has no file:
      * it goes as the text's last lines.
      */
-    fun doSend(urgent: Boolean) {
-        val text = body.text
+    fun doSend(urgent: Boolean, withText: Boolean = true) {
+        val text = if (withText) body.text else ""
         // While editing, the tray steps aside: only the text changes.
         val files = if (editing) emptyList() else images + docs + audios
         val loc = if (editing) null else location
@@ -308,7 +311,7 @@ fun Composer(
         val handOver = currentSendFiles
         if (handOver != null && files.isNotEmpty()) {
             handOver(files, text.trim(), urgent)
-            body = TextFieldValue("")
+            if (withText) body = TextFieldValue("")
             images = emptyList()
             docs = emptyList()
             audios = emptyList()
@@ -326,9 +329,9 @@ fun Composer(
                     files.forEachIndexed { i, p ->
                         status = "Sending ${i + 1} of ${files.size}…"
                         val id = uploaded[p.uri] ?: upload(context, app.api, app.documents, app.chatMedia, p).also { uploaded[p.uri] = it }
-                        currentSend(Draft(if (i == 0) text.trim() else "", listOf(id), urgent))
+                        currentSend(Draft(p.caption.ifBlank { if (i == 0) text.trim() else "" }, listOf(id), urgent))
                         // Gone: out of the tray, so a failure further on leaves only the rest.
-                        if (i == 0) body = TextFieldValue("")
+                        if (i == 0 && withText) body = TextFieldValue("")
                         images = images - p
                         docs = docs - p
                         audios = audios - p
@@ -591,12 +594,27 @@ fun Composer(
                 else pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             },
             onSend = { uris, caption, hd ->
-                // Picked in the sheet with a caption: they go now, the caption with the first, as from the tray.
+                // Picked in the sheet: into the editor, the caption typed there going with the first photo.
                 sheet = false
+                editorCaption = caption
+                editorHd = hd
+                editorPhotos = uris
+            },
+        )
+    }
+    editorPhotos?.let { list ->
+        PhotoEditor(
+            photos = list,
+            firstCaption = editorCaption,
+            hd = editorHd,
+            onDiscard = { editorPhotos = null },
+            onSend = { edited, hd ->
+                editorPhotos = null
+                // They go as the tray's photos do (one message each, in order), each with its own caption; whatever
+                // is typed in the message box stays there.
                 makeRoomFor("photos")
-                images = images + uris.filter { u -> images.none { it.uri == u } }.map { describe(context, it).copy(hd = hd) }
-                if (caption.isNotBlank()) body = TextFieldValue(caption)
-                doSend(false)
+                images = edited.map { describe(context, it.uri).copy(hd = hd, caption = it.caption) }
+                doSend(false, withText = false)
             },
         )
     }

@@ -845,7 +845,7 @@ fun ChatScreen(
                                 conversationId = conversationId,
                                 kind = "direct",
                                 // The words and the reply ride with the first.
-                                body = if (i == 0) caption else "",
+                                body = p.caption.ifBlank { if (i == 0) caption else "" },
                                 files = listOf(file),
                                 urgent = urgent,
                                 createdAt = now,
