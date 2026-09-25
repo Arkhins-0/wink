@@ -1,6 +1,9 @@
 package com.arkhins.wink.ui.screens
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.runtime.mutableStateSetOf
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.first
@@ -490,6 +493,9 @@ private sealed interface ChatRow {
 /** Ticks on a message you sent that the other person has read. */
 private val ReadBlue = Color(0xFF0B5CAD)
 
+/** Messages being deleted from this phone, until the server has confirmed it (kept across chats reopening). */
+private val deletingNow = mutableStateSetOf<String>()
+
 /**
  * One private chat: bubbles, yours on the right, with day separators and the
  * composer pinned below. Long-press a message for Reply, Edit and Delete;
@@ -574,7 +580,12 @@ fun ChatScreen(
         }
     }
 
-    val d = detail
+    // Messages deleted here whose delete the server hasn't confirmed yet stay deleted on screen: a sync that
+    // answers first (the 5-second check) would otherwise bring them back for a moment.
+    val d = detail?.let { dd ->
+        if (deletingNow.isEmpty() || dd.messages.none { it.id in deletingNow && !it.deleted }) dd
+        else dd.copy(messages = dd.messages.map { m -> if (m.id in deletingNow && !m.deleted) m.copy(body = "", file = null, files = emptyList(), deleted = true) else m })
+    }
     val rows = remember(d?.messages, pending) {
         buildList {
             // One header per day: a phone clock behind the server's could otherwise put a message just sent
@@ -882,10 +893,15 @@ fun ChatScreen(
                     val ids = chosen.map { it.id }.toSet()
                     if (editing?.id in ids) editing = null
                     if (replyTo?.id in ids) replyTo = null
+                    deletingNow.addAll(ids)
                     detail = detail?.let { it.copy(messages = it.messages.map { m -> if (m.id in ids) m.copy(body = "", file = null, files = emptyList(), deleted = true) else m }) }
                     app.appScope.launch {
-                        val failed = chosen.count { m -> runCatching { app.api.delete("/api/messages/${m.id}") }.isFailure }
+                        // All at once; each is its own request, so the order doesn't matter.
+                        val failed = chosen.map { m -> async { runCatching { app.api.delete("/api/messages/${m.id}") }.isFailure } }.awaitAll().count { it }
+                        // The server's copy says deleted now (or, for one that failed, not: it comes back, as it should).
+                        runCatching { app.chatCache.sync(conversationId, markRead = true) }.getOrNull()?.let { fresh -> withContext(Dispatchers.Main) { detail = fresh } }
                         withContext(Dispatchers.Main) {
+                            deletingNow.removeAll(ids)
                             if (failed > 0) actionError = if (failed == 1) "One message could not be deleted." else "$failed messages could not be deleted."
                             reload++
                         }
