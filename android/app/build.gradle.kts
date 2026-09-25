@@ -13,8 +13,8 @@ plugins {
 // Four segments. Bump both together for every release: the tag pushed to
 // GitHub is "v" + versionName, and the app compares versionName against the
 // latest release to decide whether to show the update popup.
-val winkVersionName = "0.1.5.0"
-val winkVersionCode = 12
+val winkVersionName = "0.1.5.1"
+val winkVersionCode = 13
 
 // --- Build-time configuration --------------------------------------------------
 // Values reach the app through BuildConfig. Each is looked up, in order, as an
@@ -167,6 +167,8 @@ dependencies {
 
     // Profile photos.
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Pinch and double-tap zoom for the full-screen photo: zooms where the fingers are, stays in bounds, flings.
+    implementation("me.saket.telephoto:zoomable-image-coil:0.14.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")

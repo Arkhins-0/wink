@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -143,7 +144,9 @@ fun LinkCard(preview: LinkPreview, onDark: Boolean, onLongPress: (() -> Unit)? =
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // Never squeezed by a short title: as wide as a photo.
+            .widthIn(min = 260.dp)
+            .clip(RoundedCornerShape(13.dp))
             .background(if (onDark) Night else Color.Black.copy(alpha = 0.08f))
             .combinedClickable(onLongClick = onLongPress) { runCatching { uri.openUri(preview.url) } },
     ) {
@@ -151,8 +154,10 @@ fun LinkCard(preview: LinkPreview, onDark: Boolean, onLongPress: (() -> Unit)? =
             AsyncImage(
                 model = app.api.absolute(img),
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp),
+                // The whole picture across the card's width (only a very tall one is cut at the bottom).
+                contentScale = ContentScale.FillWidth,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
             )
         }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {

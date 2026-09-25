@@ -1184,7 +1184,8 @@ private fun Bubble(
             // A file still going up: how far (below 0 until known); null for one on the server, or one turned down.
             fun uploading(msg: Message): Float? =
                 if (msg.status == "pending" && msg.attachments.firstOrNull()?.id?.startsWith("local-") == true) uploads[msg.id] ?: -1f else null
-            val picture = !m.deleted && photos.isNotEmpty()
+            // A link card is framed like a picture: a hairline of bubble round it.
+            val picture = !m.deleted && (photos.isNotEmpty() || m.linkPreview != null)
             val inset = if (picture) Modifier.padding(horizontal = 9.dp) else Modifier
             /** When it was sent (edited), the ticks, a failed send, the urgent mark: at the bubble's bottom right. */
             val meta: @Composable () -> Unit = {
@@ -1292,12 +1293,11 @@ private fun Bubble(
                         val text = bodyText
                         m.linkPreview?.let { card ->
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                            Box(Modifier.padding(4.dp)) {
-                                LinkCard(card, onDark = !mine, onLongPress = if (local) null else ({
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onToggle()
-                                }))
-                            }
+                            LinkCard(card, onDark = !mine, onLongPress = if (local) null else ({
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onToggle()
+                            }))
+                            if (text.isNotBlank()) Spacer(Modifier.height(4.dp))
                         }
                         if (text.isNotBlank() && m.groupInvite == null) {
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
