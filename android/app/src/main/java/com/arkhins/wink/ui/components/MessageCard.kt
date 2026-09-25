@@ -107,7 +107,11 @@ fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Bool
                 }
                 val loc = locationIn(m.body)
                 // A poll's message is its card, not its words.
-                val text = if (m.poll != null || m.calendarEvent != null) "" else if (run.size > 1) runText(run) else textOf(m.body)
+                val text = if (m.poll != null || m.calendarEvent != null) "" else if (run.size > 1) runText(run) else textBesideCard(textOf(m.body), m.linkPreview)
+                m.linkPreview?.let { card ->
+                    Spacer(Modifier.height(8.dp))
+                    LinkCard(card, onDark = true)
+                }
                 if (m.poll != null) {
                     Spacer(Modifier.height(4.dp))
                     MessagePoll(m, onDark = true)

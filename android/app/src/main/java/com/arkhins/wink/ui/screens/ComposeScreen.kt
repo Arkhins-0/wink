@@ -191,6 +191,7 @@ fun ComposeScreen(onSent: () -> Unit) {
                     val r = app.api.post("/api/messages", SentResponse.serializer()) {
                         putJsonArray("recipientIds") { picked.forEach { add(it) } }
                         put("body", d.body)
+                        d.link?.let { put("linkUrl", it.url) }
                         putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                         put("urgent", d.urgent)
                         d.poll?.let { p ->

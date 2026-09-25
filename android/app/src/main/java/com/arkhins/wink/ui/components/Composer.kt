@@ -1,5 +1,6 @@
 package com.arkhins.wink.ui.components
 
+import com.arkhins.wink.data.LinkPreview
 import com.arkhins.wink.data.DeviceFiles
 import androidx.core.content.FileProvider
 import androidx.compose.ui.platform.LocalView
@@ -106,7 +107,8 @@ import java.util.Locale
 import kotlin.coroutines.resume
 
 /** What a composer hands back. */
-data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolean, val poll: NewPoll? = null, val event: NewEvent? = null) {
+/** [link]: the card left open for the first link in the text (its ✕ closes it: a plain link). */
+data class Draft(val body: String, val fileIds: List<String>, val urgent: Boolean, val poll: NewPoll? = null, val event: NewEvent? = null, val link: LinkPreview? = null) {
     /** The first attachment, for callers that only ever sent one. */
     val fileId: String? get() = fileIds.firstOrNull()
 }
@@ -148,6 +150,8 @@ fun Composer(
     locationSends: Boolean = voiceNoteSends,
     /** Groups and announcements: the 📎 sheet offers Poll and Event. */
     polls: Boolean = false,
+    /** A card for the first link typed (see LinkPreviews.kt). */
+    linkPreviews: Boolean = true,
     /** True: every file is its own message, sent in order. False (the email page): one message carries them all. */
     oneMessagePerFile: Boolean = true,
     /**
@@ -259,6 +263,8 @@ fun Composer(
     var filesOpen by remember { mutableStateOf(false) }
     var pollOpen by remember { mutableStateOf(false) }
     var eventOpen by remember { mutableStateOf(false) }
+    // The card for the first link typed; not while editing, nor with files in the tray.
+    val typedLink = rememberTypedLink(body.text, linkPreviews && !editing && images.isEmpty() && docs.isEmpty() && audios.isEmpty())
     // Debug builds: a screen asked for over adb (see DebugHooks).
     if (com.arkhins.wink.BuildConfig.DEBUG) {
         val asked by com.arkhins.wink.ui.DebugHooks.sheet.collectAsState()
@@ -383,7 +389,7 @@ fun Composer(
                 }
                 status = null
                 val full = listOfNotNull(text.trim().ifEmpty { null }, loc?.let { (lat, lng) -> locationText(lat, lng) }).joinToString("\n")
-                currentSend(Draft(full, ids, urgent))
+                currentSend(Draft(full, ids, urgent, link = if (ids.isEmpty() && loc == null) typedLink.preview else null))
                 body = TextFieldValue("")
                 if (!editing) {
                     images = emptyList()
@@ -461,6 +467,7 @@ fun Composer(
                 PlainIcon(rememberVectorPainter(Icons.Outlined.Close), "Cancel", SnowFaint, enabled = !busy) { b.onCancel() }
             }
         }
+        ComposerLinkPreview(typedLink)
         if (!editing && images.isNotEmpty()) {
             PhotoStrip(images, enabled = !busy) { p -> images = images - p; uploaded.remove(p.uri) }
         }
@@ -695,7 +702,7 @@ fun Composer(
 }
 
 @Composable
-private fun PlainIcon(icon: Painter, description: String, tint: Color, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun PlainIcon(icon: Painter, description: String, tint: Color, enabled: Boolean = true, onClick: () -> Unit) {
     Box(Modifier.size(44.dp).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(24.dp))
     }

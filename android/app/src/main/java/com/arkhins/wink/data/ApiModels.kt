@@ -103,7 +103,16 @@ data class Message(
     val poll: Poll? = null,
     /** An event on this message (groups and announcements), as this person sees it. */
     val calendarEvent: CalendarEvent? = null,
+    /** The card for the first link in the text, unless the sender closed it. */
+    val linkPreview: LinkPreview? = null,
 )
+
+/** A link's card: what the page says about itself; [image] is a path through the server (or null). */
+@Serializable
+data class LinkPreview(val url: String, val title: String = "", val description: String = "", val site: String = "", val image: String? = null)
+
+@Serializable
+data class LinkPreviewAnswer(val preview: LinkPreview? = null)
 
 /** An event: when (and until when), where, the reminder, the going / not going counts and this person's answer. */
 @Serializable

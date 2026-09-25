@@ -79,6 +79,7 @@ fun WeekendScreen(vm: AppViewModel, weekendId: String, onView: (FileView) -> Uni
                         Composer(placeholder = "Post to everyone for this weekend", sendLabel = "Post", voiceNoteSends = false) { d ->
                             app.api.post("/api/weekends/$weekendId/channel", IdResponse.serializer()) {
                                 put("body", d.body)
+                                d.link?.let { put("linkUrl", it.url) }
                                 putJsonArray("fileIds") { d.fileIds.forEach { add(it) } }
                                 put("urgent", d.urgent)
                             }

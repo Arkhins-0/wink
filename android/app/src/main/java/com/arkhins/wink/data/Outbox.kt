@@ -243,6 +243,8 @@ class Outbox(
                     item.message.batchId?.let { put("batchId", it) }
                     item.message.batchPos?.let { put("batchPos", it) }
                     if (item.replyToId != null) put("replyToId", item.replyToId)
+                    // The card shown while it waits goes with it; none, a plain link.
+                    item.message.linkPreview?.let { put("linkUrl", it.url) }
                     fileIds[id]?.let { f -> putJsonArray("fileIds") { add(f) } }
                 }
             } ?: return

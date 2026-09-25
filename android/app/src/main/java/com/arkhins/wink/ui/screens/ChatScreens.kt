@@ -1,5 +1,11 @@
 package com.arkhins.wink.ui.screens
 
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.style.TextDecoration
+import com.arkhins.wink.ui.components.linkRanges
+import com.arkhins.wink.ui.components.LinkCard
+import com.arkhins.wink.ui.components.textBesideCard
 import com.arkhins.wink.ui.components.MessageEvent
 import com.arkhins.wink.ui.components.putEvent
 import com.arkhins.wink.ui.components.MessagePoll
@@ -927,6 +933,7 @@ fun ChatScreen(
                         mine = true,
                         replyTo = replyingTo?.let(::refOf),
                         status = "pending",
+                        linkPreview = draft.link,
                     )
                     app.outbox.send(Queued(conversationId, local, replyingTo?.id))
                     replyTo = null
@@ -1035,6 +1042,10 @@ private fun highlighted(body: String, needle: String?, mine: Boolean) = buildAnn
     // Bold, italic, underline and strikethrough first (see Formatting.kt), then the search's matches over the words.
     val shown = formatted(body)
     append(shown)
+    // Every link underlined and tappable (it opens in the browser), as chat apps show them.
+    linkRanges(shown.text).forEach { (url, range) ->
+        addLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))), range.first, range.last + 1)
+    }
     if (needle.isNullOrBlank()) return@buildAnnotatedString
     val lit = SpanStyle(background = if (mine) Night.copy(alpha = 0.25f) else Gold.copy(alpha = 0.45f), color = if (mine) Night else Snow)
     var from = 0
@@ -1192,7 +1203,8 @@ private fun Bubble(
                 }
             }
             // A poll's message is its card, not its words.
-            val bodyText = if (m.poll != null || m.calendarEvent != null) "" else if (run.size > 1) runText(run) else textOf(m.body)
+            // A card says the link: a message that is only the link shows the card alone.
+            val bodyText = if (m.poll != null || m.calendarEvent != null) "" else if (run.size > 1) runText(run) else textBesideCard(textOf(m.body), m.linkPreview)
             val bodyLoc = if (run.size > 1) null else locationIn(m.body)
             // The words come last (no location card after them): the time sits in their last line, as in WhatsApp.
             val metaInline = m.deleted || (bodyText.isNotBlank() && m.groupInvite == null && bodyLoc == null)
@@ -1278,6 +1290,15 @@ private fun Bubble(
                         // The words, then the place they point to: a Maps link on the last line becomes a card.
                         val loc = bodyLoc
                         val text = bodyText
+                        m.linkPreview?.let { card ->
+                            if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                            Box(Modifier.padding(4.dp)) {
+                                LinkCard(card, onDark = !mine, onLongPress = if (local) null else ({
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onToggle()
+                                }))
+                            }
+                        }
                         if (text.isNotBlank() && m.groupInvite == null) {
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
                             // Parsed once per text, not on every redraw of the bubble.
