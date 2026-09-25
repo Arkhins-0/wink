@@ -36,7 +36,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
-import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -197,38 +196,25 @@ private fun AuthNav(vm: AppViewModel) {
 private fun MainNav(vm: AppViewModel) {
     val app = LocalApp.current
     val nav = rememberNavController()
-    val entry by nav.currentBackStackEntryAsState()
-    val route = entry?.destination?.route ?: "home"
-    val tab = route.substringBefore("/").substringBefore("?")
-    var title by remember { mutableStateOf("") }
-    var chatWith by remember { mutableStateOf<OtherUser?>(null) }
-    // Messages long-pressed in a chat: the header turns into the selection bar.
-    var selection by remember { mutableStateOf<SelectionBar?>(null) }
-    // The chat header's ⋮ menu: a search bar in the chat, or an export of it.
-    var chatSearch by remember { mutableStateOf(false) }
     // The chats tab: 0 is the chat list, 1 the channels; the header switch and the swipe both move it.
     var chatsPage by remember { mutableIntStateOf(0) }
-    var chatExport by remember { mutableIntStateOf(0) }
-    var chatCanExport by remember { mutableStateOf(true) }
-    // The open chat. It is not a screen of its own: it floats in over whatever is on screen and floats
-    // back out, so the page beneath (the chats tab, its footer, the list) is never touched.
-    var openChat by remember { mutableStateOf<String?>(null) }
-    // The chat still drawn while it slides out.
-    var lastChat by remember { mutableStateOf<String?>(null) }
-    // A chat opens without the last one's search bar, selection or name in its header.
-    LaunchedEffect(openChat) {
-        openChat?.let { lastChat = it }
-        chatSearch = false
-        chatWith = null
-        selection = null
-    }
-    /** Go where a link or a saved route says: a chat floats in, anything else is a screen. */
-    val go: (String) -> Unit = { r -> if (r.startsWith("chat/")) openChat = r.removePrefix("chat/") else nav.navigate(r) }
     var pdf by remember { mutableStateOf<SavedDocument?>(null) }
     var image by remember { mutableStateOf<FileInfo?>(null) }
     // A grid's photos, opened from it; while some are picked there the header is the selection bar.
     var gallery by remember { mutableStateOf<FileView.Gallery?>(null) }
     var gallerySelection by remember { mutableStateOf<SelectionBar?>(null) }
+
+    val back: () -> Unit = { nav.popBackStack() }
+    /** A chat opens on top of what is showing; from inside a chat (a forward), it takes that chat's place. */
+    val openChat: (String) -> Unit = { id ->
+        val top = nav.currentBackStackEntry
+        val inChat = top?.destination?.route == "chat/{id}"
+        if (!(inChat && top?.arguments?.getString("id") == id)) {
+            nav.navigate("chat/$id") { if (inChat) popUpTo("chat/{id}") { inclusive = true } }
+        }
+    }
+    /** Go where a link or a saved route says. */
+    val go: (String) -> Unit = { r -> if (r.startsWith("chat/")) openChat(r.removePrefix("chat/")) else runCatching { nav.navigate(r) } }
     val pending by Links.pending.collectAsStateWithLifecycle()
     // Opened by a notification or link: that decides the screen, not the last one seen.
     val openedByLink = remember { Links.pending.value != null }
@@ -248,17 +234,16 @@ private fun MainNav(vm: AppViewModel) {
         val saved = app.session.lastRoute
         val fresh = System.currentTimeMillis() - app.session.lastRouteAt < 6 * 60 * 60 * 1000L
         if (!openedByLink && Links.pending.value == null && saved != null && saved != "home" && fresh) {
-            if (saved.startsWith("chat/")) openChat = saved.removePrefix("chat/") else runCatching { nav.navigate(saved) { launchSingleTop = true } }
+            runCatching { nav.navigate(saved) { launchSingleTop = true } }
         }
     }
-    LaunchedEffect(openChat) { openChat?.let { app.session.saveRoute("chat/$it") } }
     DisposableEffect(nav) {
         val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, arguments ->
             val pattern = destination.route ?: return@OnDestinationChangedListener
             // Screens that make sense to come back to; not viewers or forms.
             val concrete = when {
                 pattern in setOf("home", "schedule", "chats", "people", "account") -> pattern
-                pattern.startsWith("weekend/") || pattern.startsWith("person/") ->
+                pattern.startsWith("weekend/") || pattern.startsWith("person/") || pattern.startsWith("chat/") ->
                     pattern.replace("{id}", arguments?.getString("id") ?: return@OnDestinationChangedListener)
                 else -> return@OnDestinationChangedListener
             }
@@ -276,73 +261,52 @@ private fun MainNav(vm: AppViewModel) {
             is FileView.Gallery -> { gallery = it; gallerySelection = null; nav.navigate("gallery") }
         }
     }
-    val isTab = tab in setOf("home", "schedule", "chats", "people", "account")
-    val screenTitle = when (tab) {
-        "home" -> "Wink"
-        "schedule" -> "Schedule"
-        "chats" -> "Chats"
-        "people" -> "People"
-        "account" -> "Account"
-        "compose" -> "New message"
-        "newchat" -> "New chat"
-        "newgroup" -> "New group"
-        "newperson" -> "Add person"
-        "email" -> "Email"
-        "scanner", "verify" -> "Verify"
-        "changelog" -> "What's new"
-        "settings" -> "Settings"
-        "details" -> "Account"
-        "storage" -> "Storage"
-        "about" -> "About"
-        "archive" -> if (route == "archive") "Archive" else title.ifBlank { "Season" }
-        "pdf" -> pdf?.name ?: "Document"
-        "image" -> image?.name ?: "Photo"
-        // Who sent the photos and when, as WhatsApp heads them: "You · 8:16 pm".
-        "gallery" -> gallery?.message?.let { m -> "${if (m.mine) "You" else m.sender?.name ?: "Wink"} · ${localTime(m.createdAt)}" } ?: "Photos"
-        "weekend" -> "Race weekend"
-        else -> title
-    }
-    // Screens the chat opens on top of itself; while one is up the chat waits underneath, out of sight.
-    val chatCovered = tab in setOf("image", "pdf", "gallery", "chatprofile", "group")
+
+    /** A tab: its header, its page, and the footer. */
+    @Composable
+    fun Tab(current: String, title: String, center: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) =
+        Screen(title, onBack = null, onOpenWeekend = openWeekend, center = center, footer = {
+            // A tab always shows its own page: everything above Home is
+            // dropped first, nothing is restored (a chat opened from a popup
+            // would otherwise come back on top of Home).
+            BottomNav(
+                current = current,
+                unreadHome = vm.unreadHome,
+                unreadChats = vm.unreadChats,
+                photoUrl = app.api.absolute(vm.me?.user?.photoUrl),
+                name = vm.me?.user?.displayName ?: "?",
+            ) { dest ->
+                nav.navigate(dest) {
+                    popUpTo("home") { inclusive = dest == "home" }
+                    launchSingleTop = true
+                }
+            }
+        }, content = content)
+
+    /** A screen opened on top: its own header with a back arrow, no footer. */
+    @Composable
+    fun Pushed(title: String, showCountdown: Boolean = true, header: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) =
+        Screen(title, onBack = back, onOpenWeekend = openWeekend, showCountdown = showCountdown, header = header, content = content)
 
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
-        val galleryBar = gallerySelection
-        if (tab == "gallery" && galleryBar != null) SelectionTopBar(galleryBar) else TopBar(
-            title = screenTitle,
-            onBack = if (isTab) null else ({ nav.popBackStack() }),
-            onOpenWeekend = openWeekend,
-            showCountdown = tab != "pdf" && tab != "image" && tab != "gallery",
-            center = if (tab == "chats") ({ ChatsHeader(chatsPage) { chatsPage = it } }) else null,
-        )
-        Box(Modifier.weight(1f)) {
-            // Screens change in a blink: the default fade is far too slow.
-            NavHost(
-                nav,
-                startDestination = "home",
-                enterTransition = { fadeIn(tween(120)) },
-                // A page flying in leaves the screen under it exactly as it was, and finds it there on the way back.
-                exitTransition = { if (targetState.destination.route in slidingPages) ExitTransition.KeepUntilTransitionsFinished else fadeOut(tween(90)) },
-                popEnterTransition = { if (initialState.destination.route in slidingPages) EnterTransition.None else fadeIn(tween(120)) },
-                popExitTransition = { fadeOut(tween(90)) },
-            ) {
-                composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { openChat = it }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
-                composable("home?m={m}") { e -> HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = { openChat = it }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
-                composable("schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) }
-                composable("weekend/{id}") { e -> WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) }
-                composable("chats") { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = { openChat = it }, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) }
-                // Made or chosen from a form: back to the chats tab, with the chat floating over it.
-                composable("newchat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.popBackStack("chats", false); openChat = id } }
-                composable("newgroup") { NewGroupScreen { id -> nav.popBackStack("chats", false); openChat = id } }
-                composable("group/{id}") { e -> GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.popBackStack("chats", false); openChat = it }, onLeft = { openChat = null; nav.navigate("chats") { popUpTo("home") } }) { title = it } }
-                composable("chatprofile/{id}") { e -> ChatProfileScreen(e.arguments?.getString("id") ?: "") { title = it } }
-                composable("compose") { ComposeScreen { nav.popBackStack(); vm.changed() } }
-                composable("people") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) }
-                composable("person/{id}") { e -> PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = { openChat = it }) { title = it } }
-                composable("newperson") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } }
-                composable("email") { EmailScreen(null) { nav.popBackStack() } }
-                composable("email?group={group}") { e -> EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } }
-                composable("account") {
+        // Tabs swap in place, footer still. Anything else flies in from the right, header and all, over
+        // the screen it was opened from, which stays exactly as it was and is there again on the way back.
+        NavHost(
+            nav,
+            startDestination = "home",
+            modifier = Modifier.fillMaxSize(),
+            enterTransition = { if (!targetState.isTab()) slideInHorizontally(tween(220)) { it } else if (initialState.isTab()) EnterTransition.None else fadeIn(tween(120)) },
+            exitTransition = { if (!targetState.isTab()) ExitTransition.KeepUntilTransitionsFinished else if (initialState.isTab()) ExitTransition.None else fadeOut(tween(90)) },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { if (initialState.isTab()) ExitTransition.None else slideOutHorizontally(tween(200)) { it } },
+        ) {
+            composable("home") { Tab("home", "Wink") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) } }
+            composable("home?m={m}") { e -> Tab("home", "Wink") { HomeScreen(vm, highlight = e.arguments?.getString("m"), onOpenWeekend = openWeekend, onOpenChat = openChat, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) } }
+            composable("schedule") { Tab("schedule", "Schedule") { ScheduleScreen(isAdmin = vm.me?.isAdmin == true, onOpenWeekend = openWeekend, onArchive = { nav.navigate("archive") }) } }
+            composable("chats") { Tab("chats", "Chats", center = { ChatsHeader(chatsPage) { chatsPage = it } }) { ChatsScreen(vm, page = chatsPage, onPage = { chatsPage = it }, onOpen = openChat, onNewChat = { nav.navigate("newchat") }, onOpenWeekend = openWeekend) } }
+            composable("people") { Tab("people", "People") { PeopleScreen(vm.me, onOpen = { nav.navigate("person/$it") }, onAdd = { nav.navigate("newperson") }, onEmail = { g -> nav.navigate(if (g == null) "email" else "email?group=$g") }) } }
+            composable("account") {
+                Tab("account", "Account") {
                     AccountScreen(
                         vm,
                         onScan = { nav.navigate("scanner") },
@@ -353,19 +317,79 @@ private fun MainNav(vm: AppViewModel) {
                         onAbout = { nav.navigate("about") },
                     )
                 }
-                page("details") { AccountDetailsScreen(vm) }
-                page("storage") { StorageScreen() }
-                page("settings") { SettingsScreen() }
-                page("about") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) }
-                page("changelog") { ChangelogScreen() }
-                page("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
-                page("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
-                page("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
-                page("scanner") { ScannerScreen(onOpenChat = { openChat = it }) }
-                composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { openChat = it }) }
-                composable("pdf") { pdf?.let { PdfScreen(it) } }
-                composable("image") { image?.let { ImageScreen(it) } }
-                composable("gallery") {
+            }
+
+            composable("chat/{id}") { e ->
+                val id = e.arguments?.getString("id") ?: ""
+                var chatWith by remember { mutableStateOf<OtherUser?>(null) }
+                // Messages long-pressed in a chat: the header turns into the selection bar.
+                var selection by remember { mutableStateOf<SelectionBar?>(null) }
+                // The chat header's ⋮ menu: a search bar in the chat, or an export of it.
+                var chatSearch by remember { mutableStateOf(false) }
+                var chatExport by remember { mutableIntStateOf(0) }
+                var chatCanExport by remember { mutableStateOf(true) }
+                // The name and photo are there from the first frame: from the phone's copy of the chat, or its row in the list.
+                val who = chatWith ?: remember(id) {
+                    app.chatCache.peek(id)?.let { it.other ?: it.group?.asOther() } ?: app.chatCache.peekList()?.find { it.id == id }?.other
+                }
+                Pushed(who?.name ?: "", header = {
+                    val bar = selection
+                    if (bar != null) SelectionTopBar(bar) else TopBar(
+                        title = who?.name ?: "",
+                        onBack = back,
+                        onOpenWeekend = openWeekend,
+                        photo = who?.let { w -> { Avatar(app.api.absolute(w.photoUrl), w.name, 36) } },
+                        onTitleClick = { nav.navigate(if (who?.role == "group") "group/$id" else "chatprofile/$id") },
+                        menu = listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()),
+                    )
+                }) {
+                    ChatScreen(vm, id, view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = openChat) { chatWith = it }
+                }
+            }
+            // Made or chosen from a form: back to the chats tab, with the chat on top of it.
+            composable("newchat") { Pushed("New chat") { NewChatScreen(onNewGroup = { nav.navigate("newgroup") }) { id -> nav.popBackStack("chats", false); openChat(id) } } }
+            composable("newgroup") { Pushed("New group") { NewGroupScreen { id -> nav.popBackStack("chats", false); openChat(id) } } }
+            composable("group/{id}") { e ->
+                var t by remember { mutableStateOf("") }
+                Pushed(t) { GroupScreen(vm, e.arguments?.getString("id") ?: "", onOpenChat = { nav.popBackStack("chats", false); openChat(it) }, onLeft = { nav.navigate("chats") { popUpTo("home") } }) { t = it } }
+            }
+            composable("chatprofile/{id}") { e ->
+                var t by remember { mutableStateOf("") }
+                Pushed(t) { ChatProfileScreen(e.arguments?.getString("id") ?: "") { t = it } }
+            }
+            composable("compose") { Pushed("New message") { ComposeScreen { nav.popBackStack(); vm.changed() } } }
+            composable("weekend/{id}") { e -> Pushed("Race weekend") { WeekendScreen(vm, e.arguments?.getString("id") ?: "", view) } }
+            composable("person/{id}") { e ->
+                var t by remember { mutableStateOf("") }
+                Pushed(t) { PersonScreen(vm.me, e.arguments?.getString("id") ?: "", onOpenChat = openChat) { t = it } }
+            }
+            composable("newperson") { Pushed("Add person") { NewPersonScreen(vm.me) { id -> nav.navigate("person/$id") { popUpTo("people") } } } }
+            composable("email") { Pushed("Email") { EmailScreen(null) { nav.popBackStack() } } }
+            composable("email?group={group}") { e -> Pushed("Email") { EmailScreen(e.arguments?.getString("group")) { nav.popBackStack() } } }
+
+            composable("details") { Pushed("Account") { AccountDetailsScreen(vm) } }
+            composable("storage") { Pushed("Storage") { StorageScreen() } }
+            composable("settings") { Pushed("Settings") { SettingsScreen() } }
+            composable("about") { Pushed("About") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) } }
+            composable("changelog") { Pushed("What's new") { ChangelogScreen() } }
+            composable("legal/{doc}") { e ->
+                var t by remember { mutableStateOf("") }
+                Pushed(t) { LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { t = it }) }
+            }
+            composable("archive") { Pushed("Archive") { ArchiveScreen { nav.navigate("archive/$it") } } }
+            composable("archive/{id}") { e ->
+                var t by remember { mutableStateOf("Season") }
+                Pushed(t) { SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = back) { t = it } }
+            }
+            composable("scanner") { Pushed("Verify") { ScannerScreen(onOpenChat = openChat) } }
+            composable("verify/{token}") { e -> Pushed("Verify") { ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = openChat) } }
+
+            composable("pdf") { Pushed(pdf?.name ?: "Document", showCountdown = false) { pdf?.let { PdfScreen(it) } } }
+            composable("image") { Pushed(image?.name ?: "Photo", showCountdown = false) { image?.let { ImageScreen(it) } } }
+            composable("gallery") {
+                // Who sent the photos and when, as WhatsApp heads them: "You · 8:16 pm".
+                val heading = gallery?.message?.let { m -> "${if (m.mine) "You" else m.sender?.name ?: "Wink"} · ${localTime(m.createdAt)}" } ?: "Photos"
+                Pushed(heading, showCountdown = false, header = gallerySelection?.let { bar -> { SelectionTopBar(bar) } }) {
                     gallery?.let { g ->
                         GalleryScreen(
                             g,
@@ -379,61 +403,12 @@ private fun MainNav(vm: AppViewModel) {
                 }
             }
         }
-        if (isTab) {
-            // A tab always shows its own page: everything above Home is
-            // dropped first, nothing is restored (a chat opened from a popup
-            // would otherwise come back on top of Home).
-            BottomNav(
-                current = tab,
-                unreadHome = vm.unreadHome,
-                unreadChats = vm.unreadChats,
-                photoUrl = app.api.absolute(vm.me?.user?.photoUrl),
-                name = vm.me?.user?.displayName ?: "?",
-            ) { dest ->
-                nav.navigate(dest) {
-                    popUpTo("home") { inclusive = dest == "home" }
-                    launchSingleTop = true
-                }
-            }
-        }
-    }
 
-    // The chat, floating over everything: in from the right, out to the right. Back closes it.
-    if (!chatCovered) {
-        AnimatedVisibility(
-            visible = openChat != null,
-            enter = slideInHorizontally(tween(220)) { it },
-            exit = slideOutHorizontally(tween(200)) { it },
-        ) {
-            val id = openChat ?: lastChat
-            if (id != null) {
-                BackHandler(enabled = openChat != null) { openChat = null }
-                // The name and photo are there from the first frame: from the phone's copy of the chat, or its row in the list.
-                val who = chatWith ?: remember(id) {
-                    app.chatCache.peek(id)?.let { it.other ?: it.group?.asOther() } ?: app.chatCache.peekList()?.find { it.id == id }?.other
-                }
-                Column(Modifier.fillMaxSize().background(Night)) {
-                    val bar = selection
-                    if (bar != null) SelectionTopBar(bar) else TopBar(
-                        title = who?.name ?: "",
-                        onBack = { openChat = null },
-                        onOpenWeekend = openWeekend,
-                        photo = who?.let { w -> { Avatar(app.api.absolute(w.photoUrl), w.name, 36) } },
-                        onTitleClick = { nav.navigate(if (who?.role == "group") "group/$id" else "chatprofile/$id") },
-                        menu = listOf("Search messages" to { chatSearch = true }) + (if (chatCanExport) listOf("Export chat" to { chatExport++ }) else emptyList()),
-                    )
-                    Box(Modifier.weight(1f)) {
-                        ChatScreen(vm, id, view, onSelection = { selection = it }, searchOpen = chatSearch, onSearchClose = { chatSearch = false }, exportTick = chatExport, onCanExport = { chatCanExport = it }, onOpenChat = { openChat = it }) { chatWith = it }
-                    }
-                }
+        vm.popup?.let { event ->
+            Box(Modifier.align(Alignment.TopCenter)) {
+                PopupBubble(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let(go) }, onDismiss = vm::dismissPopup)
             }
         }
-    }
-    vm.popup?.let { event ->
-        Box(Modifier.align(Alignment.TopCenter)) {
-            PopupBubble(event, onOpen = { link -> vm.dismissPopup(); Links.route(link)?.let(go) }, onDismiss = vm::dismissPopup)
-        }
-    }
     }
 }
 
@@ -442,14 +417,29 @@ fun UriHandler.openSafely(url: String) {
     runCatching { openUri(url) }
 }
 
-/** Pages opened from the Account tab (and their own pages): they fly in from the right over the screen under them. */
-private val slidingPages = setOf("details", "storage", "settings", "about", "changelog", "legal/{doc}", "archive", "archive/{id}", "scanner")
+private val TABS = setOf("home", "home?m={m}", "schedule", "chats", "people", "account")
 
-private fun NavGraphBuilder.page(route: String, content: @Composable (NavBackStackEntry) -> Unit) = composable(
-    route,
-    enterTransition = { slideInHorizontally(tween(220)) { it } },
-    popExitTransition = { slideOutHorizontally(tween(200)) { it } },
-) { e ->
-    // Solid, so the screen underneath doesn't show through while it slides.
-    Box(Modifier.fillMaxSize().background(Night)) { content(e) }
+private fun NavBackStackEntry.isTab() = destination.route in TABS
+
+/**
+ * One screen, whole: its header, its page and (on a tab) the footer, on a
+ * solid background so nothing underneath shows through while it slides.
+ */
+@Composable
+private fun Screen(
+    title: String,
+    onBack: (() -> Unit)?,
+    onOpenWeekend: (String) -> Unit,
+    showCountdown: Boolean = true,
+    center: (@Composable () -> Unit)? = null,
+    header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().background(Night)) {
+        if (header != null) header()
+        else TopBar(title = title, onBack = onBack, onOpenWeekend = onOpenWeekend, showCountdown = showCountdown, center = center)
+        Box(Modifier.weight(1f)) { content() }
+        footer?.invoke()
+    }
 }
