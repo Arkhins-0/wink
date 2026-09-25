@@ -18,6 +18,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +35,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -317,8 +321,9 @@ private fun MainNav(vm: AppViewModel) {
                 nav,
                 startDestination = "home",
                 enterTransition = { fadeIn(tween(120)) },
-                exitTransition = { fadeOut(tween(90)) },
-                popEnterTransition = { fadeIn(tween(120)) },
+                // A page flying in leaves the screen under it exactly as it was, and finds it there on the way back.
+                exitTransition = { if (targetState.destination.route in slidingPages) ExitTransition.KeepUntilTransitionsFinished else fadeOut(tween(90)) },
+                popEnterTransition = { if (initialState.destination.route in slidingPages) EnterTransition.None else fadeIn(tween(120)) },
                 popExitTransition = { fadeOut(tween(90)) },
             ) {
                 composable("home") { HomeScreen(vm, highlight = null, onOpenWeekend = openWeekend, onOpenChat = { openChat = it }, onAllChats = { nav.navigate("chats") { popUpTo("home"); launchSingleTop = true } }, onCompose = { nav.navigate("compose") }, onView = view) }
@@ -348,15 +353,15 @@ private fun MainNav(vm: AppViewModel) {
                         onAbout = { nav.navigate("about") },
                     )
                 }
-                composable("details") { AccountDetailsScreen(vm) }
-                composable("storage") { StorageScreen() }
-                composable("settings") { SettingsScreen() }
-                composable("about") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) }
-                composable("changelog") { ChangelogScreen() }
-                composable("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
-                composable("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
-                composable("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
-                composable("scanner") { ScannerScreen(onOpenChat = { openChat = it }) }
+                page("details") { AccountDetailsScreen(vm) }
+                page("storage") { StorageScreen() }
+                page("settings") { SettingsScreen() }
+                page("about") { AboutScreen(vm, onChangelog = { nav.navigate("changelog") }, onLegal = { nav.navigate("legal/$it") }) }
+                page("changelog") { ChangelogScreen() }
+                page("legal/{doc}") { e -> LegalScreen(e.arguments?.getString("doc") ?: "privacy", onOpen = { nav.navigate("legal/$it") }, onTitle = { title = it }) }
+                page("archive") { ArchiveScreen { nav.navigate("archive/$it") } }
+                page("archive/{id}") { e -> SeasonArchiveScreen(vm, e.arguments?.getString("id") ?: "", onView = view, onDeleted = { nav.popBackStack() }) { title = it } }
+                page("scanner") { ScannerScreen(onOpenChat = { openChat = it }) }
                 composable("verify/{token}") { e -> ScannerScreen(initialToken = e.arguments?.getString("token"), onOpenChat = { openChat = it }) }
                 composable("pdf") { pdf?.let { PdfScreen(it) } }
                 composable("image") { image?.let { ImageScreen(it) } }
@@ -435,4 +440,16 @@ private fun MainNav(vm: AppViewModel) {
 /** Open a link, or do nothing if no browser is installed. */
 fun UriHandler.openSafely(url: String) {
     runCatching { openUri(url) }
+}
+
+/** Pages opened from the Account tab (and their own pages): they fly in from the right over the screen under them. */
+private val slidingPages = setOf("details", "storage", "settings", "about", "changelog", "legal/{doc}", "archive", "archive/{id}", "scanner")
+
+private fun NavGraphBuilder.page(route: String, content: @Composable (NavBackStackEntry) -> Unit) = composable(
+    route,
+    enterTransition = { slideInHorizontally(tween(220)) { it } },
+    popExitTransition = { slideOutHorizontally(tween(200)) { it } },
+) { e ->
+    // Solid, so the screen underneath doesn't show through while it slides.
+    Box(Modifier.fillMaxSize().background(Night)) { content(e) }
 }
