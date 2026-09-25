@@ -120,16 +120,23 @@ class Outbox(
         scope.launch {
             change { it + items }
             items.zip(sources).forEach { (q, uri) ->
-                val size = runCatching { copyIn(uri, File(q.file!!.path)) }.getOrNull()
+                val out = q.file!!
+                // A photo goes as a smaller JPEG (see PhotoShrink); anything else, or a photo that can't be, as it is.
+                val shrunk = if (!PhotoShrink.applies(out.mime)) null else withContext(Dispatchers.IO) {
+                    val info = q.message.files.firstOrNull()?.let { FileInfo(it.id, PhotoShrink.jpegName(out.name), "image/jpeg") }
+                    val target = info?.let { media.pathFor(it) }
+                    target?.let { t -> PhotoShrink.shrink(context, uri, t)?.let { size -> OutgoingFile(t.path, info.name, info.mime, size) } }
+                }
+                val sent = shrunk ?: runCatching { copyIn(uri, File(out.path)) }.getOrNull()?.let { size -> out.copy(size = size) }
                 change { list ->
                     list.map {
                         when {
                             it.message.id != q.message.id -> it
-                            size == null -> it.copy(ready = true, failed = true)
+                            sent == null -> it.copy(ready = true, failed = true)
                             else -> it.copy(
                                 ready = true,
-                                file = it.file?.copy(size = size),
-                                message = it.message.copy(files = it.message.files.map { f -> f.copy(size = size) }),
+                                file = sent,
+                                message = it.message.copy(files = it.message.files.map { f -> f.copy(name = sent.name, mime = sent.mime, size = sent.size) }),
                             )
                         }
                     }
