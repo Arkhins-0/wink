@@ -31,6 +31,8 @@ data class CachedChat(val other: OtherUser? = null, val messages: List<Message> 
  */
 class ChatCache(context: Context, private val api: WinkApi, private val media: ChatMedia, private val scope: CoroutineScope) {
     private val dir = File(context.filesDir, "chats").apply { mkdirs() }
+    // LocalStore's folder: announcements and channel posts can show the same files as a chat.
+    private val storeDir = File(context.filesDir, "store")
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -110,21 +112,37 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
                     .values
                     .sortedBy { instant(it.createdAt) }
             }
-            // Deleted for both, or some of its photos taken out: those files go from the phone too.
+            // Deleted for both, or some of its photos taken out: those files go from the phone too — unless another
+            // message still shows the same file (a forward points at the very same one), there or in another chat.
             val fresh = d.messages.associateBy { it.id }
-            cached?.messages?.forEach { old ->
-                val now = fresh[old.id] ?: return@forEach
-                val kept = if (now.deleted) emptySet() else now.attachments.map { it.id }.toSet()
-                old.attachments.filter { it.id !in kept }.forEach { media.remove(it) }
+            val gone = buildList {
+                cached?.messages?.forEach { old ->
+                    val now = fresh[old.id] ?: return@forEach
+                    val kept = if (now.deleted) emptySet() else now.attachments.map { it.id }.toSet()
+                    addAll(old.attachments.filter { it.id !in kept })
+                }
             }
             val out = CachedChat(d.other ?: cached?.other, merged, d.group ?: cached?.group)
             keep(id, out)
+            gone.filterNot { f -> usedElsewhere(f.id, id, out) }.forEach { media.remove(it) }
             val known = cached?.messages?.map { it.id }?.toSet() ?: emptySet()
             merged.filter { it.id !in known }.flatMap { it.attachments }.filter { media.wanted(it) }.forEach { f ->
                 scope.launch { runCatching { media.fetch(f) } }
             }
             out
         }
+    }
+
+    /**
+     * Whether a file is still shown anywhere else on the phone: in this chat's new copy, another chat, or any other
+     * saved page (announcements, channels). Deletes are rare, so reading the other copies to check is fine.
+     */
+    private fun usedElsewhere(fileId: String, chatId: String, current: CachedChat): Boolean {
+        if (current.messages.any { m -> !m.deleted && m.attachments.any { it.id == fileId } }) return true
+        if (mem.any { (other, chat) -> other != chatId && chat.messages.any { m -> m.attachments.any { it.id == fileId } } }) return true
+        val saved = (dir.listFiles().orEmpty().filter { it.name != "$chatId.json" && it.name.endsWith(".json") } +
+            storeDir.walkBottomUp().filter { it.isFile })
+        return saved.any { f -> runCatching { f.readText().contains(fileId) }.getOrDefault(false) }
     }
 
     /** Put one message the server has just confirmed into the phone's copy; null if there is no copy yet. */
