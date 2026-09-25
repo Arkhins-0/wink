@@ -136,6 +136,8 @@ fun Composer(
     editText: String? = null,
     /** True in chats: a finished voice note goes out at once. False elsewhere: it joins the tray as a tag. */
     voiceNoteSends: Boolean = true,
+    /** True in chats: a location goes out at once as its own message, as in WhatsApp. False elsewhere: it joins the tray. */
+    locationSends: Boolean = voiceNoteSends,
     /** True: every file is its own message, sent in order. False (the email page): one message carries them all. */
     oneMessagePerFile: Boolean = true,
     /**
@@ -231,7 +233,39 @@ fun Composer(
         if (uris.isNotEmpty()) { makeRoomFor("photos"); images = added(images, uris, MAX_PHOTOS) }
     }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    /**
+     * Finds where the phone is. In a chat it goes out at once, on its own (the words being typed and anything in the
+     * tray stay put); elsewhere it waits in the tray to go with the text.
+     */
+    fun shareLocation() {
+        locating = true
+        scope.launch {
+            val loc = currentLocation(context)
+            locating = false
+            when {
+                loc == null -> error = "Could not get your location. Is location turned on?"
+                locationSends && !editing -> {
+                    error = null
+                    runCatching { currentSend(Draft(locationText(loc), emptyList(), false)) }
+                        .onFailure { error = it.message ?: "Could not send the location." }
+                }
+                else -> {
+                    // One location per message: picking again replaces it, and it goes on its own.
+                    makeRoomFor("a location")
+                    location = loc.latitude to loc.longitude
+                }
+            }
+        }
+    }
+    // Allowed from the prompt: carry on with what was asked.
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.values.any { it }) {
+            error = null
+            shareLocation()
+        } else {
+            error = "Allow location to share where you are."
+        }
+    }
 
     /**
      * Sends what is in the tray. One message per file: each is uploaded and
@@ -527,20 +561,8 @@ fun Composer(
                     val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     if (!fine && !coarse) {
                         askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                        error = "Allow location, then try again."
                     } else {
-                        locating = true
-                        scope.launch {
-                            val loc = currentLocation(context)
-                            locating = false
-                            if (loc == null) {
-                                error = "Could not get your location. Is location turned on?"
-                            } else {
-                                // One location per message: picking again replaces it, and it goes on its own.
-                                makeRoomFor("a location")
-                                location = loc.latitude to loc.longitude
-                            }
-                        }
+                        shareLocation()
                     }
                 }
             }
