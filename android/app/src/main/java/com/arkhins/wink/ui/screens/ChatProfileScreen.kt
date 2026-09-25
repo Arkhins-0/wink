@@ -57,7 +57,7 @@ fun ChatProfileScreen(conversationId: String, onTitle: (String) -> Unit) {
             return@Column
         }
         IdCard(v)
-        val qr = remember(v.qrUrl) { v.qrUrl?.let { qrBitmap(it) } }
+        val qr = rememberQr(v.qrUrl)
         if (qr != null) {
             Box(Modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(8.dp)) {
                 Image(qr.asImageBitmap(), contentDescription = "QR code", modifier = Modifier.size(180.dp))

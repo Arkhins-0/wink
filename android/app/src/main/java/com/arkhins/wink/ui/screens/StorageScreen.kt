@@ -12,8 +12,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,17 +28,34 @@ import com.arkhins.wink.ui.components.KeyValue
 import com.arkhins.wink.ui.components.Panel
 import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** Bytes kept on the phone: chat messages, attachments, and every other page. */
+private data class Kept(val chats: Long, val media: Long, val pages: Long) {
+    val total get() = chats + media + pages
+}
+
+/** The sizes as last measured, shown at once the next time the page opens. */
+@Volatile private var lastKept = Kept(0, 0, 0)
+
+private fun measure(app: com.arkhins.wink.WinkApplication) =
+    Kept(app.chatCache.sizeBytes(), app.chatMedia.sizeBytes(), app.store.sizeBytes()).also { lastKept = it }
+
+/** Measures ahead of time (from the Account tab, off the main thread), so Storage opens with its numbers. */
+fun preloadStorage(app: com.arkhins.wink.WinkApplication) {
+    measure(app)
+}
 
 /** How much Wink keeps on this phone, by kind, with a way to clear it (it comes back from the server). */
 @Composable
 fun StorageScreen() {
     val app = LocalApp.current
     val landed by app.chatMedia.version.collectAsState()
-    var cleared by remember { mutableStateOf(0) }
-    val chats = remember(landed, cleared) { app.chatCache.sizeBytes() }
-    val media = remember(landed, cleared) { app.chatMedia.sizeBytes() }
-    val pages = remember(landed, cleared) { app.store.sizeBytes() }
-    val total = chats + media + pages
+    var cleared by remember { mutableIntStateOf(0) }
+    // Walking the folders takes a moment: done off the main thread, after the first frame.
+    var kept by remember { mutableStateOf(lastKept) }
+    LaunchedEffect(landed, cleared) { kept = withContext(Dispatchers.IO) { measure(app) } }
 
     Column(
         Modifier
@@ -47,13 +66,13 @@ fun StorageScreen() {
     ) {
         Panel {
             Column(Modifier.fillMaxWidth()) {
-                Text(bytes(total), style = MaterialTheme.typography.headlineMedium, color = Snow)
+                Text(bytes(kept.total), style = MaterialTheme.typography.headlineMedium, color = Snow)
                 Text("Kept on this phone", style = MaterialTheme.typography.bodySmall, color = SnowFaint)
                 Spacer(Modifier.height(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KeyValue("Chat messages", bytes(chats))
-                    KeyValue("Photos, documents and voice notes", bytes(media))
-                    KeyValue("Announcements, channels, schedule and people", bytes(pages))
+                    KeyValue("Chat messages", bytes(kept.chats))
+                    KeyValue("Photos, documents and voice notes", bytes(kept.media))
+                    KeyValue("Announcements, channels, schedule and people", bytes(kept.pages))
                 }
             }
         }
@@ -65,7 +84,7 @@ fun StorageScreen() {
                     color = SnowFaint,
                 )
                 Spacer(Modifier.height(10.dp))
-                GhostButton("Clear", enabled = total > 0) {
+                GhostButton("Clear", enabled = kept.total > 0) {
                     app.chatCache.wipe()
                     app.chatMedia.wipe()
                     app.store.wipe()

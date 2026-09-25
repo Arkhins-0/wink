@@ -27,6 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +54,14 @@ import com.arkhins.wink.ui.theme.Snow
 import com.arkhins.wink.ui.theme.SnowFaint
 
 private val Allowed = Color(0xFF6EE7B7)
+
+/** The list as last looked up, shown at once the next time the page opens. */
+@Volatile private var lastSeen: List<Access> = emptyList()
+
+/** Looks the permissions up ahead of time (from the Account tab, off the main thread), so Settings opens filled. */
+fun preloadSettings(context: Context) {
+    lastSeen = accessList(context)
+}
 
 /** One thing the phone lets Wink do, whether it is allowed, and what goes wrong without it. */
 private data class Access(
@@ -89,7 +101,10 @@ fun SettingsScreen() {
         }
     }
     val openPage = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { looked++ }
-    val items = remember(looked) { accessList(context) }
+    // Asking the phone about seven permissions takes a moment: done off the main thread, after the first
+    // frame, starting from what was seen last time so the page slides in already filled.
+    var items by remember { mutableStateOf(lastSeen) }
+    LaunchedEffect(looked) { items = withContext(Dispatchers.Default) { accessList(context) }.also { lastSeen = it } }
 
     Column(
         Modifier

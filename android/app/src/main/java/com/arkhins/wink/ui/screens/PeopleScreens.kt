@@ -240,7 +240,7 @@ fun PersonScreen(me: Me?, userId: String, onOpenChat: (String) -> Unit, onTitle:
                         KeyValue("Account code", u.verifyCode, mono = true)
                     }
                     // The person's own QR, the same one on their account page, so it can be scanned from here.
-                    val qr = remember(d.qrUrl) { d.qrUrl?.let { qrBitmap(it) } }
+                    val qr = rememberQr(d.qrUrl)
                     if (qr != null) {
                         Spacer(Modifier.width(12.dp))
                         Box(Modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(6.dp)) {

@@ -47,7 +47,11 @@ import com.arkhins.wink.ui.theme.SnowSoft
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** The account tab: photo, code and QR, the scanner and archive, then a menu into Account, Storage, Settings and About. */
 @Composable
@@ -64,7 +68,15 @@ fun AccountScreen(
     val scope = rememberCoroutineScope()
     val me = vm.me ?: return
     val u = me.user
-    val qr = remember(me.qrUrl) { qrBitmap(me.qrUrl) }
+    val qr = rememberQr(me.qrUrl)
+    // Settings and Storage look things up on the phone; done now, in the background, they open already filled.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching { preloadSettings(context) }
+            runCatching { preloadStorage(app) }
+        }
+    }
 
     Column(
         Modifier
@@ -88,12 +100,11 @@ fun AccountScreen(
 
         Panel {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (qr != null) {
-                    Box(Modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(8.dp)) {
-                        Image(qr.asImageBitmap(), contentDescription = "Your QR code", modifier = Modifier.size(180.dp))
-                    }
-                    Spacer(Modifier.height(12.dp))
+                // The white square is there from the first frame; the code fills it a moment later if it wasn't ready.
+                Box(Modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(8.dp).size(180.dp)) {
+                    if (qr != null) Image(qr.asImageBitmap(), contentDescription = "Your QR code", modifier = Modifier.size(180.dp))
                 }
+                Spacer(Modifier.height(12.dp))
                 KeyValue("Account code", u.verifyCode, mono = true)
             }
         }
@@ -143,10 +154,24 @@ fun MenuRow(title: String, hint: String, highlight: Boolean = false, onClick: ()
     }
 }
 
-/** The account's QR as a bitmap: dark modules on white. */
-fun qrBitmap(text: String, size: Int = 512): Bitmap? = runCatching {
+/** QR bitmaps already drawn, so a screen coming back (as its page slides away) shows its code at once. */
+private val qrCache = android.util.LruCache<String, Bitmap>(8)
+
+/**
+ * The QR for [text]: at once if it was drawn before, otherwise drawn off the main thread just after
+ * the screen's first frame, so a page sliding in doesn't wait for it.
+ */
+@Composable
+fun rememberQr(text: String?): Bitmap? {
+    val qr by produceState(text?.let { qrCache.get("512:$it") }, text) {
+        if (value == null && text != null) value = withContext(Dispatchers.Default) { qrBitmap(text) }
+    }
+    return qr
+}
+
+/** The account's QR as a bitmap: dark modules on white, drawn in one pass and kept for next time. */
+fun qrBitmap(text: String, size: Int = 512): Bitmap? = qrCache.get("$size:$text") ?: runCatching {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
-    for (x in 0 until size) for (y in 0 until size) bmp.setPixel(x, y, if (matrix[x, y]) AColor.BLACK else AColor.WHITE)
-    bmp
+    val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) AColor.BLACK else AColor.WHITE }
+    Bitmap.createBitmap(pixels, size, size, Bitmap.Config.RGB_565).also { qrCache.put("$size:$text", it) }
 }.getOrNull()
