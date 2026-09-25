@@ -294,7 +294,7 @@ class Outbox(
 /**
  * Hand one file to the server: ask for a slot, PUT the bytes (with
  * [onProgress] 0f..1f), confirm. The bytes are then kept beside received
- * files — and a document in Downloads/Wink — so what this phone sent never
+ * files (in the app's own Wink_Images / Wink_Audios / Wink_Documents) — so what this phone sent never
  * has to come down again.
  */
 suspend fun uploadFile(

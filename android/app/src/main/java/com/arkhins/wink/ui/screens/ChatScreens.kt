@@ -943,7 +943,7 @@ fun ChatScreen(
             onDismissRequest = { exported = null },
             containerColor = NightPanel,
             title = { Text("Chat exported", color = Snow) },
-            text = { Text("Saved to Downloads/Wink as ${doc.name}. Inside: chat.html, chat.txt and the images, audio and documents.", color = SnowSoft) },
+            text = { Text("Saved in Wink_Documents as ${doc.name}. Use Save or Share to keep a copy elsewhere. Inside: chat.html, chat.txt and the images, audio and documents.", color = SnowSoft) },
             confirmButton = {
                 TextButton(onClick = {
                     exported = null

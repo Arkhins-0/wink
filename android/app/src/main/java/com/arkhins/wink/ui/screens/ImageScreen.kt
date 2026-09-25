@@ -35,15 +35,12 @@ import com.arkhins.wink.ui.components.GhostButton
 import com.arkhins.wink.ui.theme.SnowFaint
 import kotlinx.coroutines.launch
 
-/** A picture full screen: pinch to zoom, drag to pan, double-tap to reset. Save puts a copy in Downloads/Wink. */
+/** A picture full screen: pinch to zoom, drag to pan, double-tap to reset. The header's Save keeps a copy (see Saver). */
 @Composable
 fun ImageScreen(file: FileInfo) {
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    var note by remember { mutableStateOf<String?>(if (app.documents.find(file) != null) "Saved in Downloads/Wink" else null) }
-    var busy by remember { mutableStateOf(false) }
     val transform = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 6f)
         offset = if (scale > 1f) offset + pan else Offset.Zero
@@ -65,29 +62,5 @@ fun ImageScreen(file: FileInfo) {
                     })
                 },
         )
-        Row(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(note ?: file.name, style = MaterialTheme.typography.labelSmall, color = SnowFaint, modifier = Modifier.weight(1f))
-            GhostButton(if (busy) "Saving…" else "Save", enabled = !busy && app.documents.find(file) == null) {
-                busy = true
-                scope.launch {
-                    note = try {
-                        val local = app.chatMedia.local(file)
-                        if (local != null) app.documents.keepSent(file, local) else app.documents.download(file) {}
-                        "Saved in Downloads/Wink"
-                    } catch (e: Exception) {
-                        e.message ?: "Could not save."
-                    }
-                    busy = false
-                }
-            }
-        }
     }
 }

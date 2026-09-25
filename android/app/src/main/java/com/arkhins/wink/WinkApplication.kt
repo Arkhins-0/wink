@@ -32,8 +32,8 @@ class WinkApplication : Application(), ImageLoaderFactory {
     /** The server. */
     val api: WinkApi by lazy { WinkApi(session) }
 
-    /** Downloads documents into Downloads/Wink and opens them. */
-    val documents: Documents by lazy { Documents(this, api) }
+    /** Opens documents from the app's own folder (Android/data/…/files/Wink_Documents). */
+    val documents: Documents by lazy { Documents(this, api, chatMedia) }
 
     /** Work that outlives a screen: fetching chat pictures and voice notes, background syncs. */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

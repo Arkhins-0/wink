@@ -102,7 +102,7 @@ sealed interface FileView {
 fun FileView.stamped(messages: List<Message>): FileView = when (this) {
     is FileView.Image -> if (sentAt != null) this else copy(sentAt = messages.firstOrNull { m -> m.attachments.any { it.id == file.id } }?.createdAt)
     // A document's saved name starts with its file id's first characters.
-    is FileView.Pdf -> if (sentAt != null) this else copy(sentAt = messages.firstOrNull { m -> m.attachments.any { doc.name.startsWith(it.id.take(8) + "-") } }?.createdAt)
+    is FileView.Pdf -> if (sentAt != null) this else copy(sentAt = messages.firstOrNull { m -> m.attachments.any { it.name == doc.name } }?.createdAt)
     is FileView.Gallery -> this
 }
 
@@ -180,7 +180,7 @@ fun filesLabel(files: List<FileInfo>): String {
 /**
  * An attachment inside a message, the way a chat app does it: pictures
  * show right there and open full screen; audio plays in place; documents
- * are a card that downloads on the first tap (into Downloads/Wink, with
+ * are a card that downloads on the first tap (into the app's Wink_Documents, with
  * progress) and then opens in whatever app reads that kind of file.
  */
 @Composable
@@ -382,7 +382,7 @@ private fun PhotoTile(file: FileInfo, modifier: Modifier, more: Int, onClick: ()
 
 /* ───────────────────────────── Audio ─────────────────────────────── */
 
-/** A voice note or audio file: fetched into Downloads/Wink on first play, then played right here. */
+/** A voice note or audio file: kept in the app's Wink_Audios (fetched on first play if not yet), played right here. */
 @Composable
 private fun AudioAttachment(file: FileInfo, onDark: Boolean, uploading: Float? = null) {
     val app = LocalApp.current

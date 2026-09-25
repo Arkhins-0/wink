@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What the FileProvider may hand out: the downloaded update APK, and
-     documents saved to Downloads/Wink on Android 9 and older. -->
+<!-- What the FileProvider may hand out: the downloaded update APK, and the app's own
+     folders (Android/data/com.arkhins.wink/files: Wink_Images, Wink_Audios,
+     Wink_Documents) so another app can open a document or a share can carry it. -->
 <paths>
     <cache-path name="updates" path="updates/" />
-    <external-path name="downloads" path="Download/Wink/" />
+    <external-files-path name="wink" path="." />
+    <!-- Only when the phone has no external storage and the folders fell back inside the app. -->
+    <files-path name="wink-internal" path="." />
 </paths>

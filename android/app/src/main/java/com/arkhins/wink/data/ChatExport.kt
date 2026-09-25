@@ -19,7 +19,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * A private chat as a zip in Downloads/Wink: `chat.txt` (the log, one line
+ * A private chat as a zip in Wink_Documents (Android/data/…/files): `chat.txt` (the log, one line
  * per message, attachments as paths inside the zip), `chat.html` (the chat
  * as a page, bubbles and all) and the attachments under `images/`, `audio/`
  * and `docs/`. Every attachment is first fetched into the app's own media
@@ -75,8 +75,8 @@ class ChatExport(private val context: Context, private val media: ChatMedia, pri
                     html(zip, other, myName, messages, paths, locals)
                     zip.closeEntry()
                 }
-                onProgress("Saving to Downloads…")
-                documents.saveToDownloads(zipName, "application/zip", tmp)
+                onProgress("Saving…")
+                documents.keepMade(zipName, "application/zip", tmp)
             } finally {
                 tmp.delete()
             }

@@ -96,7 +96,7 @@ fun PdfScreen(doc: SavedDocument) {
                 }
                 item {
                     Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Saved to Downloads/Wink as ${doc.name}", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
+                        Text("On this phone as ${doc.name} · Save keeps a copy in Documents/Wink", style = MaterialTheme.typography.labelSmall, color = SnowFaint)
                         GhostButton("Open with another app") { app.documents.openWith(doc) }
                     }
                 }

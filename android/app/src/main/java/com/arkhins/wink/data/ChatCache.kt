@@ -245,7 +245,11 @@ class ChatCache(context: Context, private val api: WinkApi, private val media: C
  * never fetched again.
  */
 class ChatMedia(context: Context, private val api: WinkApi) {
-    private val dir = File(context.filesDir, "chat-media").apply { mkdirs() }
+    // The app's own folder on the phone's storage: Android/data/com.arkhins.wink/files, one folder per kind.
+    private val root = context.getExternalFilesDir(null) ?: context.filesDir
+    private val folders = listOf("Wink_Images", "Wink_Audios", "Wink_Documents").map { File(root, it).apply { mkdirs() } }
+    // Where everything was kept before (the app's hidden folder), moved over the first time each file is needed.
+    private val old = File(context.filesDir, "chat-media")
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val _version = MutableStateFlow(0)
 
@@ -256,13 +260,34 @@ class ChatMedia(context: Context, private val api: WinkApi) {
     @Suppress("UNUSED_PARAMETER")
     fun wanted(file: FileInfo): Boolean = true
 
-    private fun target(file: FileInfo): File {
-        val ext = file.name.substringAfterLast('.', "").take(8).filter { it.isLetterOrDigit() }
-        return File(dir, if (ext.isBlank()) file.id else "${file.id}.$ext")
+    /** The folder for a file's kind: photos, audio (voice notes too), or any other file. */
+    private fun folderFor(file: FileInfo): File = when {
+        file.mime.startsWith("image/") && file.mime != "image/svg+xml" -> folders[0]
+        file.mime.startsWith("audio/") -> folders[1]
+        else -> folders[2]
     }
 
-    /** The copy on the phone, if there is one. */
-    fun local(file: FileInfo): File? = target(file).takeIf { it.exists() && it.length() > 0 }
+    private fun ext(file: FileInfo) = file.name.substringAfterLast('.', "").take(8).filter { it.isLetterOrDigit() }
+
+    /** "<name>_<id>.<ext>": readable in the folder, and never two files under one name. */
+    private fun target(file: FileInfo): File {
+        val ext = ext(file)
+        val base = file.name.substringBeforeLast('.').map { if (it.isLetterOrDigit() || it in " -_().") it else '_' }.joinToString("").trim().take(60).ifBlank { "file" }
+        return File(folderFor(file), "${base}_${file.id.takeLast(12)}" + if (ext.isBlank()) "" else ".$ext")
+    }
+
+    /** The copy on the phone, if there is one (one from the old hidden folder moves over first). */
+    fun local(file: FileInfo): File? {
+        val here = target(file)
+        if (here.exists() && here.length() > 0) return here
+        val ext = ext(file)
+        val before = File(old, if (ext.isBlank()) file.id else "${file.id}.$ext")
+        if (before.exists() && before.length() > 0) {
+            runCatching { before.copyTo(here, overwrite = true); before.delete() }
+            if (here.exists() && here.length() > 0) return here
+        }
+        return null
+    }
 
     /** Where a file's copy lives (or will): a file still being sent keeps its bytes here under its `local-` id. */
     fun pathFor(file: FileInfo): File = target(file)
@@ -299,15 +324,19 @@ class ChatMedia(context: Context, private val api: WinkApi) {
         _version.value++
     }
 
-    fun sizeBytes(): Long = dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+    fun sizeBytes(): Long = (folders + old).sumOf { d -> d.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }
 
     fun remove(file: FileInfo) {
         if (target(file).delete()) _version.value++
     }
 
+    /** Everything this app kept of what it downloaded or sent: the three folders (and the old hidden one). */
     fun wipe() {
-        dir.deleteRecursively()
-        dir.mkdirs()
+        (folders + old).forEach { it.deleteRecursively() }
+        folders.forEach { it.mkdirs() }
         _version.value++
     }
+
+    /** A file the app made (a chat export): kept with the documents. */
+    fun documentsFolder(): File = folders[2]
 }

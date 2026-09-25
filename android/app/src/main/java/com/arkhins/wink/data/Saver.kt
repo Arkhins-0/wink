@@ -63,7 +63,7 @@ object Saver {
         return save(context, file.name, file.mime, sentAt) { source.inputStream() }
     }
 
-    /** A document already opened (its copy in Downloads/Wink). */
+    /** A document already opened (its copy in the app's Wink_Documents). */
     suspend fun save(context: Context, doc: SavedDocument, sentAt: String?): Saved =
         save(context, doc.name.replace(Regex("^[0-9a-f]{8}-"), ""), doc.mime, sentAt) {
             context.contentResolver.openInputStream(doc.uri) ?: throw IOException("The document could not be read.")
