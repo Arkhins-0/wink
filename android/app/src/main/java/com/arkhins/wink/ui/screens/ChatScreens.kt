@@ -1,5 +1,8 @@
 package com.arkhins.wink.ui.screens
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import java.util.UUID
@@ -544,8 +547,11 @@ fun ChatScreen(
         val cached = detail ?: app.chatCache.load(conversationId)?.also { if (detail == null) detail = it }
         cached?.let { (it.other ?: it.group?.asOther())?.let(onOther) }
     }
-    // Then only what changed.
+    // Then only what changed, once the chat has finished sliding in: an answer landing mid-slide
+    // would redraw the whole list in the middle of the animation.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(conversationId, reload, vm.refreshTick) {
+        lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
         try {
             val d = app.chatCache.sync(conversationId, markRead = true)
             detail = d
