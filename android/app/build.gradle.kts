@@ -100,6 +100,15 @@ android {
         debug {
             if (debugSuffixKnown) applicationIdSuffix = ".debug"
         }
+        // For trying the app on a phone at real speed: optimised like a release (debug builds of
+        // Compose run several times slower), but signed and named like the debug build, so it installs
+        // over it, keeps its data, and can point at a local server. ./gradlew installFast
+        create("fast") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            if (debugSuffixKnown) applicationIdSuffix = ".debug"
+            matchingFallbacks += "release"
+        }
     }
 
     compileOptions {
