@@ -43,7 +43,8 @@ const timeOnly = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { 
 /** A document, picture or audio inside a message. */
 export function Attachment({ file, onDark = true }: { file: NonNullable<MessageOut["file"]>; onDark?: boolean }) {
   const [open, setOpen] = useState(false);
-  if (file.mime.startsWith("audio/")) {
+  // Sent through "Document": a document card, whatever its type.
+  if (!file.document && file.mime.startsWith("audio/")) {
     return (
       <div className={`mt-2 rounded-xl border px-3 py-2 ${onDark ? "border-night-line bg-night" : "border-night/20 bg-night/10"}`}>
         <audio controls preload="none" src={`/api/files/${file.id}/content?inline=1`} className="h-9 w-full max-w-xs" />
@@ -51,7 +52,7 @@ export function Attachment({ file, onDark = true }: { file: NonNullable<MessageO
       </div>
     );
   }
-  if (file.mime.startsWith("image/")) {
+  if (!file.document && file.mime.startsWith("image/")) {
     return (
       <>
         {/* eslint-disable-next-line @next/next/no-img-element */}

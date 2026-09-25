@@ -56,7 +56,7 @@ export async function exportChat(conversationId: string, who: ExportWho, myName:
       .then((r) => (r.ok ? r.blob() : null))
       .catch(() => null);
     if (!blob) continue;
-    const folder = f.mime.startsWith("image/") ? "images" : f.mime.startsWith("audio/") ? "audio" : "docs";
+    const folder = f.document ? "docs" : f.mime.startsWith("image/") ? "images" : f.mime.startsWith("audio/") ? "audio" : "docs";
     const name = `${fileStamp(new Date(m.createdAt))} ${f.name}`.replace(/[\\/:*?"<>|]/g, "_");
     // The same name in the same second (a forward of a forward): told apart by the file's id, then a count.
     let path = `${folder}/${name}`;
@@ -145,8 +145,8 @@ a{color:inherit}.doc{display:block;padding:6px 0}
       const path = paths.get(m.id);
       if (f) {
         if (!path) inner += `<span class="doc">📄 ${esc(f.name)} (not available)</span>`;
-        else if (f.mime.startsWith("image/")) inner += `<a href="${esc(path)}"><img src="${await inline(m.id, path)}" alt="${esc(f.name)}"></a>`;
-        else if (f.mime.startsWith("audio/")) inner += `<audio controls src="${await inline(m.id, path)}"></audio>`;
+        else if (!f.document && f.mime.startsWith("image/")) inner += `<a href="${esc(path)}"><img src="${await inline(m.id, path)}" alt="${esc(f.name)}"></a>`;
+        else if (!f.document && f.mime.startsWith("audio/")) inner += `<audio controls src="${await inline(m.id, path)}"></audio>`;
         else inner += `<a class="doc" href="${esc(path)}">📄 ${esc(f.name)}</a>`;
       }
     }
