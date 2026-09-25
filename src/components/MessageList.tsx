@@ -10,6 +10,7 @@ import type { MessageOut, ReplyRef } from "@/lib/messages";
 import { formatBytes, timeAgo } from "@/lib/client";
 import { Avatar } from "./Avatar";
 import { DocumentDialog } from "./DocumentDialog";
+import { ImageViewer } from "./ImageViewer";
 import { Icon } from "./Icon";
 import { InviteCard } from "./chat/InviteCard";
 import { LocalTime } from "./LocalTime";
@@ -67,7 +68,7 @@ export function Attachment({ file, onDark = true }: { file: NonNullable<MessageO
           className="mt-2 max-h-80 max-w-full cursor-zoom-in rounded-xl border border-night-line object-cover"
           onClick={() => setOpen(true)}
         />
-        {open && <DocumentDialog fileId={file.id} onClose={() => setOpen(false)} />}
+        {open && <ImageViewer images={[file]} index={0} onClose={() => setOpen(false)} />}
       </>
     );
   }
@@ -84,10 +85,18 @@ export function Attachment({ file, onDark = true }: { file: NonNullable<MessageO
           <span className={`block text-xs ${onDark ? "text-snow-faint" : "text-night/60"}`}>{formatBytes(file.size)}</span>
         </span>
       </button>
-      {open && <DocumentDialog fileId={file.id} onClose={() => setOpen(false)} />}
+      {open &&
+        (isPicture(file) ? (
+          <ImageViewer images={[file]} index={0} onClose={() => setOpen(false)} />
+        ) : (
+          <DocumentDialog fileId={file.id} onClose={() => setOpen(false)} />
+        ))}
     </>
   );
 }
+
+/** A picture the browser can show (sent as a photo or as a document); SVG stays a download. */
+const isPicture = (f: { mime: string }) => /^image\/(png|jpe?g|gif|webp|avif|bmp)$/i.test(f.mime);
 
 type FileRef = NonNullable<MessageOut["file"]>;
 const isPhoto = (f: FileRef) => !f.document && f.mime.startsWith("image/") && f.mime !== "image/svg+xml";
@@ -100,7 +109,7 @@ export const filesOf = (m: MessageOut): FileRef[] => (m.files?.length ? m.files 
  * (the fourth saying "+n" for the rest, which a click opens out), then the documents and audio each as a card.
  */
 export function Files({ files, onDark = true }: { files: FileRef[]; onDark?: boolean }) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openAt, setOpenAt] = useState<number | null>(null);
   const [all, setAll] = useState(false);
   const photos = files.filter(isPhoto);
   const others = files.filter((f) => !isPhoto(f));
@@ -115,7 +124,7 @@ export function Files({ files, onDark = true }: { files: FileRef[]; onDark?: boo
             key={f.id}
             type="button"
             className="relative aspect-square overflow-hidden rounded-lg border border-night-line"
-            onClick={() => (!all && i === 3 && rest > 0 ? setAll(true) : setOpenId(f.id))}
+            onClick={() => (!all && i === 3 && rest > 0 ? setAll(true) : setOpenAt(i))}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/files/${f.id}/content?inline=1`} alt={f.name} loading="lazy" className="h-full w-full object-cover" />
@@ -126,7 +135,7 @@ export function Files({ files, onDark = true }: { files: FileRef[]; onDark?: boo
         ))}
       </div>
       {others.map((f) => <Attachment key={f.id} file={f} onDark={onDark} />)}
-      {openId && <DocumentDialog fileId={openId} onClose={() => setOpenId(null)} />}
+      {openAt !== null && <ImageViewer images={photos} index={openAt} onClose={() => setOpenAt(null)} />}
     </>
   );
 }

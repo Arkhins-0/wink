@@ -15,7 +15,13 @@ export function DocumentDialog({ fileId, onClose }: { fileId: string; onClose: (
   const [viewing, setViewing] = useState(false);
 
   useEffect(() => {
-    api<Meta>(`/api/files/${fileId}`).then(setMeta).catch((e) => setError(e.message));
+    api<Meta>(`/api/files/${fileId}`)
+      .then((m) => {
+        setMeta(m);
+        // Something the browser can show opens at once, as a chat app does; only other files ask what to do.
+        if (m.mime === "application/pdf" || m.mime.startsWith("image/") || m.mime.startsWith("text/") || m.officeViewerUrl) setViewing(true);
+      })
+      .catch((e) => setError(e.message));
   }, [fileId]);
 
   useEffect(() => {

@@ -51,6 +51,14 @@ const nextConfig = {
           { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(self)" },
         ],
       },
+      {
+        // The in-page viewer frames a file from this same site. Only same-origin: no other site may.
+        source: "/api/files/:id/content",
+        headers: [
+          { key: "Content-Security-Policy", value: csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
     ];
   },
 };
