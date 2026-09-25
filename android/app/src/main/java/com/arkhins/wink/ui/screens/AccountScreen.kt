@@ -109,7 +109,7 @@ fun AccountScreen(
                 HorizontalDivider(color = SnowFaint.copy(alpha = 0.15f))
                 MenuRow("Storage", "What Wink keeps on this phone", onClick = onStorage)
                 HorizontalDivider(color = SnowFaint.copy(alpha = 0.15f))
-                MenuRow("Settings", "How Wink works on this phone", onClick = onSettings)
+                MenuRow("Settings", "Notifications, location and other permissions", onClick = onSettings)
                 HorizontalDivider(color = SnowFaint.copy(alpha = 0.15f))
                 val update = vm.updateInfo
                 MenuRow(
