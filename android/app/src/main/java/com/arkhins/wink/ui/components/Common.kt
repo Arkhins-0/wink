@@ -1,5 +1,16 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.unit.em
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -259,3 +270,40 @@ fun Gap(height: Int = 12) = Spacer(Modifier.height(height.dp))
 
 @Composable
 fun Row2(content: @Composable () -> Unit) = Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { content() }
+
+/**
+ * A chat's one-line preview (the chats list, Home). A location shows the app's pin icon in the text's own colour
+ * instead of the 📍 emoji, and a preview straight from a location message ("📍 My location" and its link) reads
+ * "Location", as the phone's own line does.
+ */
+@Composable
+fun PreviewLine(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    val line = remember(text) {
+        val first = text.lineSequence().firstOrNull().orEmpty()
+        if (first.trimEnd().endsWith("📍 My location")) first.trimEnd().removeSuffix("My location") + "Location" else text
+    }
+    val at = line.indexOf("📍 ")
+    if (at < 0) {
+        Text(line, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
+        return
+    }
+    val shown = buildAnnotatedString {
+        append(line.substring(0, at))
+        appendInlineContent("pin", "📍")
+        append(" ")
+        append(line.substring(at + 3))
+    }
+    Text(
+        shown,
+        style = style,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+        inlineContent = mapOf(
+            "pin" to InlineTextContent(Placeholder(1.1.em, 1.1.em, PlaceholderVerticalAlign.TextCenter)) {
+                Icon(Icons.Outlined.Place, contentDescription = null, tint = color, modifier = Modifier.fillMaxSize())
+            },
+        ),
+    )
+}

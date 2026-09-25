@@ -144,6 +144,7 @@ import com.arkhins.wink.ui.components.FileView
 import com.arkhins.wink.data.OtherUser
 import com.arkhins.wink.ui.components.isImage
 import com.arkhins.wink.ui.components.Avatar
+import com.arkhins.wink.ui.components.PreviewLine
 import com.arkhins.wink.ui.components.Composer
 import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
@@ -300,13 +301,7 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
                             Text(chat.other.name, style = MaterialTheme.typography.titleMedium, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 chat.lastStatus?.let { Ticks(it, tint = SnowFaint, modifier = Modifier.padding(end = 4.dp)) }
-                                Text(
-                                    chat.lastMessage ?: chat.other.roleLabel,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (chat.unread > 0) Snow else SnowFaint,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                PreviewLine(chat.lastMessage ?: chat.other.roleLabel, color = if (chat.unread > 0) Snow else SnowFaint, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         Column(horizontalAlignment = Alignment.End) {

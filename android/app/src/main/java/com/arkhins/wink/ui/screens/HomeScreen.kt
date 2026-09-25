@@ -45,6 +45,7 @@ import com.arkhins.wink.data.Weekend
 import com.arkhins.wink.data.WeekendsResponse
 import com.arkhins.wink.ui.AppViewModel
 import com.arkhins.wink.ui.components.Avatar
+import com.arkhins.wink.ui.components.PreviewLine
 import com.arkhins.wink.ui.components.Divider
 import com.arkhins.wink.ui.components.Empty
 import com.arkhins.wink.ui.components.ErrorText
@@ -210,13 +211,7 @@ fun HomeScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(chat.other.name, style = MaterialTheme.typography.titleSmall, color = Snow, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        chat.lastMessage ?: chat.other.roleLabel,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (chat.unread > 0) Snow else SnowFaint,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                    PreviewLine(chat.lastMessage ?: chat.other.roleLabel, color = if (chat.unread > 0) Snow else SnowFaint, style = MaterialTheme.typography.bodySmall)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
                                     chat.lastMessageAt?.let { Text(whenLabel(it), style = MaterialTheme.typography.labelSmall, color = if (chat.unread > 0) Gold else SnowFaint) }
