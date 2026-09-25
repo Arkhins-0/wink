@@ -140,6 +140,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.0")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    // Installs the startup profile (src/main/baseline-prof.txt plus the libraries' own) on phones that get
+    // the APK outside the Play Store, so Android pre-compiles the screens instead of starting them slow.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Push.
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))

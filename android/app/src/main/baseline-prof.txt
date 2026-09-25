@@ -1,0 +1,5 @@
+# Startup profile: the app's own code, compiled ahead of time on install so screens open and
+# animate at full speed from the first time. Compose, navigation and the other libraries ship
+# their own profiles, which are merged in with this one.
+Lcom/arkhins/wink/**;
+HSPLcom/arkhins/wink/**;->**(**)**
