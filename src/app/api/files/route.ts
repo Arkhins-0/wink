@@ -22,8 +22,9 @@ export const POST = handle(async (request) => {
 
   const key = `docs/${randomToken().slice(0, 16)}/${name}`;
   const row = await one<FileRow>(
-    "INSERT INTO files (key, name, mime, size, uploaded_by) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-    [key, name, mime, size, user.id],
+    "INSERT INTO files (key, name, mime, size, uploaded_by, as_document) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+    // Picked through "Document": a document for everyone, whatever its type.
+    [key, name, mime, size, user.id, b.asDocument === true],
   );
   const target = await uploadTarget(row!);
   if (!target.direct && size > MAX_PROXY_BYTES) return fail("Files over 4 MB need object storage configured.", 413);
