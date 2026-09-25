@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { json } from "@/lib/http";
 import { inbox, sendBroadcast } from "@/lib/messages";
 import { pollBody, readPoll } from "@/lib/polls";
+import { eventBody, readEvent } from "@/lib/events";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +19,14 @@ export const POST = handle(async (request) => {
   const user = await requireUser();
   const b = await body(request);
   const poll = readPoll(b.poll);
+  const calendarEvent = poll ? null : readEvent(b.calendarEvent);
   const result = await sendBroadcast(user, {
     recipientIds: strings(b.recipientIds),
-    body: poll ? pollBody(poll) : str(b.body, 5000),
+    body: poll ? pollBody(poll) : calendarEvent ? eventBody(calendarEvent) : str(b.body, 5000),
     poll,
-    fileId: poll ? null : str(b.fileId, 64) || null,
-    fileIds: poll ? [] : uuids(b.fileIds),
+    calendarEvent,
+    fileId: poll || calendarEvent ? null : str(b.fileId, 64) || null,
+    fileIds: poll || calendarEvent ? [] : uuids(b.fileIds),
     urgent: bool(b.urgent),
   });
   return json(result, 201);

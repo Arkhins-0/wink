@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { one, q, run } from "./db";
 import { AuthError, type SessionUser } from "./auth";
 import { savePoll, type PollDraft } from "./polls";
+import { saveEvent, type EventDraft } from "./events";
 import { filesByIds, messageFileIds, type FileRow } from "./files";
 import { canChat, filterBelow } from "./hierarchy";
 import { userById } from "./users";
@@ -84,6 +85,8 @@ export type MessageOut = {
   batchPos: number | null;
   /** A poll on this message, as this person sees it. */
   poll: PollOut | null;
+  /** A calendar event on this message, as this person sees it. */
+  calendarEvent: EventOut | null;
 };
 
 export type ReplyRef = {
@@ -143,7 +146,50 @@ type Row = {
   batch_id: string | null;
   batch_pos: number | null;
   poll_json: PollRow | null;
+  event_json: EventRow | null;
 };
+
+type EventRow = {
+  id: string; name: string; description: string; startsAt: string; endsAt: string | null; location: string; reminderMinutes: number | null;
+  replies: { id: string; name: string; answer: "going" | "not_going" }[];
+};
+
+/** An event as a person sees it: counts for everyone, their own answer, and names where they may see them. */
+export type EventOut = {
+  id: string;
+  name: string;
+  description: string;
+  startsAt: string;
+  endsAt: string | null;
+  location: string;
+  reminderMinutes: number | null;
+  going: number;
+  notGoing: number;
+  myAnswer: "going" | "not_going" | null;
+  named: boolean;
+  goingNames: string[];
+  notGoingNames: string[];
+};
+
+function eventOut(row: EventRow, viewerId: string, named: boolean): EventOut {
+  const going = row.replies.filter((r) => r.answer === "going");
+  const notGoing = row.replies.filter((r) => r.answer === "not_going");
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    startsAt: new Date(row.startsAt).toISOString(),
+    endsAt: row.endsAt ? new Date(row.endsAt).toISOString() : null,
+    location: row.location,
+    reminderMinutes: row.reminderMinutes,
+    going: going.length,
+    notGoing: notGoing.length,
+    myAnswer: row.replies.find((r) => r.id === viewerId)?.answer ?? null,
+    named,
+    goingNames: named ? going.map((r) => r.name) : [],
+    notGoingNames: named ? notGoing.map((r) => r.name) : [],
+  };
+}
 
 type PollRow = { id: string; question: string; multiple: boolean; options: { id: string; text: string; voters: { id: string; name: string }[] }[] | null };
 
@@ -194,6 +240,11 @@ const SELECT = `
                                             FROM poll_votes v JOIN users vu ON vu.id = v.user_id WHERE v.option_id = o.id)) ORDER BY o.position)
                                FROM poll_options o WHERE o.poll_id = p.id))
             FROM polls p WHERE p.message_id = m.id) AS poll_json,
+         (SELECT json_build_object('id', e.id, 'name', e.name, 'description', e.description, 'startsAt', e.starts_at, 'endsAt', e.ends_at,
+                   'location', e.location, 'reminderMinutes', e.reminder_minutes,
+                   'replies', (SELECT COALESCE(json_agg(json_build_object('id', ru.id, 'name', COALESCE(NULLIF(ru.name, ''), ru.email), 'answer', er.answer) ORDER BY er.updated_at), '[]'::json)
+                               FROM event_replies er JOIN users ru ON ru.id = er.user_id WHERE er.event_id = e.id))
+            FROM events e WHERE e.message_id = m.id) AS event_json,
          (SELECT json_agg(json_build_object('id', xf.id, 'name', xf.name, 'mime', xf.mime, 'size', xf.size, 'document', xf.as_document) ORDER BY mf.position)
             FROM message_files mf JOIN files xf ON xf.id = mf.file_id WHERE mf.message_id = m.id) AS files_json
   FROM messages m
@@ -271,6 +322,7 @@ function out(row: Row, viewerId: string): MessageOut {
     batchPos: row.batch_pos,
     // In a group everyone sees who voted; an announcement's voters are named only to its sender.
     poll: row.poll_json && !row.deleted_at ? pollOut(row.poll_json, viewerId, row.kind === "group" || row.sender_id === viewerId) : null,
+    calendarEvent: row.event_json && !row.deleted_at ? eventOut(row.event_json, viewerId, row.kind === "group" || row.sender_id === viewerId) : null,
     status:
       row.kind === "direct" && row.sender_id === viewerId
         ? row.to_read_at
@@ -303,6 +355,8 @@ export type Draft = {
   batchPos?: number | null;
   /** A poll (groups and announcements only); the body then reads "📊 <question>". */
   poll?: PollDraft | null;
+  /** An event (groups and announcements only); the body then reads "📅 <name>". */
+  calendarEvent?: EventDraft | null;
 };
 
 /** The attachments a draft names, in order, each once. */
@@ -386,6 +440,7 @@ async function insertMessage(conversationId: string | null, sender: SessionUser,
     );
   }
   if (draft.poll) await savePoll(row!.id, draft.poll);
+  if (draft.calendarEvent) await saveEvent(row!.id, draft.calendarEvent);
   if (conversationId) {
     await run("UPDATE conversations SET last_message_at = $2 WHERE id = $1", [conversationId, row!.created_at]);
   }
@@ -694,6 +749,7 @@ export async function postDirect(sender: SessionUser, conversationId: string, dr
   if (!conv || conv.kind !== "direct") throw new AuthError(404, "No such chat.");
   if (!canRead(sender, conv)) throw new AuthError(403, "Not your chat.");
   if (draft.poll) throw new AuthError(400, "Polls are for groups and announcements.");
+  if (draft.calendarEvent) throw new AuthError(400, "Events are for groups and announcements.");
   const { draft: ready, files } = await prepareDraft(sender, conv.id, draft);
   draft = ready;
   const otherId = conv.owner_id === sender.id ? conv.member_id! : conv.owner_id!;
