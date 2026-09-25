@@ -549,7 +549,8 @@ fun Composer(
                 }
                 SheetTile("Document", { Icon(painterResource(R.drawable.ic_document), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
                     sheet = false
-                    pickDocuments.launch(arrayOf("application/pdf", "application/vnd.*", "application/msword", "text/*"))
+                    // Any kind of file, as in WhatsApp.
+                    pickDocuments.launch(arrayOf("*/*"))
                 }
                 SheetTile("Audio", { Icon(painterResource(R.drawable.ic_audio), contentDescription = null, tint = Night, modifier = Modifier.size(26.dp)) }) {
                     sheet = false

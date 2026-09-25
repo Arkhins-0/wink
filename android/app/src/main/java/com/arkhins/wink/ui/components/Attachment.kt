@@ -100,7 +100,8 @@ sealed interface FileView {
 /** One photo of a grid, with the message it came in. */
 data class GalleryPhoto(val message: Message, val file: FileInfo)
 
-val FileInfo.isImage: Boolean get() = mime.startsWith("image/")
+/** A picture the app shows as one (an SVG goes as a document: it can't be drawn as a photo). */
+val FileInfo.isImage: Boolean get() = mime.startsWith("image/") && mime != "image/svg+xml"
 val FileInfo.isAudio: Boolean get() = mime.startsWith("audio/")
 
 /* ───────────────────────────── Photo runs ────────────────────────── */
