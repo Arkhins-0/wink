@@ -227,6 +227,11 @@ private fun ChatListPage(vm: AppViewModel, onOpen: (String) -> Unit, onNewChat: 
         // Every chat's own copy into memory, so each row's last line can come from the phone at once.
         chats?.forEach { c -> if (app.chatCache.peek(c.id) == null) app.appScope.launch { runCatching { app.chatCache.load(c.id) } } }
     }
+    // Each chat's rows made ready whenever its copy changes, so tapping it only has to draw them.
+    val cacheVersion by app.chatCache.version.collectAsState()
+    LaunchedEffect(cacheVersion, chats) {
+        chats.orEmpty().forEach { c -> app.chatCache.peek(c.id)?.let { warmChatRows(c.id, it.messages) } }
+    }
     LaunchedEffect(vm.refreshTick, vm.chatTick) {
         try {
             // A chat with nothing said in it yet is not worth a row.
@@ -472,7 +477,7 @@ private fun changeable(m: Message): Boolean =
     m.mine && !m.deleted && !m.id.startsWith("local-") && System.currentTimeMillis() - instant(m.createdAt).toEpochMilli() < EDIT_WINDOW_MS
 
 /** A message as a quote. */
-private fun refOf(m: Message) = m.attachments.firstOrNull().let { f -> ReplyRef(m.id, m.sender?.name ?: "Unknown", m.mine, m.body, f?.name, f?.mime, m.deleted) }
+private fun refOf(m: Message) = m.attachments.firstOrNull().let { f -> ReplyRef(m.id, m.sender?.name ?: "Unknown", m.mine, m.body, f?.name, f?.mime, f?.document == true, m.deleted) }
 
 /**
  * One line saying what a message was: its text, or what it carried. A quote
@@ -486,8 +491,8 @@ private fun snippet(r: ReplyRef, files: List<FileInfo> = emptyList()): String {
         text.isNotBlank() -> text
         locationIn(r.body) != null -> "📍 Location"
         files.isNotEmpty() -> filesLabel(files)
-        r.fileMime?.startsWith("image/") == true -> "📷 Photo"
-        r.fileMime?.startsWith("audio/") == true -> "🎤 Voice note"
+        !r.fileDocument && r.fileMime?.startsWith("image/") == true -> "📷 Photo"
+        !r.fileDocument && r.fileMime?.startsWith("audio/") == true -> "🎤 Voice note"
         r.fileName != null -> "📄 ${r.fileName}"
         else -> ""
     }
@@ -503,6 +508,36 @@ private sealed interface ChatRow {
         /** The newest of the run: its time and ticks are the bubble's. */
         val m: Message get() = run.last()
     }
+}
+
+/**
+ * A chat's rows, worked out ahead: the chat list and Home build them off the main thread (see [warmChatRows]) for
+ * each chat's copy on the phone, so opening a chat only lays them out. Kept per chat for the very list they were
+ * made from; anything else (a newer copy, messages still going) is built on the spot.
+ */
+private val rowsAhead = java.util.concurrent.ConcurrentHashMap<String, Pair<List<Message>, List<ChatRow>>>()
+
+private fun chatRows(conversationId: String, messages: List<Message>, pending: List<Message>): List<ChatRow> {
+    if (pending.isEmpty()) rowsAhead[conversationId]?.let { (from, rows) -> if (from === messages) return rows }
+    val rows = buildList {
+        // One header per day: a phone clock behind the server's could otherwise put a message just sent
+        // under a day already shown, and two rows with the same key would crash the list.
+        val days = mutableSetOf<String>()
+        // Photos sent together (or, from before batches, within a minute) show as one grid.
+        photoRuns(if (pending.isEmpty()) messages else messages + pending).forEach { run ->
+            val day = dayHeader.format(instant(run.first().createdAt).atZone(ZoneId.systemDefault()))
+            if (days.add(day)) add(ChatRow.Day(day))
+            add(ChatRow.Msg(run))
+        }
+    }
+    if (pending.isEmpty()) rowsAhead[conversationId] = messages to rows
+    return rows
+}
+
+/** Build a chat's rows now, off the main thread, for when it is opened. */
+suspend fun warmChatRows(conversationId: String, messages: List<Message>) {
+    if (rowsAhead[conversationId]?.first === messages) return
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { chatRows(conversationId, messages, emptyList()) }
 }
 
 /** Ticks on a message you sent that the other person has read. */
@@ -602,19 +637,7 @@ fun ChatScreen(
     }
 
     val d = detail
-    val rows = remember(d?.messages, pending) {
-        buildList {
-            // One header per day: a phone clock behind the server's could otherwise put a message just sent
-            // under a day already shown, and two rows with the same key would crash the list.
-            val days = mutableSetOf<String>()
-            // Photos sent one after another within a minute show as one grid.
-            photoRuns(d?.messages.orEmpty() + pending).forEach { run ->
-                val day = dayHeader.format(instant(run.first().createdAt).atZone(ZoneId.systemDefault()))
-                if (days.add(day)) add(ChatRow.Day(day))
-                add(ChatRow.Msg(run))
-            }
-        }
-    }
+    val rows = remember(d?.messages, pending) { chatRows(conversationId, d?.messages.orEmpty(), pending) }
     val byId = remember(d?.messages) { d?.messages?.associateBy { it.id } ?: emptyMap() }
     LaunchedEffect(d?.group?.myRole, d != null) { if (d != null) onCanExport(d.group == null || d.group.myRole == "admin") }
     // The list is laid out from the bottom (newest first, reversed), so a chat opens on its newest message
@@ -1257,7 +1280,8 @@ private fun Bubble(
                         val text = bodyText
                         if (text.isNotBlank() && m.groupInvite == null) {
                             if (files.isNotEmpty()) Spacer(Modifier.height(6.dp))
-                            val words = highlighted(text, highlight, mine)
+                            // Parsed once per text, not on every redraw of the bubble.
+                            val words = remember(text, highlight, mine) { highlighted(text, highlight, mine) }
                             val wordsStyle = MaterialTheme.typography.bodyMedium.copy(color = if (mine) Night else Snow)
                             if (metaInline) TextWithMeta(words, style = wordsStyle, meta = meta, modifier = inset)
                             else Text(words, style = wordsStyle, modifier = inset)

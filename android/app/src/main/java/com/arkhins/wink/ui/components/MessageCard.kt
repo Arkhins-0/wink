@@ -1,5 +1,11 @@
 package com.arkhins.wink.ui.components
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.arkhins.wink.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -87,9 +93,17 @@ fun MessageCard(run: List<Message>, onView: (FileView) -> Unit, showSender: Bool
                     Spacer(Modifier.height(8.dp))
                     PhotoGrid(photos, onView)
                 }
+                // Documents and audio each with a Save beside it (photos and PDFs have it where they open).
+                val context = LocalContext.current
                 files.filterNot { it.isImage }.forEach { f ->
                     Spacer(Modifier.height(8.dp))
-                    Attachment(f, onView)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { Attachment(f, onView) }
+                        val sentAt = run.firstOrNull { r -> r.attachments.any { it.id == f.id } }?.createdAt ?: m.createdAt
+                        IconButton(onClick = { saveAll(context, app, listOf(f to sentAt)) }, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_download), contentDescription = "Save ${f.name}", tint = SnowFaint, modifier = Modifier.size(22.dp))
+                        }
+                    }
                 }
                 val loc = locationIn(m.body)
                 // A poll's message is its card, not its words.

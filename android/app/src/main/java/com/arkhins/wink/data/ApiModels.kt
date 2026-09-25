@@ -277,6 +277,8 @@ data class ReplyRef(
     val body: String = "",
     val fileName: String? = null,
     val fileMime: String? = null,
+    /** The quoted file went through "Document": named as a document, not a photo or voice note. */
+    val fileDocument: Boolean = false,
     val deleted: Boolean = false,
 )
 

@@ -133,6 +133,10 @@ fun HomeScreen(
     val list = rememberLazyListState()
     // Last lines from the phone's own copy, as in the chats list: a send or a delete shows here at once.
     val shownChats = rememberPhoneLast(chats).orEmpty()
+    // The chats shown here, read in and their rows made ready, so tapping one opens it drawn.
+    LaunchedEffect(chats) {
+        chats.forEach { c -> (app.chatCache.peek(c.id) ?: runCatching { app.chatCache.load(c.id) }.getOrNull())?.let { warmChatRows(c.id, it.messages) } }
+    }
 
     LaunchedEffect(Unit) {
         if (messages == null) {
